@@ -1,6 +1,6 @@
 # 01 架构
 
-> 本文主要是完整版本的设计方案。当前已实现 Java `BenchmarkRunner`、`ResultStore`、`DeviceSnapshot`、存储文件读写 JNI 和最小 Holo 控制界面，详见 [11-backend.md](11-backend.md)。CPU、内存、SQLite 事务、GPU 调度和最终计分仍是待实现部分。
+> 本文主要是完整版本的设计方案。当前已实现 Java `BenchmarkRunner` / `BenchmarkSuite`、`ResultStore`、`DeviceSnapshot`、存储文件读写及 zlib CPU 压缩 JNI、最小 Holo 控制界面和许可入口，详见 [11-backend.md](11-backend.md)。CoreMark、SciMark、zstd、内存、SQLite 事务、GPU 调度和最终计分仍是待实现部分。
 
 ## 1. 总体结构
 

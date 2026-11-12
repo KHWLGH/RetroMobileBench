@@ -31,10 +31,13 @@ public final class BackendInstrumentation extends Instrumentation {
             JSONObject measurement = testStorage(context);
             testCancellation(context);
             testSummary(measurement);
+            JSONObject cpu = testCpu();
+            testCpuCancellation();
+            testCpuSummary(cpu);
             testPreflight();
-            testPersistence(context, measurement);
-            result.putString("stream", "\nPASS: JNI I/O, validation, cancellation/cleanup, medians, "
-                    + "preflight, SQLite persistence and interrupted-run recovery\n");
+            testPersistence(context, measurement, cpu);
+            result.putString("stream", "\nPASS: storage/CPU JNI, 1/2/4 threads, codec validation, cancellation/cleanup, "
+                    + "medians, preflight, mixed history and interrupted-run recovery\nCPU fixture: " + cpu + "\n");
             finish(Activity.RESULT_OK, result);
         } catch (Throwable e) {
             result.putString("stream", "\nFAIL: " + android.util.Log.getStackTraceString(e));
@@ -120,6 +123,97 @@ public final class BackendInstrumentation extends Instrumentation {
         check(!report.has("median"), "partial samples do not count as zero/success");
     }
 
+    private static JSONObject testCpu() throws Exception {
+        NativeBridge.resetCpuCancellation();
+        for (int[] parameters : new int[][]{{0, 50}, {5, 50}, {1, 49}, {1, 10001}}) {
+            JSONObject invalid = new JSONObject(NativeBridge.runCpu(parameters[0], parameters[1]));
+            check("failed".equals(invalid.getString("status")), "CPU invalid parameters rejected");
+            check(invalid.getInt("completed_metrics") == 0, "invalid CPU has no metrics");
+        }
+        JSONObject reference = null;
+        for (int threads : new int[]{1, 2, 4}) {
+            JSONObject sample = new JSONObject(NativeBridge.runCpu(threads, 75));
+            check("completed".equals(sample.getString("status")), "CPU completes: " + sample);
+            check(sample.getInt("completed_metrics") == 4, "four CPU metrics");
+            check("1.3.1".equals(sample.getString("codec_version")), "bundled zlib version");
+            check(sample.getInt("parallel_threads") == threads, "CPU thread count recorded");
+            check(sample.getInt("input_bytes") == 1024 * 1024, "fixed corpus size");
+            check(sample.getInt("compressed_bytes") > 0
+                    && sample.getInt("compressed_bytes") < sample.getInt("input_bytes"), "compressed length");
+            for (int i = 0; i < BenchmarkSuite.CPU.metrics.length; i++) {
+                double duration = sample.getJSONArray("elapsed_seconds").getDouble(i);
+                long iterations = sample.getJSONArray("iterations").getLong(i);
+                double rate = sample.getDouble(BenchmarkSuite.CPU.metrics[i]);
+                check(duration >= 0.075 && iterations >= (i < 2 ? 1 : threads), "CPU timing/iterations");
+                double calculated = iterations * 1048576.0 / duration / 1000000.0;
+                check(Math.abs(rate - calculated) / calculated < 0.00001, "wall time throughput units");
+            }
+            if (reference != null) {
+                check(reference.getLong("input_crc32") == sample.getLong("input_crc32"), "deterministic corpus");
+                check(reference.getLong("compressed_bytes") == sample.getLong("compressed_bytes"), "stable compressed data");
+            }
+            reference = sample;
+        }
+        return reference;
+    }
+
+    private static void testCpuCancellation() throws Exception {
+        NativeBridge.resetCpuCancellation();
+        NativeBridge.cancelCpu();
+        JSONObject early = new JSONObject(NativeBridge.runCpu(2, 75));
+        check("cancelled".equals(early.getString("status")), "CPU cancellation before entry");
+        check(early.getInt("completed_metrics") == 0, "pre-cancel CPU has no metrics");
+        NativeBridge.resetCpuCancellation();
+        AtomicReference<String> raw = new AtomicReference<>();
+        CountDownLatch entered = new CountDownLatch(1);
+        Thread cpu = new Thread(() -> {
+            entered.countDown();
+            raw.set(NativeBridge.runCpu(4, 10000));
+        }, "cpu-cancel-test");
+        cpu.start();
+        check(entered.await(2, TimeUnit.SECONDS), "CPU worker entered");
+        SystemClock.sleep(100);
+        NativeBridge.cancelCpu();
+        cpu.join(10000);
+        check(!cpu.isAlive(), "CPU cancellation joins all native workers");
+        JSONObject cancelled = new JSONObject(raw.get());
+        check("cancelled".equals(cancelled.getString("status")), "CPU in-flight cancellation: " + cancelled);
+        check(cancelled.getInt("completed_metrics") < 4, "cancelled run is incomplete");
+        NativeBridge.resetCpuCancellation();
+        check("completed".equals(new JSONObject(NativeBridge.runCpu(1, 50)).getString("status")),
+                "CPU can restart after cancellation");
+    }
+
+    private static void testCpuSummary(JSONObject sample) throws Exception {
+        JSONObject report = report("completed").put("suite_version", "cpu-zlib-v1").put("repetitions", 3);
+        JSONArray samples = report.getJSONArray("samples");
+        for (double value : new double[]{100, 1, 9}) {
+            JSONObject copy = new JSONObject(sample.toString());
+            for (String key : BenchmarkSuite.CPU.metrics) copy.put(key, value);
+            samples.put(copy);
+        }
+        BenchmarkReport.summarize(report);
+        for (String key : BenchmarkSuite.CPU.metrics)
+            check(report.getJSONObject("median").getDouble(key) == 9, "CPU median " + key);
+        check(BenchmarkReport.format(report).contains("CPU 压缩测试"), "CPU history label");
+        JSONObject changed = samples.getJSONObject(2);
+        for (String key : BenchmarkSuite.CPU.parameters) {
+            Object original = changed.get(key);
+            changed.put(key, "changed");
+            BenchmarkReport.summarize(report);
+            check(!report.has("median"), "mismatched CPU parameter rejected: " + key);
+            changed.put(key, original);
+        }
+        changed.put("test_version", "cpu-zlib-v2");
+        BenchmarkReport.summarize(report);
+        check(!report.has("median"), "unknown CPU version rejected");
+        changed.put("test_version", "cpu-zlib-v1").put("status", "cancelled");
+        BenchmarkReport.summarize(report);
+        check(!report.has("median"), "cancelled CPU round not aggregated");
+        report.put("suite_version", "future-suite");
+        check(BenchmarkReport.format(report).contains("未知测试版本"), "unknown history stays readable");
+    }
+
     private static void testPreflight() throws Exception {
         JSONObject device = new JSONObject().put("available_storage_bytes", 64L * 1024 * 1024)
                 .put("battery_percent", 50).put("plugged", false);
@@ -132,9 +226,23 @@ public final class BackendInstrumentation extends Instrumentation {
         check(BenchmarkRunner.preflight(device, 32) != null, "hot battery blocked");
         device.put("battery_temperature_tenths_c", 250).put("available_storage_bytes", 19L * 1024 * 1024);
         check(BenchmarkRunner.preflight(device, 4) != null, "storage reserve enforced");
+        check(BenchmarkRunner.cpuPreflight(device) == null, "CPU does not require storage test space");
+        device.put("low_memory", true);
+        check(BenchmarkRunner.cpuPreflight(device) != null, "CPU low-memory blocked");
+        device.put("low_memory", false).put("available_memory_bytes", 31L * 1024 * 1024);
+        check(BenchmarkRunner.cpuPreflight(device) != null, "CPU memory reserve enforced");
+        device.put("available_memory_bytes", 32L * 1024 * 1024).put("available_processors", 32);
+        check(BenchmarkRunner.cpuPreflight(device) == null, "CPU memory threshold accepted");
+        check(BenchmarkSuite.CPU.parameter(device) == 4, "CPU thread cap");
+        device.put("available_processors", 0);
+        check(BenchmarkSuite.CPU.parameter(device) == 1, "CPU thread minimum");
+        device.put("battery_temperature_tenths_c", 450);
+        check(BenchmarkRunner.cpuPreflight(device) != null, "CPU hot battery blocked");
+        device.put("battery_temperature_tenths_c", 250).put("plugged", false);
+        check(BenchmarkRunner.cpuPreflight(device) != null, "CPU low battery blocked");
     }
 
-    private static void testPersistence(Context context, JSONObject sample) throws Exception {
+    private static void testPersistence(Context context, JSONObject sample, JSONObject cpu) throws Exception {
         String name = "backend-test-" + System.nanoTime() + ".db";
         ResultStore store = new ResultStore(context, name);
         try {
@@ -157,6 +265,18 @@ public final class BackendInstrumentation extends Instrumentation {
             JSONArray history = store.latest(20);
             check(history.length() == 2, "both records retained");
             check("completed".equals(history.getJSONObject(0).getString("status")), "completed untouched");
+            JSONObject cpuReport = report("running").put("suite_version", "cpu-zlib-v1");
+            long cpuId = store.begin(cpuReport);
+            cpuReport.put("status", "completed");
+            cpuReport.getJSONArray("samples").put(cpu);
+            BenchmarkReport.summarize(cpuReport);
+            store.save(cpuId, cpuReport);
+            store.close();
+            store = new ResultStore(context, name);
+            history = store.latest(20);
+            check(history.length() == 3, "mixed suite history survives reopen");
+            check(BenchmarkReport.format(history.getJSONObject(0)).contains("CPU 压缩测试"), "CPU history formatting");
+            check(BenchmarkReport.format(history.getJSONObject(1)).contains("存储测试"), "legacy storage history formatting");
         } finally {
             store.close();
             context.deleteDatabase(name); // Only the uniquely named test database.

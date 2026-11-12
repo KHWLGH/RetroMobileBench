@@ -2,6 +2,9 @@
 <resources>
     <string name="app_name">RetroMobileBench</string>
     <string name="device_heading">RetroMobileBench %1$s\n%2$s %3$s\nAndroid %4$s / API %5$d</string>
+    <string name="cpu_single">CPU 压缩测试（单轮）</string>
+    <string name="cpu_full">CPU 压缩测试（三轮中位数）</string>
+    <string name="licenses">开源许可</string>
     <string name="storage_single">存储测试（单轮）</string>
     <string name="storage_full">存储测试（三轮中位数）</string>
     <string name="cancel_run">取消当前测试</string>

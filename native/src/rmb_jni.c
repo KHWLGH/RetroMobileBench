@@ -3,6 +3,28 @@
 
 #include "probe.h"
 #include "storage_bench.h"
+#include "cpu_bench.h"
+
+JNIEXPORT void JNICALL
+Java_com_retromobilebench_NativeBridge_resetCpuCancellation(JNIEnv *env, jclass clazz) {
+    (void) env; (void) clazz;
+    rmb_cpu_reset_cancel();
+}
+
+JNIEXPORT void JNICALL
+Java_com_retromobilebench_NativeBridge_cancelCpu(JNIEnv *env, jclass clazz) {
+    (void) env; (void) clazz;
+    rmb_cpu_cancel();
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_retromobilebench_NativeBridge_runCpu(JNIEnv *env, jclass clazz,
+                                            jint parallel_threads, jint duration_ms) {
+    (void) clazz;
+    char json[2048];
+    rmb_cpu_run(parallel_threads, duration_ms, json, sizeof json);
+    return (*env)->NewStringUTF(env, json);
+}
 
 JNIEXPORT void JNICALL
 Java_com_retromobilebench_NativeBridge_resetStorageCancellation(JNIEnv *env, jclass clazz) {

@@ -18,6 +18,9 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener {
     private BenchmarkRunner runner;
     private TextView status;
     private TextView result;
+    private Button cpuSingle;
+    private Button cpuFull;
+    private Button licenses;
     private Button single;
     private Button full;
     private Button cancel;
@@ -43,6 +46,8 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener {
         status = new TextView(this);
         status.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
         column.addView(status);
+        cpuSingle = button(column, R.string.cpu_single, () -> runner.startCpu(false));
+        cpuFull = button(column, R.string.cpu_full, () -> runner.startCpu(true));
         single = button(column, R.string.storage_single, () -> runner.startStorage(false));
         full = button(column, R.string.storage_full, () -> runner.startStorage(true));
         cancel = button(column, R.string.cancel_run, () -> runner.cancel());
@@ -55,6 +60,7 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener {
                 Toast.makeText(this, R.string.copied, Toast.LENGTH_SHORT).show();
             }
         });
+        licenses = button(column, R.string.licenses, () -> runner.licenses());
         result = new TextView(this);
         result.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
         result.setTextIsSelectable(true);
@@ -83,7 +89,7 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener {
     protected void onStop() {
         runner.detach(this);
         // Foreground benchmarks only. Rotation recreates the UI and reattaches to
-        // the same worker; leaving the app cancels after the current I/O returns.
+        // the same worker; leaving the app cooperatively cancels the active suite.
         if (!isChangingConfigurations() && runner.isBusy()) runner.cancel();
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         super.onStop();
@@ -94,6 +100,9 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener {
         status.setText(state.message);
         result.setText(state.text);
         exportJson = state.exportJson;
+        cpuSingle.setEnabled(!state.busy);
+        cpuFull.setEnabled(!state.busy);
+        licenses.setEnabled(!state.busy);
         single.setEnabled(!state.busy);
         full.setEnabled(!state.busy);
         history.setEnabled(!state.busy);

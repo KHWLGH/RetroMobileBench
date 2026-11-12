@@ -25,6 +25,8 @@
 
 全部是宽松许可证，App 本身用什么许可证（开源或闭源）都可以。
 
+当前主 App 实际引入 **zlib 1.3.1**，固定提交 `51b7f2abdade71cd9bb0e7a373ef2610ec6f9daf`；源码未修改，构建定义 `Z_PREFIX` 并只选择内存 codec 文件。许可证原文在 `third_party/zlib/LICENSE`，也随 APK 打包于 `app/src/main/assets/licenses.txt`，界面“开源许可”可查看。其他表中组件除独立 GFXBench 可行性工程外仍为计划依赖。
+
 ## 2. 成绩命名规则
 
 | 测试 | 规则 |

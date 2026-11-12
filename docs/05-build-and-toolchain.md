@@ -30,6 +30,8 @@ sdkmanager "ndk;23.2.8568313" "cmake;3.18.1"
 
 ## 3. Gradle 配置
 
+主 App 新增固定版本 zlib 源码子模块，首次 checkout 后先运行 `git submodule update --init third_party/zlib`。不初始化时 CMake 会给出明确错误。构建没有下载源码的步骤；只将内存 codec 源文件分别编入每套 `librmb`，`Z_PREFIX` 和隐藏符号隔离系统 libz。固定版本与许可见 [third_party/README.md](../third_party/README.md)。
+
 实际配置见 `app/build.gradle.kts`，要点：
 
 ```kotlin

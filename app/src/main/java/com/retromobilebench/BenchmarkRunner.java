@@ -11,6 +11,8 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.io.InputStreamReader;
+import java.io.Reader;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -73,16 +75,37 @@ final class BenchmarkRunner {
 
     boolean isBusy() { return state.busy; }
 
-    void startStorage(boolean full) {
+    void startStorage(boolean full) { start(BenchmarkSuite.STORAGE, full); }
+
+    void startCpu(boolean full) { start(BenchmarkSuite.CPU, full); }
+
+    private void start(BenchmarkSuite suite, boolean full) {
         if (state.busy) return;
         cancelRequested = false;
-        update(new State(true, "准备存储测试", state.text, ""));
-        worker.execute(() -> runStorage(full ? 3 : 1));
+        update(new State(true, "准备" + suite.label, state.text, ""));
+        worker.execute(() -> run(suite, full ? 3 : 1));
+    }
+
+    void licenses() {
+        if (state.busy) return;
+        update(new State(true, "正在读取开源许可", state.text, ""));
+        worker.execute(() -> {
+            try (Reader reader = new InputStreamReader(context.getAssets().open("licenses.txt"), "UTF-8")) {
+                StringBuilder text = new StringBuilder();
+                char[] buffer = new char[2048];
+                int count;
+                while ((count = reader.read(buffer)) != -1) text.append(buffer, 0, count);
+                publish(false, "开源许可", text.toString(), "");
+            } catch (Exception e) { publish(false, "读取许可失败", e.toString(), ""); }
+        });
     }
 
     void cancel() {
         cancelRequested = true;
-        if (nativeReady) NativeBridge.cancelStorage();
+        if (nativeReady) {
+            NativeBridge.cancelStorage();
+            NativeBridge.cancelCpu();
+        }
     }
 
     void history() {
@@ -111,13 +134,13 @@ final class BenchmarkRunner {
         });
     }
 
-    private void runStorage(int repetitions) {
+    private void run(BenchmarkSuite suite, int repetitions) {
         JSONObject report = new JSONObject();
         long id = -1;
         String persistenceProblem = "";
         try {
             report.put("schema_version", 1);
-            report.put("suite_version", "storage-file-v1");
+            report.put("suite_version", suite.version);
             report.put("status", "running");
             report.put("started_ms", System.currentTimeMillis());
             report.put("repetitions", repetitions);
@@ -130,12 +153,11 @@ final class BenchmarkRunner {
             report.put("id", id);
             nativeReady = NativeLoader.load() != null;
             if (!nativeReady) throw new IllegalStateException("原生库加载失败：" + NativeLoader.error());
-            NativeBridge.resetStorageCancellation();
+            suite.resetCancellation();
             // Cancel may have arrived before loading the library or during reset.
-            if (cancelRequested) NativeBridge.cancelStorage();
-            int fileMiB = (int) Math.min(32L,
-                    (device.getLong("available_storage_bytes") - RESERVE_BYTES) / MIB);
-            String reason = preflight(device, fileMiB);
+            if (cancelRequested) cancel();
+            int parameter = suite.parameter(device);
+            String reason = suite.preflight(device, parameter);
             if (cancelRequested) {
                 report.put("status", "cancelled");
             } else if (reason != null) {
@@ -145,16 +167,15 @@ final class BenchmarkRunner {
                 for (int round = 0; round < repetitions; round++) {
                     if (cancelRequested) break;
                     JSONObject before = DeviceSnapshot.collect(context);
-                    reason = preflight(before, fileMiB);
+                    reason = suite.preflight(before, parameter);
                     if (reason != null) {
                         report.put("status", "skipped");
                         report.put("message", reason);
                         break;
                     }
-                    publish(true, "正在运行存储测试，第 " + (round + 1) + " / " + repetitions + " 轮",
-                            "文件 " + fileMiB + " MiB；顺序读写及 4 KiB 随机读写。\n可随时取消，当前 I/O 返回后停止。", "");
-                    JSONObject sample = new JSONObject(NativeBridge.runStorage(
-                            context.getCacheDir().getAbsolutePath(), fileMiB, 256));
+                    publish(true, "正在运行" + suite.label + "，第 " + (round + 1) + " / " + repetitions + " 轮",
+                            suite.progress(parameter), "");
+                    JSONObject sample = new JSONObject(suite.run(context, parameter));
                     sample.put("conditions_start", before);
                     sample.put("conditions_end", DeviceSnapshot.collect(context));
                     samples.put(sample);
@@ -179,7 +200,7 @@ final class BenchmarkRunner {
             report.put("ended_ms", System.currentTimeMillis());
             BenchmarkReport.summarize(report);
         } catch (Exception | LinkageError e) {
-            Log.e("RMB", "Storage run failed", e);
+            Log.e("RMB", suite.version + " run failed", e);
             try {
                 report.put("status", "failed");
                 report.put("ended_ms", System.currentTimeMillis());
@@ -196,7 +217,7 @@ final class BenchmarkRunner {
             String message = persistenceProblem.isEmpty()
                     ? "结果已保存 · " + BenchmarkReport.statusLabel(report.optString("status")) : persistenceProblem;
             publish(false, message, BenchmarkReport.format(report), report.toString(2));
-            Log.i("RMB", "STORAGE_DONE status=" + report.optString("status") + " id=" + id);
+            Log.i("RMB", suite.name() + "_DONE status=" + report.optString("status") + " id=" + id);
         } catch (JSONException e) {
             publish(false, "结果格式错误", e.toString(), report.toString());
         }
@@ -205,6 +226,17 @@ final class BenchmarkRunner {
     static String preflight(JSONObject device, int fileMiB) {
         if (fileMiB < 4 || device.optLong("available_storage_bytes") < fileMiB * MIB + RESERVE_BYTES)
             return "剩余空间不足；至少保留 16 MiB 空间，测试文件至少需要 4 MiB。";
+        return batteryPreflight(device);
+    }
+
+    static String cpuPreflight(JSONObject device) {
+        if (device.optBoolean("low_memory")
+                || (device.has("available_memory_bytes") && device.optLong("available_memory_bytes") < 32 * MIB))
+            return "可用内存不足，请关闭其他应用后再运行 CPU 测试。";
+        return batteryPreflight(device);
+    }
+
+    private static String batteryPreflight(JSONObject device) {
         if (device.optInt("battery_percent", 100) < 30 && !device.optBoolean("plugged"))
             return "电量低于 30%，请充电后再运行。";
         if (device.optInt("battery_temperature_tenths_c", 0) >= 450)
@@ -219,7 +251,7 @@ final class BenchmarkRunner {
             if (i > 0) text.append("\n────────────────\n\n");
             text.append(BenchmarkReport.format(reports.getJSONObject(i)));
         }
-        if (reports.length() == 0) text.append("尚无本地成绩。可开始单轮或三轮存储测试。\n"
+        if (reports.length() == 0) text.append("尚无本地成绩。可开始单轮或三轮 CPU / 存储测试。\n"
                 + "测试期间请保持应用在前台，屏幕会保持亮起。\n"
                 + "切到后台会取消测试；旋转屏幕会保留进度。\n");
         String json = reports.length() == 1 ? reports.getJSONObject(0).toString(2)

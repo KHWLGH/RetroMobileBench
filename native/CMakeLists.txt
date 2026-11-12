@@ -12,16 +12,32 @@ project(retromobilebench C CXX)
 # NativeLoader.java picks one at run time. scripts/check-neon.ps1 verifies the
 # no-NEON library really contains no NEON instructions.
 
+# Pinned official v1.3.1 submodule. Compile only the in-memory codec, no gz file I/O.
+set(ZLIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/zlib)
+if(NOT EXISTS ${ZLIB_DIR}/zlib.h)
+    message(FATAL_ERROR "Missing zlib source. Run: git submodule update --init third_party/zlib")
+endif()
+set(ZLIB_SOURCES
+    ${ZLIB_DIR}/adler32.c ${ZLIB_DIR}/compress.c ${ZLIB_DIR}/crc32.c
+    ${ZLIB_DIR}/deflate.c ${ZLIB_DIR}/inflate.c ${ZLIB_DIR}/inffast.c
+    ${ZLIB_DIR}/inftrees.c ${ZLIB_DIR}/trees.c ${ZLIB_DIR}/uncompr.c ${ZLIB_DIR}/zutil.c
+)
+
 set(RMB_SOURCES
     src/rmb_jni.c
     src/probe.c
     src/storage_bench.c
+    src/cpu_bench.c
+    ${ZLIB_SOURCES}
 )
 
 function(rmb_add_library name variant)
     add_library(${name} SHARED ${RMB_SOURCES})
-    target_compile_options(${name} PRIVATE -Wall -Wextra -O2 ${ARGN})
-    target_compile_definitions(${name} PRIVATE RMB_BUILD_VARIANT="${variant}")
+    target_compile_options(${name} PRIVATE -Wall -Wextra -O2 -fvisibility=hidden ${ARGN})
+    target_include_directories(${name} PRIVATE ${ZLIB_DIR})
+    # Avoid symbol interposition with Android's system libz. JNIEXPORT stays visible.
+    target_compile_definitions(${name} PRIVATE Z_PREFIX
+        RMB_BUILD_VARIANT="${variant}")
     target_link_libraries(${name} PRIVATE log EGL GLESv2)
 endfunction()
 

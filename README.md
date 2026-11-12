@@ -2,7 +2,7 @@
 
 给旧安卓手机用的离线跑分软件。第一版只做 Android 4.x，最低兼容 Android 4.1（API 16）。
 
-> 状态（2026-11-12）：**本地后端已开始实现**。保留 minSdk 16、NDK r23c 和 NEON / 无 NEON / x86 三套库；App 已接入原生存储读写、单轮 / 三轮中位数、取消、运行条件采集、SQLite 历史和 JSON 复制，后端集成测试已在 Android 4.1.2 x86 模拟器上通过，见 [docs/11-backend.md](docs/11-backend.md)。GFXBench ES2 的 6 项离屏测试仍在独立可行性工程中（[docs/10-feasibility.md](docs/10-feasibility.md)），尚未并入 App。**ARM 真机、Tegra 2 均待验证；CPU、内存和 SQLite 事务跑分尚未接入。**
+> 状态（2026-11-12）：**本地后端已开始实现**。保留 minSdk 16、NDK r23c 和 NEON / 无 NEON / x86 三套库；App 已接入原生存储读写、zlib 1.3.1 单线程 / 并行压缩解压、单轮 / 三轮中位数、取消、运行条件采集、SQLite 混合历史、JSON 复制和开源许可，后端集成测试已在 Android 4.1.2 x86 模拟器上通过，见 [docs/11-backend.md](docs/11-backend.md)。GFXBench ES2 的 6 项离屏测试仍在独立可行性工程中（[docs/10-feasibility.md](docs/10-feasibility.md)），尚未并入 App。**ARM 真机、Tegra 2 均待验证；CoreMark、SciMark、zstd、内存和 SQLite 事务跑分尚未接入。**
 
 ## 目标
 
@@ -58,7 +58,7 @@
 | [docs/08-licenses.md](docs/08-licenses.md) | 第三方许可证、署名和命名规则 |
 | [docs/09-roadmap.md](docs/09-roadmap.md) | 里程碑、验证方法、风险清单 |
 | [docs/10-feasibility.md](docs/10-feasibility.md) | 可行性验证记录：做了什么、结果、怎么在真机上复现 |
-| [docs/11-backend.md](docs/11-backend.md) | 当前后端实现、存储测试参数、API 16 集成测试与后续工作 |
+| [docs/11-backend.md](docs/11-backend.md) | 当前后端实现、CPU / 存储测试参数、API 16 集成测试与后续工作 |
 | [docs/references.md](docs/references.md) | 参考资料链接 |
 
 ## 发布方式
@@ -74,12 +74,24 @@ targetSdk 定为 **23** 的原因：
 - 在 Android 4.x 设备上，targetSdk 23 和任何 ≥ 19 的值效果相同（4.x 系统只认识到 API 19 为止的行为变更）。再往上调只会在新手机上打开新行为（24 起限制 `file://` 分享，29/30 起分区存储），反而让 SD 卡数据包导入和成绩分享更麻烦。
 - 代价：在 Android 6.0+ 的新手机上调试时，存储权限要在运行时申请（4.x 上是安装时授予，不受影响）。
 
+## 获取源码与构建
+
+原生依赖通过固定提交的 git 子模块维护。首次克隆后执行：
+
+```powershell
+git submodule update --init third_party/zlib
+.\gradlew.bat :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug
+```
+
+需要 [docs/05](docs/05-build-and-toolchain.md) 中的工具链；依赖初始化完成后，原生构建不再下载源码。zlib 版本、提交和许可证见 [third_party/README.md](third_party/README.md)。
+
 ## 目录结构
 
 | 路径 | 内容 |
 |---|---|
-| `app/` | Android App（Java / Holo）：设备探针、存储测试入口、后台调度、本地成绩记录；`androidTest` 为无第三方依赖的集成测试 |
-| `native/` | 三套原生库：设备探针、文件存储测试及 JNI |
+| `app/` | Android App（Java / Holo）：CPU / 存储测试、设备探针、后台调度、本地成绩记录及许可；`androidTest` 为无第三方测试框架的集成测试 |
+| `native/` | 三套原生库：设备探针、文件存储、CPU 压缩测试及 JNI |
+| `third_party/` | 固定提交的开源源码依赖（目前为 zlib 1.3.1） |
 | `feasibility/gfxbench-es2/` | GFXBench ES2 移植的独立 CMake 工程和宿主代码（以后并进 `native/`） |
 | `scripts/` | 构建、运行、检查脚本（PowerShell） |
 | `docs/` | 设计文档 |

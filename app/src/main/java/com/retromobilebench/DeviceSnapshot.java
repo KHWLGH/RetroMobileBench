@@ -50,6 +50,7 @@ final class DeviceSnapshot {
             data.put("low_memory", memory.lowMemory);
         }
         data.put("available_storage_bytes", availableBytes(context.getCacheDir()));
+        data.put("available_processors", Runtime.getRuntime().availableProcessors());
         data.put("cpu_online", firstLine("/sys/devices/system/cpu/online"));
         data.put("cpu0_frequency_khz", firstLine("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq"));
         data.put("cpu0_max_frequency_khz", firstLine("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq"));
