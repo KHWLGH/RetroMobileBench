@@ -7,8 +7,8 @@
 | M0 | 工具链与空项目 | 装 NDK r23c、CMake 3.18.1；建 minSdk 16 空项目（删掉 AndroidX 依赖）；原生库编 armeabi-v7a（NEON / 无 NEON）和 x86 | 空 App 在 4.1 模拟器（x86）和 4.1 真机（ARM）上启动，JNI 调用成功；确认 AGP 接受 minSdk 16 + NDK r23c | 模拟器完成；ARM 真机待测 |
 | M1 | GFXBench 底层测试 | 自己的 CMake 工程编 ES2 部分（[04](04-gfxbench-port.md) §4），`gfxprobe` 命令行程序 + `adb push` 配置和数据 | 4.1 真机上跑通 gl_alu_off、gl_fill_off、gl_driver_off、gl_blending_off | 模拟器完成；真机待测 |
 | M2 | GFXBench 场景测试 | 导出 ETC1 数据，`texture_type` 固定 ETC1 | gl_trex_off、gl_egypt_off 跑通，和历史成绩相差 ±10% 以内（考虑厂商优化因素，见 [07](07-measurement.md) §6） | 模拟器跑通、画面正确；历史成绩对照要真机 |
-| M3 | CPU / 内存 / 存储 / 设备信息 | 按 [03](03-benchmarks.md) 接入各组件 | 各项在真机上出结果，多次运行波动小于 5% | 未开始 |
-| M4 | 整合 | 单 .so、静态工厂、NativeLoader、GPU 测试独立进程、我们的界面、数据包导入、full/lite 两个版本 | 一键跑完全部测试，结果写进本地记录 | 未开始（NativeLoader、三套库的构建已在 M0 做好） |
+| M3 | CPU / 内存 / 存储 / 设备信息 | 按 [03](03-benchmarks.md) 接入各组件 | 各项在真机上出结果，多次运行波动小于 5% | 文件存储测试、基础设备及运行条件采集已实现，API 16 x86 集成测试通过；其余组件及真机待做 |
+| M4 | 整合 | 单 .so、静态工厂、NativeLoader、GPU 测试独立进程、我们的界面、数据包导入、full/lite 两个版本 | 一键跑完全部测试，结果写进本地记录 | 后台串行调度、取消、SQLite 历史、中断恢复和最小界面已实现；尚未整合全部测试 / GPU / 数据包 |
 | M5 | 三套 ABI 验证 | 无 NEON 版在 Tegra 2 真机、x86 版在 Atom 设备（或模拟器）上跑通 | 全部测试在三种设备上能跑完 | x86 在模拟器上完成；无 NEON 版已确认没有 NEON 指令，缺设备 |
 | M6 | 计分与发布 | 选基准机、定计分公式、导出、许可证页面、离线对比（可选） | 发布第一个 APK | 未开始 |
 

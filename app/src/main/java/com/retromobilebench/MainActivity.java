@@ -1,84 +1,106 @@
 package com.retromobilebench;
 
 import android.app.Activity;
-import android.os.AsyncTask;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.os.Build;
 import android.os.Bundle;
-import android.util.Log;
 import android.util.TypedValue;
+import android.view.WindowManager;
+import android.widget.Button;
+import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
 
-/**
- * M0 feasibility screen: loads the native library, runs the probe on a background
- * thread and prints the report. Also logs it under the "RMB" tag so it can be read
- * with `adb logcat -s RMB` on devices without a usable screen.
- */
-public class MainActivity extends Activity {
-
-    static final String TAG = "RMB";
-
-    private TextView mText;
+/** Minimal Holo control surface for the local benchmark backend, API 16+. */
+public class MainActivity extends Activity implements BenchmarkRunner.Listener {
+    private BenchmarkRunner runner;
+    private TextView status;
+    private TextView result;
+    private Button single;
+    private Button full;
+    private Button cancel;
+    private Button history;
+    private Button probe;
+    private Button copy;
+    private String exportJson = "";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-
-        mText = new TextView(this);
-        mText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        mText.setTypeface(android.graphics.Typeface.MONOSPACE);
-        int pad = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 8, getResources().getDisplayMetrics());
-        mText.setPadding(pad, pad, pad, pad);
-        mText.setTextIsSelectable(true);
-
+        runner = BenchmarkRunner.get(this);
+        LinearLayout column = new LinearLayout(this);
+        column.setOrientation(LinearLayout.VERTICAL);
+        int pad = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 12,
+                getResources().getDisplayMetrics());
+        column.setPadding(pad, pad, pad, pad);
+        TextView heading = new TextView(this);
+        heading.setText(getString(R.string.device_heading, BuildConfig.VERSION_NAME,
+                Build.MANUFACTURER, Build.MODEL, Build.VERSION.RELEASE, Build.VERSION.SDK_INT));
+        heading.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
+        column.addView(heading);
+        status = new TextView(this);
+        status.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+        column.addView(status);
+        single = button(column, R.string.storage_single, () -> runner.startStorage(false));
+        full = button(column, R.string.storage_full, () -> runner.startStorage(true));
+        cancel = button(column, R.string.cancel_run, () -> runner.cancel());
+        history = button(column, R.string.history, () -> runner.history());
+        probe = button(column, R.string.probe, () -> runner.probe());
+        copy = button(column, R.string.copy_json, () -> {
+            ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            if (clipboard != null) {
+                clipboard.setPrimaryClip(ClipData.newPlainText("RetroMobileBench", exportJson));
+                Toast.makeText(this, R.string.copied, Toast.LENGTH_SHORT).show();
+            }
+        });
+        result = new TextView(this);
+        result.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        result.setTextIsSelectable(true);
+        column.addView(result);
         ScrollView scroll = new ScrollView(this);
-        scroll.addView(mText);
+        scroll.addView(column);
         setContentView(scroll);
-
-        mText.setText(header() + "running probe...\n");
-        new ProbeTask().execute();
     }
 
-    @SuppressWarnings("deprecation") // CPU_ABI / CPU_ABI2 are the only ABI fields on API 16.
-    private static String header() {
-        return "RetroMobileBench " + BuildConfig.VERSION_NAME + " (M0 probe)\n"
-                + "device: " + Build.MANUFACTURER + " " + Build.MODEL + " (" + Build.DEVICE + ")\n"
-                + "android: " + Build.VERSION.RELEASE + " / API " + Build.VERSION.SDK_INT + "\n"
-                + "abi: " + Build.CPU_ABI + " " + Build.CPU_ABI2 + "\n"
-                + "vm: " + System.getProperty("java.vm.version") + "\n"
-                + "fingerprint: " + Build.FINGERPRINT + "\n\n";
+    private Button button(LinearLayout column, int label, Runnable action) {
+        Button button = new Button(this);
+        button.setText(label);
+        button.setOnClickListener(view -> action.run());
+        column.addView(button, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        return button;
     }
 
-    // AsyncTask is the simplest background helper available on API 16 without AndroidX.
-    @SuppressWarnings("deprecation")
-    private final class ProbeTask extends AsyncTask<Void, Void, String> {
-        @Override
-        protected String doInBackground(Void... params) {
-            StringBuilder sb = new StringBuilder();
-            String lib = NativeLoader.load();
-            sb.append("native lib chosen: ").append(NativeLoader.chooseLibrary())
-                    .append(", loaded: ").append(lib).append('\n');
-            Throwable err = NativeLoader.error();
-            if (err != null) {
-                sb.append("native load problem: ").append(err).append('\n');
-            }
-            if (lib != null) {
-                long t0 = System.nanoTime();
-                sb.append(NativeBridge.probeReport());
-                sb.append(String.format(java.util.Locale.US, "probe total: %.2f s%n",
-                        (System.nanoTime() - t0) / 1e9));
-            }
-            return sb.toString();
-        }
+    @Override
+    protected void onStart() {
+        super.onStart();
+        runner.attach(this);
+    }
 
-        @Override
-        protected void onPostExecute(String report) {
-            String full = header() + report;
-            mText.setText(full);
-            for (String line : full.split("\n")) {
-                Log.i(TAG, line);
-            }
-            Log.i(TAG, "PROBE_DONE");
-        }
+    @Override
+    protected void onStop() {
+        runner.detach(this);
+        // Foreground benchmarks only. Rotation recreates the UI and reattaches to
+        // the same worker; leaving the app cancels after the current I/O returns.
+        if (!isChangingConfigurations() && runner.isBusy()) runner.cancel();
+        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        super.onStop();
+    }
+
+    @Override
+    public void onState(BenchmarkRunner.State state) {
+        status.setText(state.message);
+        result.setText(state.text);
+        exportJson = state.exportJson;
+        single.setEnabled(!state.busy);
+        full.setEnabled(!state.busy);
+        history.setEnabled(!state.busy);
+        probe.setEnabled(!state.busy);
+        cancel.setEnabled(state.busy);
+        copy.setEnabled(!state.busy && !exportJson.isEmpty());
+        if (state.busy) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
     }
 }

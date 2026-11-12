@@ -58,7 +58,9 @@ dependencies { }                            // 不加 AndroidX / appcompat / mat
 - **Java 17**：D8 会把 Java 9–17 的语言特性脱糖，并替换 javac 生成的 `java.util.Objects` 等调用。已检查编出的 dex：格式版本 035，没有 `invoke-custom`，没有 `java.util.Objects` 引用，API 16 能加载。Java 8 源码级别在 JDK 25 上会报过时警告，所以直接用 17。Java 的新 API（`java.util.stream`、`java.time` 等）仍然不能用。
 - **不要 Kotlin 标准库**：AGP 9 内置 Kotlin 支持，默认会给每个 App 加 `kotlin-stdlib`（约 1 万个方法，会把 minSdk 16 的 App 推向 64K 方法数上限和旧版 multidex）。`gradle.properties` 里加 `kotlin.stdlib.default.dependency=false` 去掉。不要用 `android.builtInKotlin=false`，它已经过时。
 - 新建项目时 Android Studio 会自动加 appcompat、material、core-ktx、AndroidX 测试库，全部删掉。
-- 实测 debug APK 约 835 KB（含三套探针库）。
+- M0 的 debug APK 约 835 KB（含三套探针库）；实际体积随代码和调试符号变化。
+- Gradle 使用宿主机的 JBR 25，不会使手机需要 Java 25。手机兼容性由 minSdk、D8 输出和原生 API 决定；保留 NDK r23c / CMake 3.18.1，不因 IDE 的升级建议替换它们。
+- Lint 只排除与直接分发策略冲突的 `ExpiredTargetSdkVersion`；`NewApi` / `InlinedApi` 明确设为 error，`lintDebug` 必须通过。构建、集成测试命令见 [11-backend.md](11-backend.md)。
 
 ## 4. 原生库的三套产物
 

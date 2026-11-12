@@ -16,6 +16,8 @@ android {
         targetSdk = 23
         versionCode = 1
         versionName = "0.0.1"
+        // Framework Instrumentation works on API 16 without AndroidX/JUnit dependencies.
+        testInstrumentationRunner = "com.retromobilebench.BackendInstrumentation"
 
         ndk {
             abiFilters += listOf("armeabi-v7a", "x86")
@@ -52,6 +54,13 @@ android {
 
     buildFeatures {
         buildConfig = true
+    }
+
+    lint {
+        // Distributed directly for Android 4.x; target 23 is intentional (README).
+        // Keep compatibility checks fatal, rather than raising targetSdk to satisfy Play.
+        disable += "ExpiredTargetSdkVersion"
+        error += listOf("NewApi", "InlinedApi")
     }
 }
 

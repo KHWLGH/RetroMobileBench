@@ -35,19 +35,9 @@ public final class NativeLoader {
             System.loadLibrary(name);
             sLoaded = name;
         } catch (UnsatisfiedLinkError e) {
-            if (!LIB_DEFAULT.equals(name)) {
-                // No-NEON build missing from this APK: fall back so the app still starts, and say so.
-                try {
-                    System.loadLibrary(LIB_DEFAULT);
-                    sLoaded = LIB_DEFAULT;
-                    sError = new IllegalStateException(
-                            "no-NEON library missing, loaded default build instead: " + e.getMessage());
-                } catch (UnsatisfiedLinkError e2) {
-                    sError = e2;
-                }
-            } else {
-                sError = e;
-            }
+            // Never fall back to a NEON build on a CPU that may not support it:
+            // loading the library can execute instructions before any JNI call.
+            sError = e;
         }
         return sLoaded;
     }
@@ -85,7 +75,7 @@ public final class NativeLoader {
                 }
             }
         } catch (IOException ignored) {
-            // Unreadable cpuinfo: assume a modern CPU rather than refusing to start.
+            // Unknown ARM capabilities must use the conservative no-NEON build.
         } finally {
             if (r != null) {
                 try {
@@ -94,6 +84,6 @@ public final class NativeLoader {
                 }
             }
         }
-        return true;
+        return false;
     }
 }

@@ -7,7 +7,7 @@
 | 约束 | 说明 | 应对 |
 |---|---|---|
 | NDK 版本 | NDK r24 起不再支持 API 16–18，也不再支持没有 NEON 的 ARMv7 设备；同时删除了 GNU as | 锁定 **NDK r23c**（23.2.8568313） |
-| NEON 默认开启 | NDK r21 起两种 ARM ABI 默认都开 NEON | 无 NEON 那套库加 `-DANDROID_ARM_NEON=OFF`，整套重编（见 [01](01-architecture.md) §3.2） |
+| NEON 默认开启 | NDK r21 起 ARMv7 默认开 NEON | 同一 CMake 工程的无 NEON 目标给全部源文件加 `-mfpu=vfpv3-d16`，整套重编并反汇编检查（见 [01](01-architecture.md) §3.2） |
 | CMake 版本 | r23c 默认使用"旧版"CMake toolchain 文件；配 CMake 3.22 时编汇编会多出 `-gcc-toolchain` 参数而报错（NDK issue 1623，r24 才修） | 用 SDK 里的 **CMake 3.18.1**（cpuinfo 也要求 ≥ 3.18） |
 | GNU as | tinymembench 的汇编不能被 clang 内置汇编器接受 | r23c 还带 GNU as，对这些文件用 `-fno-integrated-as`，并显式传 `-Wa,-march=armv7-a`（否则 GNU as 会生成 ARMv5 指令，NDK issue 906） |
 | JDK | GFXBench 自带的 Gradle 7.4.2 / 8.11.1 不支持 Android Studio 自带的 JDK 25 | 单独装 **JDK 17** 给 GFXBench 的构建脚本用 |

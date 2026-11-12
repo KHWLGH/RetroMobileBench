@@ -2,7 +2,7 @@
 
 给旧安卓手机用的离线跑分软件。第一版只做 Android 4.x，最低兼容 Android 4.1（API 16）。
 
-> 状态（2026-11-12）：**可行性验证阶段**。工具链和 minSdk 16 的空 App 已搭好（M0）；GFXBench 的 OpenGL ES 2.0 部分已用 NDK r23c 编译（ARM 有 NEON / 无 NEON、x86 三套），并在 Android 4.1.2 模拟器上跑通全部 6 项离屏测试，T-Rex、Egypt 画面正确（M1/M2 模拟器部分）。**还没有在 ARM 真机上跑过**。验证经过和结果见 [docs/10-feasibility.md](docs/10-feasibility.md)；`docs/` 里其余内容大多来自调研，已验证的部分文中有标注。
+> 状态（2026-11-12）：**本地后端已开始实现**。保留 minSdk 16、NDK r23c 和 NEON / 无 NEON / x86 三套库；App 已接入原生存储读写、单轮 / 三轮中位数、取消、运行条件采集、SQLite 历史和 JSON 复制，后端集成测试已在 Android 4.1.2 x86 模拟器上通过，见 [docs/11-backend.md](docs/11-backend.md)。GFXBench ES2 的 6 项离屏测试仍在独立可行性工程中（[docs/10-feasibility.md](docs/10-feasibility.md)），尚未并入 App。**ARM 真机、Tegra 2 均待验证；CPU、内存和 SQLite 事务跑分尚未接入。**
 
 ## 目标
 
@@ -58,6 +58,7 @@
 | [docs/08-licenses.md](docs/08-licenses.md) | 第三方许可证、署名和命名规则 |
 | [docs/09-roadmap.md](docs/09-roadmap.md) | 里程碑、验证方法、风险清单 |
 | [docs/10-feasibility.md](docs/10-feasibility.md) | 可行性验证记录：做了什么、结果、怎么在真机上复现 |
+| [docs/11-backend.md](docs/11-backend.md) | 当前后端实现、存储测试参数、API 16 集成测试与后续工作 |
 | [docs/references.md](docs/references.md) | 参考资料链接 |
 
 ## 发布方式
@@ -77,8 +78,8 @@ targetSdk 定为 **23** 的原因：
 
 | 路径 | 内容 |
 |---|---|
-| `app/` | Android App（Java，目前只有探针界面和 `NativeLoader`） |
-| `native/` | App 的原生代码（目前是探针：编译变体、CPU、EGL/ES2 信息） |
+| `app/` | Android App（Java / Holo）：设备探针、存储测试入口、后台调度、本地成绩记录；`androidTest` 为无第三方依赖的集成测试 |
+| `native/` | 三套原生库：设备探针、文件存储测试及 JNI |
 | `feasibility/gfxbench-es2/` | GFXBench ES2 移植的独立 CMake 工程和宿主代码（以后并进 `native/`） |
 | `scripts/` | 构建、运行、检查脚本（PowerShell） |
 | `docs/` | 设计文档 |

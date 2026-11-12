@@ -15,6 +15,7 @@ project(retromobilebench C CXX)
 set(RMB_SOURCES
     src/rmb_jni.c
     src/probe.c
+    src/storage_bench.c
 )
 
 function(rmb_add_library name variant)
