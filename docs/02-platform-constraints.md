@@ -49,6 +49,7 @@ API 16 的 bionic 缺很多后来才加的函数，编译时 NDK 会按 API 等�
 | `libGLESv3.so` | 4.1/4.2 上不存在，链接了它的 .so 会直接加载失败 | 只链接 `libEGL` 和 `libGLESv2`（GFXBench 在 API < 18 时已经自动去掉了 `-lGLESv3`） |
 | 片元着色器精度 | Mali-400、Tegra 2/3 等 GPU 的片元着色器不支持 `highp`，写死 `highp` 会编译失败 | 用 `GL_FRAGMENT_PRECISION_HIGH` 判断，不支持时退回 `mediump` |
 | 纹理压缩 | ETC1 是所有 ES2 设备都支持的格式 | GFXBench 场景数据只保留 ETC1（见 [06](06-data-packs.md)） |
+| `EGLConfig` 句柄可能是 0 | `EGLConfig` 是不透明句柄。Android 4.1 模拟器的 EGL 用下标当句柄，第一个配置就是 0（实测） | 只看 `eglChooseConfig` 返回的数量，不要拿句柄和 0 比较。GFXBench testfw 就踩了这个坑（见 [04](04-gfxbench-port.md) §4.5） |
 
 ## 5. 原生库加载
 
@@ -80,7 +81,7 @@ API 16 的 bionic 缺很多后来才加的函数，编译时 NDK 会按 API 等�
 
 | 环境 | 用途 | 局限 |
 |---|---|---|
-| 本机的 Android 4.1 x86 模拟器（AVD "Android4.1"） | 验证 x86 库能装能跑、UI、流程 | 不能测 ARM 库，成绩没有意义 |
+| 本机的 Android 4.1 x86 模拟器（AVD "Android4.1"） | 验证 x86 库能装能跑、UI、流程；GFXBench 测试能否跑通 | 不能测 ARM 库，成绩没有意义（GPU 是主机显卡经模拟器转译） |
 | Android 4.1–4.4 真机（ARM，有 NEON） | 主要测试设备 | — |
 | Tegra 2 真机 | 验证无 NEON 那套库 | 设备较难找 |
 | 新手机（Android 14+） | 开发时快速验证 UI | 不代表目标平台 |

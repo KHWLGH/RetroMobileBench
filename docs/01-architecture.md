@@ -34,9 +34,10 @@
 | `app` | Android application | 界面、调度、成绩存储 |
 | `native` | CMake 工程（由 `app` 的 `externalNativeBuild` 引用） | 所有原生代码，产出一个 `librmb.so` |
 | `third_party/` | 源码目录（git submodule 或直接放源码） | coremark、scimark2、zstd、zlib、tinymembench、cpuinfo、sqlite、gfxbench（裁剪后） |
-| `tfw-java` | Android library（可选） | GFXBench `testfw-lib` 的 Java 宿主代码改版，也可以直接并进 `app` |
 
-不使用 AndroidX、Compose。建议用 Java：方法数少，也不用操心 kotlin-stdlib 在 API 16 上的兼容性（没验证过）。不管用哪种语言，都要控制依赖，保证不需要 multidex（见 [02](02-platform-constraints.md)）。
+不再需要单独的 `tfw-java` 模块：GFXBench 的宿主改在原生层做（见 [04](04-gfxbench-port.md) §4.5），Java 层只调一个 JNI 函数。
+
+不使用 AndroidX、Compose。用 Java：方法数少。AGP 9 默认会加 kotlin-stdlib，已在 `gradle.properties` 里关掉（见 [05](05-build-and-toolchain.md) §3）。不管用哪种语言，都要控制依赖，保证不需要 multidex（见 [02](02-platform-constraints.md)）。
 
 ## 3. 原生库组织
 
@@ -44,18 +45,18 @@
 
 - Android 4.3（API 18）以前，系统动态链接器不会到 App 的 `lib/` 目录找 `DT_NEEDED` 依赖库，多个 .so 之间互相依赖时必须在 Java 里按依赖顺序逐个 `System.loadLibrary`，漏一个就崩溃。
 - GFXBench 原本用 `dlopen("libgfxbench40_gl.so")` 按名字加载测试库，这在 4.1/4.2 上同样有问题。
-- 解决办法：所有原生代码（我们的测试 + GFXBench testfw + ES2 测试 + 第三方库）**链接成一个 `librmb.so`**，C++ 运行时用 `c++_static`。GFXBench 的测试入口改用静态工厂表（testfw.cpp 里给 QNX 写的那段逻辑），不再 `dlopen`。详见 [04](04-gfxbench-port.md)。
+- 解决办法：所有原生代码（我们的测试 + GFXBench testfw + ES2 测试 + 第三方库）**链接成一个 `librmb.so`**，C++ 运行时用 `c++_static`。GFXBench 的测试入口改用静态工厂表（宿主代码直接调 `create_test_gl_xxx()`），不再 `dlopen`。详见 [04](04-gfxbench-port.md) §4.3。
 
 ### 3.2 三套 ABI
 
 | 目录 | 编译参数 | 适用设备 |
 |---|---|---|
-| `lib/armeabi-v7a/librmb.so` | NEON 开（NDK r21 起的默认值） | 绝大多数 ARMv7 设备 |
-| `lib/armeabi-v7a/librmb_noneon.so` | `-DANDROID_ARM_NEON=OFF` | Tegra 2 设备（没有 NEON） |
+| `lib/armeabi-v7a/librmb.so` | NDK 默认（默认就开 NEON） | 绝大多数 ARMv7 设备 |
+| `lib/armeabi-v7a/librmb_noneon.so` | 所有源文件加 `-mfpu=vfpv3-d16`（同一个 CMake 工程里的第二个目标） | Tegra 2 设备（没有 NEON） |
 | `lib/x86/librmb.so` | 默认 | Intel Atom 设备（联想 K900、摩托 RAZR i、华硕 ZenFone 4/5/6 等） |
 
 - 无 NEON 那份放在同一个 `armeabi-v7a` 目录下，只是换个文件名。APK 安装时整个目录都会解压，启动时由 `NativeLoader` 决定加载哪个。
-- 不要只用"运行时判断 NEON"的办法：NDK r21 起编译器默认开 NEON，自动向量化会在任何 C 代码里生成 NEON 指令，Tegra 2 上一跑就 `SIGILL`。所以必须整套重编。
+- 不要只用"运行时判断 NEON"的办法：NDK r21 起编译器默认开 NEON，自动向量化会在任何 C 代码里生成 NEON 指令，Tegra 2 上一跑就 `SIGILL`。所以必须整套重编。已实测：GFXBench ES2 部分默认参数编出来有 654 条 NEON 指令，加 `-mfpu=vfpv3-d16` 后为 0（`scripts/check-neon.ps1`）。
 - x86 设备上如果只有 ARM 库，系统会用 Houdini 把 ARM 指令转译执行，CPU 分数会失真，所以一定要带 x86 原生库。
 
 ### 3.3 NativeLoader 选择逻辑
@@ -91,19 +92,22 @@
 | 快速 | 每项只跑一次；GPU 只跑底层测试的离屏版 | 5 分钟内 |
 | 完整 | 每项跑 3 次取中位数；GPU 包括场景测试、屏上版和离屏版 | 20–30 分钟 |
 
-时长是估算，以实测为准。光 GPU 部分就有：底层测试每个 30 秒，T-Rex 56 秒，Egypt 113 秒，还不算加载。
+时长是估算，以实测为准。光 GPU 部分就有：底层测试屏上版每个 30 秒、离屏版每个 60 秒，T-Rex 56 秒，Egypt 113 秒，还不算加载。离屏版六项合计约 7.5 分钟。
 
 ### 4.1 GPU 测试的运行方式
 
-GFXBench 的 testfw 用 `SurfaceView` + EGL 在单独的线程里跑测试（`TestRunner.java`），我们沿用这个结构：
+宿主在原生层（[04](04-gfxbench-port.md) §4.5），Java 层只负责在后台线程调用 JNI 函数、显示进度：
 
-1. GPU 测试放在一个单独的 Activity，横屏、全屏、保持亮屏。
-2. 每个测试新建一个 testfw 测试实例：`init()` 加载资源 → `run()` 渲染直到结束 → `result()` 取 JSON 结果 → `terminate()`。
-3. 结果 JSON 里有原始成绩（帧数、MB/s 等）和单位，交给调度层换算分数。
+1. 每个测试新建一个 testfw 测试实例：`init()` 加载资源 → `run()` 渲染直到结束 → `result()` 取 JSON 结果 → `terminate()`。
+2. 结果 JSON 里有原始成绩（帧数、MB/s 等）和单位，交给调度层换算分数。
+3. **离屏测试**（计分用）用 pbuffer，不需要窗口，已在模拟器上跑通。界面上可以只显示进度，不显示渲染画面。
+4. **屏上测试**（不计分，可选）需要窗口表面：用一个横屏、全屏、保持亮屏的 Activity，把 `SurfaceView` 的 Surface 通过 `ANativeWindow_fromSurface()` 交给原生层创建 EGL 窗口表面。还没验证。
 
 ### 4.2 进程隔离
 
-GFXBench 的宿主把崩溃处理放在单独的进程（`:crasher`）。建议我们把 GPU 测试 Activity 也放到单独的进程（`android:process=":gpu"`）：老机器的 GPU 驱动不稳定，崩溃了不至于把整个 App 带走，主进程还能记录"该测试失败"并继续跑后面的项目。
+GFXBench 的宿主把崩溃处理放在单独的进程（`:crasher`）。建议我们把 GPU 测试也放到单独的进程（`android:process=":gpu"` 的 Service 或 Activity）：老机器的 GPU 驱动不稳定，崩溃了不至于把整个 App 带走，主进程还能记录"该测试失败"并继续跑后面的项目。
+
+另一个好处：场景测试进程的内存峰值（VmHWM，CPU 侧）实测约 105 MB（Egypt），放在单独进程里，测完进程退出就全部释放，不会让主进程的内存碎片化。
 
 ## 5. 结果与计分
 

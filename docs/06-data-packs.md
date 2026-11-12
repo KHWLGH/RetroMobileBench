@@ -4,21 +4,21 @@
 
 ## 1. 数据量
 
-只保留 ETC1 纹理（理由见 [04](04-gfxbench-port.md) §4.6），各部分大小（来自 GitHub tree API，`gfxbench-data40/data/gfx/`）：
+只保留 ETC1 纹理（理由见 [04](04-gfxbench-port.md) §4.6）。下表是 2026-11-12 实际导出的大小（`gfxbench-data40/data/gfx/`，已去掉其他格式纹理和画质比对参考图）：
 
-| 目录 | 内容 | 大小 |
-|---|---|---|
-| `trex/`（不含其他格式纹理） | animations 18.4 MB、meshes 24.2 MB、images_ETC1 25.7 MB、materials 等 | 约 68 MB |
-| `egypt/`（不含其他格式纹理） | animations 29.9 MB、meshes 24.8 MB、images_ETC1 47.8 MB、materials 等 | 约 103 MB |
-| `common/` | 粒子、镜头光晕等公共纹理，其中约 7 MB 是画质比对用的参考图 | 9.7 MB |
-| `fill/images_ETC1/` | 填充率测试纹理 | 0.2 MB |
-| 着色器 `shaders_40/shaders.20/`、`shaders_40/lowlevel/` | 来自 `gfxbench40/resources/data/gfx/` | 很小 |
-| **合计** | | **约 181 MB** |
+| 目录 | 内容 | 文件数 | 大小 |
+|---|---|---|---|
+| `trex/` | animations 18.4 MB、meshes 24.2 MB、images_ETC1 25.7 MB、materials 等 | 946 | 68.4 MB |
+| `egypt/` | animations 29.9 MB、meshes 24.8 MB、images_ETC1 47.8 MB、materials 等 | 737 | 102.6 MB |
+| `common/` | 粒子、镜头光晕等公共纹理 | 35 | 2.3 MB |
+| `fill/images_ETC1/` | 填充率测试纹理 | 2 | 0.2 MB |
+| 着色器 `shaders_40/shaders.20/`、`shaders_40/lowlevel/` | 来自源码树 `gfxbench40/resources/data/gfx/` | 38 | 约 50 KB |
+| **合计** | | 1758 | **约 173.5 MB** |
 
-可以再瘦身的地方（待验证不会影响测试）：
+已验证的瘦身：
 
-- `common/` 里的 `ref_*.png`、`ref_precision.tga`（约 7 MB）是画质比对（Render Quality）测试的参考图，我们不跑画质比对，可以去掉。
-- 只用到的底层测试数据（fill 纹理、着色器、common 里的少量文件）不到 3 MB。
+- `common/` 里的 `ref_474460c0_ETC1to888_23760.png`、`ref_474460c0_ETC1to888_23760_dx.png`、`ref_precision.tga`（共 7.4 MB）是画质比对（`gl_trex_qmatch`）和精度测试的参考图。删掉后 T-Rex、Egypt 照常跑完，状态 OK，可以去掉。
+- 只跑底层测试需要的数据（fill 纹理、着色器、common）约 2.6 MB。底层测试实际只用到 common 里的加载/运行图标，还可以再精简。
 
 ## 2. 两种提供方式
 
@@ -57,7 +57,7 @@ RetroMobileBench-gfxdata-v1.zip
 ```
 
 - zip 用"存储"模式（不压缩）：ETC1 纹理和网格本身压缩率低，存储模式解压快，老机器上更省时间。
-- 每个文件记 SHA-1（Poco 里有现成的 `SHA1Engine`，Java 层用 `MessageDigest`），导入后校验，避免拷坏的数据跑出错误成绩。
+- 每个文件记 SHA-1（Java 层用 `MessageDigest`），导入后校验，避免拷坏的数据跑出错误成绩。
 - 可以按场景拆成两个包（trex 包约 68 MB，egypt 包约 103 MB），方便只想跑其中一个的用户。
 - `manifest.json` 里写明许可证和"已修改"，满足 CC BY 4.0 的署名要求（见 [08](08-licenses.md)）。
 
@@ -70,7 +70,7 @@ RetroMobileBench-gfxdata-v1.zip
 | 3 | App 内部存储 `getFilesDir()` | 空间最紧张，最后选择 |
 
 - 让用户在数据包管理页看到可用位置和剩余空间，自己选。
-- 选定后把路径存进设置，传给 GFXBench 的 `basepath`（`TestRunner.setBasepath()`）。
+- 选定后把路径存进设置，作为 GFXBench 的读取路径（宿主里的 `env().setReadPath()`，见 [04](04-gfxbench-port.md) §4.8）。
 - 注意：放在外部存储的数据，卸载 App 时如果在 `Android/data/<包名>/` 下会被删掉；放在外部存储根目录下的自定义目录则不会。建议放在自定义目录（例如 `RetroMobileBench/data/`），卸载重装不用重新导入。
 - 例外：Android 4.4 起，**可移除的外置 SD 卡**上只能写本 App 的 `Android/data/<包名>/` 目录（用 `getExternalFilesDirs()` 获取），写不了自定义目录，数据会随卸载删除。4.1–4.3 和主外部存储（内置的 sdcard 分区）一般没有这个限制。
 
@@ -100,16 +100,16 @@ RetroMobileBench-gfxdata-v1.zip
 
 1. 数据目录存在且标记文件版本匹配。
 2. 对应场景的 `scene_trex.xml` / `scene_egypt.xml` 存在。
-3. 可用内存满足配置里的 `min_ram_required`（160 MB）。
+3. 可用内存满足配置里的 `min_ram_required`（160 MB）。实测参考（模拟器，进程峰值常驻内存 VmHWM，CPU 侧）：T-Rex 约 89 MB，Egypt 约 105 MB，底层测试 7–11 MB。真机上纹理和缓冲区也占系统内存（移动 GPU 和 CPU 共享内存），实际占用会更高。
 4. 任何一项不满足：在测试列表里把该测试显示为"缺少数据包"或"内存不足"并跳过，不影响其他测试和计分（见 [01](01-architecture.md) §5.2）。
 
 ## 8. 制作数据包（开发者）
 
-写一个脚本（PowerShell 或 Python）：
+`scripts/feasibility-gfxbench-run.ps1` 已经实现了前三步（数据导出到 `feasibility/out/gfxdata/`），正式的数据包脚本在它的基础上加后两步：
 
-1. 从 GFXBench 仓库 sparse-checkout `gfxbench-data40/data/gfx/{trex,egypt,common,fill}`。
-2. 删掉 `images_ASTC`、`images_DXT1`、`images_PVRTC4` 目录。
-3. 可选：删掉 `common/` 里的画质比对参考图。
+1. 从 GFXBench 仓库导出 `gfxbench-data40/data/gfx/{trex,egypt,common,fill}`。不要用 sparse-checkout，要批量取 blob 再导出（原因和做法见 [05](05-build-and-toolchain.md) §7）。
+2. 只取 `images_ETC1`，不取 `images_ASTC`、`images_DXT1`、`images_PVRTC4`、`images_888`。
+3. 去掉 `common/` 里的画质比对参考图（`ref_*`）。
 4. 生成 `manifest.json`（大小、SHA-1）。
 5. 用存储模式打 zip。
 

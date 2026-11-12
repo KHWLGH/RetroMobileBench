@@ -1,21 +1,20 @@
 # 05 构建与工具链
 
-> 版本组合还没实际验证。特别是"当前版本的 Android Gradle 插件能否配合 NDK r23c 和 minSdk 16"，调研时没查到明确说法，是第一个里程碑要确认的事。
+> 2026-11-12 已在本机验证（M0、M1）：下面的版本组合能编出 minSdk 16 的 APK，能在 Android 4.1.2 模拟器上运行；GFXBench 的 ES2 部分用 NDK r23c 编过，并在模拟器上跑通。验证经过和结果见 [10-feasibility.md](10-feasibility.md)。
 
 ## 1. 工具版本
 
-| 工具 | 版本 | 用途 | 本机状态（2026-11-12） |
+| 工具 | 版本 | 用途 | 状态 |
 |---|---|---|---|
-| Android Studio | 当前版本 | IDE | 已装 |
-| Android SDK Platform | 当前（compileSdk） | 编译 | 已装 android-37 |
-| Android SDK Build-Tools | 36.0.0 | 打包 | 已装 |
-| **NDK** | **r23c（23.2.8568313）** | 原生代码 | **未装** |
-| **CMake** | **3.18.1**（SDK Manager 里的版本） | 原生构建 | **未装** |
-| **JDK 17** | 17 | GFXBench 原版构建脚本里的 Gradle 7.4.2 / 8.11.1 | **未装**（Android Studio 自带 JDK 25，跑 AGP 足够） |
-| **SWIG** | 4.0.2 或 3.0.12 | 生成 GFXBench testfw 的 Java 绑定 | **未装** |
-| Git Bash | — | GFXBench 构建脚本（官方说明不支持 Cygwin 和 WSL） | 已装 |
-| NASM | 可选 | libjpeg-turbo 的 x86 SIMD（如果用的话） | 未装 |
-| Android 4.1 模拟器 | API 16，x86 | 验证 x86 构建 | 已有 AVD "Android4.1"（720×1280，1 GB 内存） |
+| Android Studio | 当前版本（自带 AGP 9.5.1） | IDE | 已装 |
+| Android Gradle 插件（AGP） | **9.5.1** | 构建 | 已验证：接受 minSdk 16 + NDK r23c |
+| Gradle | **9.7.0**（wrapper） | 构建 | 已验证 |
+| JDK | Android Studio 自带的 JBR（JDK 25） | 运行 Gradle | 已验证，不需要另装 JDK 17 |
+| Android SDK Platform | android-37（compileSdk） | 编译 | 已装 |
+| **NDK** | **r23c（23.2.8568313）** | 原生代码 | 已装、已验证 |
+| **CMake** | **3.18.1**（SDK Manager 里的版本） | 原生构建 | 已装、已验证 |
+| Android 4.1 模拟器 | API 16，x86 | 验证 x86 构建 | AVD "Android4.1"（720×1280，1 GB 内存） |
+| SWIG | — | 原计划用来生成 GFXBench testfw 的 Java 绑定 | **不需要了**：原生层自己做宿主，见 [04](04-gfxbench-port.md) §4.5 |
 
 用 SDK Manager 安装 NDK 和 CMake（勾选 "Show Package Details" 才能选到具体版本）：
 
@@ -27,59 +26,59 @@ sdkmanager "ndk;23.2.8568313" "cmake;3.18.1"
 
 - **NDK r23c**：最后一个支持 API 16–18 和无 NEON 设备的版本，r24 起最低 API 19。
 - **CMake 3.18.1**：r23c 的 `android.toolchain.cmake` 默认用旧版 toolchain 文件。旧版 toolchain 文件配 CMake 3.22 编汇编文件时会多出 `-gcc-toolchain` 参数导致报错（NDK issue 1623，r24 才修），tinymembench 有汇编文件会受影响。cpuinfo 要求 CMake ≥ 3.18。
-- **SWIG**：GFXBench testfw 的 Java 类（`net.kishonti.swig.*`）是 SWIG 从 `testfw.i` 生成的。也可以生成一次后把 Java 文件提交进仓库，以后就不需要 SWIG 了。
+- **AGP 9.5.1**：调研时担心新版 AGP 不再接受 minSdk 16 或 NDK r23c，实测都接受，只是会对 32 位 ABI 给出警告（已在 `gradle.properties` 里用 `android.sync.suppressAgpWarnings=EXTERNAL_NATIVE_BUILD_CONFIGURATION` 关掉）。
 
-## 3. Gradle 配置（示意）
+## 3. Gradle 配置
 
-```groovy
-// app/build.gradle（示意，未验证）
+实际配置见 `app/build.gradle.kts`，要点：
+
+```kotlin
 android {
-    compileSdk 37                    // 跟随已安装的 SDK
-    ndkVersion "23.2.8568313"
-
+    compileSdk = 37
+    ndkVersion = "23.2.8568313"
     defaultConfig {
-        minSdk 16
-        targetSdk 23                 // 见 README "发布方式"
+        minSdk = 16
+        targetSdk = 23                      // 见 README "发布方式"
+        ndk { abiFilters += listOf("armeabi-v7a", "x86") }
         externalNativeBuild {
-            cmake {
-                arguments "-DANDROID_STL=c++_static",
-                          "-DANDROID_PLATFORM=android-16"
-            }
-        }
-        ndk { abiFilters "armeabi-v7a", "x86" }
-    }
-
-    externalNativeBuild {
-        cmake {
-            path "../native/CMakeLists.txt"
-            version "3.18.1"
+            cmake { arguments += listOf("-DANDROID_STL=c++_static", "-DANDROID_PLATFORM=android-16") }
         }
     }
-
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    externalNativeBuild {
+        cmake { path = file("../native/CMakeLists.txt"); version = "3.18.1" }
     }
 }
-
-dependencies {
-    // 不加 AndroidX / appcompat / material
-}
+dependencies { }                            // 不加 AndroidX / appcompat / material / Kotlin
 ```
 
+- **Java 17**：D8 会把 Java 9–17 的语言特性脱糖，并替换 javac 生成的 `java.util.Objects` 等调用。已检查编出的 dex：格式版本 035，没有 `invoke-custom`，没有 `java.util.Objects` 引用，API 16 能加载。Java 8 源码级别在 JDK 25 上会报过时警告，所以直接用 17。Java 的新 API（`java.util.stream`、`java.time` 等）仍然不能用。
+- **不要 Kotlin 标准库**：AGP 9 内置 Kotlin 支持，默认会给每个 App 加 `kotlin-stdlib`（约 1 万个方法，会把 minSdk 16 的 App 推向 64K 方法数上限和旧版 multidex）。`gradle.properties` 里加 `kotlin.stdlib.default.dependency=false` 去掉。不要用 `android.builtInKotlin=false`，它已经过时。
 - 新建项目时 Android Studio 会自动加 appcompat、material、core-ktx、AndroidX 测试库，全部删掉。
-- Java 8 语言特性（lambda 等）会被 D8 脱糖，可以在 API 16 上用；但 Java 8 的新 API（`java.util.stream`、`java.time` 等）不能用（除非开 core library desugaring，不建议，会增加方法数）。
+- 实测 debug APK 约 835 KB（含三套探针库）。
 
 ## 4. 原生库的三套产物
 
-AGP 的 `externalNativeBuild` 一次只按 ABI 编一份，无 NEON 那份要额外处理。两个可选方案：
+最终采用**在 CMake 里定义两个目标**（调研时的方案 A），AGP 一次构建就产出全部三套：
 
-| 方案 | 做法 | 优点 | 缺点 |
+| 产物 | ABI 目录 | 编译参数 | 给谁用 |
 |---|---|---|---|
-| A. CMake 里定义两个目标 | `rmb`（默认参数）和 `rmb_noneon`（对所有源文件加 `-mfpu=vfpv3-d16`，去掉 NEON） | AGP 一次构建全部产出 | 第三方库也要编两遍，CMake 写法稍复杂；要确认 NDK 的默认 `-mfpu=neon` 能被覆盖 |
-| B. 单独编一次无 NEON 版 | 用 NDK 的 CMake 命令行加 `-DANDROID_ARM_NEON=OFF` 单独编，产物作为预编译库放进 `jniLibs/armeabi-v7a/` | 和官方推荐做法一致，参数干净 | 构建分两步，要写脚本 |
+| `librmb.so` | armeabi-v7a | NDK 默认（`-march=armv7-a -mthumb`，默认带 NEON） | 有 NEON 的 ARMv7 |
+| `librmb_noneon.so` | armeabi-v7a | 所有源文件加 `-mfpu=vfpv3-d16` | Tegra 2 等没有 NEON 的 ARMv7 |
+| `librmb.so` | x86 | NDK 默认 | x86 设备、模拟器 |
 
-建议先用方案 B（行为明确），稳定后再考虑方案 A。x86 那份 AGP 正常编就行。
+`NativeLoader.java` 读 `/proc/cpuinfo` 的 Features 行，ARM 设备上没有 `neon`/`asimd` 就加载 `rmb_noneon`。
+
+注意事项（实测发现）：
+
+- **NDK r23c 的 armeabi-v7a 默认就开 NEON**：预定义 `__ARM_NEON`，整数循环会被自动向量化成 NEON 指令。所以无 NEON 那套必须显式加 `-mfpu=vfpv3-d16`，不是"不写 NEON 代码就行"。
+- **不能用 ELF 属性判断有没有 NEON**：链接后 `Tag_Advanced_SIMD_arch` 属性会被丢掉，`readelf -A` 看不出来。改用 `scripts/check-neon.ps1`：用 llvm-objdump 分别按"有 NEON"和"只有 VFPv3-D16"反汇编两遍，数只有前者能解码的指令。实测：
+  - 探针库：`librmb.so` 16 条，`librmb_noneon.so` 0 条。
+  - GFXBench ES2：NEON 版 654 条，无 NEON 版 0 条。
+- 调研时建议的方案 B（单独编一套放进 `jniLibs`）试过，被方案 A 取代：两步构建容易忘，产物还要手动同步。
 
 ## 5. 构建变体
 
@@ -87,42 +86,45 @@ AGP 的 `externalNativeBuild` 一次只按 ABI 编一份，无 NEON 那份要额
 
 | flavor | 内容 | 大小 |
 |---|---|---|
-| `lite` | App + 三套原生库 + 底层 GPU 测试需要的小数据（不到 3 MB） | 主要取决于原生库，编出来才知道 |
-| `full` | 再加 T-Rex、Egypt 的 ETC1 场景数据 | 比 lite 多约 180 MB |
+| `lite` | App + 三套原生库 + 底层 GPU 测试需要的小数据（不到 3 MB） | 主要取决于原生库：GFXBench 部分每套约 17 MB（未压缩、未裁剪符号） |
+| `full` | 再加 T-Rex、Egypt 的 ETC1 场景数据 | 比 lite 多约 171 MB |
 
 两个 flavor 用同一个 `applicationId`，装哪个都行，不能同时装。full 版可以通过"导入"把数据复制到 SD 卡给别的设备用，反过来 lite 版可以导入数据包。
 
 ## 6. GFXBench 的构建
 
-GFXBench 移植初期先用它自己的构建脚本单独编，验证通过后再并进我们的 CMake 工程：
+**不用 GFXBench 自己的构建脚本**（`scripts/build.sh` 那套需要改 API、关 CUDA、装 SWIG，而且会把 ES3 部分一起编进来）。改为自己写一个 CMake 工程，直接引用 GFXBench 源码树里 ES2 测试需要的文件：
 
-```bash
-# Git Bash，在 GFXBench 仓库根目录（示意，需按 04 文档先改脚本里写死的 API 24）
-export WORKSPACE=$PWD
-export PLATFORM=android-armv7a
-export CONFIG=Release
-export APPLICATION_TYPE=developer
-export PRODUCT_ID=gfxbench_gl
-export PRODUCT_VERSION=4.0.0
-export ANDROID_NDK="$LOCALAPPDATA/Android/Sdk/ndk/23.2.8568313"
-export ANDROID_HOME="$LOCALAPPDATA/Android/Sdk"
-export NG_CMAKE_TOOLCHAIN_FILE="$ANDROID_NDK/build/cmake/android.toolchain.cmake"
+```powershell
+# 编译（输出到 feasibility/out/<abi>）
+scripts\feasibility-gfxbench-es2.ps1 -Abi x86
+scripts\feasibility-gfxbench-es2.ps1 -Abi armeabi-v7a
+scripts\feasibility-gfxbench-es2.ps1 -Abi armeabi-v7a -NoNeon
 
-scripts/build-3rdparty.sh
-scripts/build.sh
+# 在设备或模拟器上跑（自动准备数据、按 CPU 选 NEON/无 NEON 版、推送、汇总成绩）
+scripts\feasibility-gfxbench-run.ps1
 ```
 
-- `PLATFORM` 可选 `android-armv7a`、`android-x86`（还有 arm64、x86-64，我们用不到）。
-- 官方 CI 的安卓构建还会装 CUDA 工具包（`frameworks/cudaw` 要用），我们不需要 CUDA 采集，可以在 `build.sh` 里去掉 `frameworks/clew frameworks/cudaw`。
-- `BUNDLE_DATA=false` 可以跳过复制场景数据，加快重复构建。
+- CMake 工程：`feasibility/gfxbench-es2/CMakeLists.txt`（源文件清单、宏定义见 [04](04-gfxbench-port.md) §4.2）。
+- 每次全量编译约 200 个文件，本机 Ninja 并行编译约 20 秒。
+- 产物：`libgfxbench_es2_probe.so`（JNI 入口，以后并进 `librmb.so`）和 `gfxprobe`（命令行程序，用 `adb shell` 直接跑测试，不需要 App）。
+- 并进 App 时，把这个 CMake 工程的内容合并进 `native/CMakeLists.txt`（M4）。
 
 ## 7. 获取第三方源码
 
 | 组件 | 获取方式 | 备注 |
 |---|---|---|
-| GFXBench | `git clone --filter=blob:none --depth 1` 后用 sparse-checkout 只取 `frameworks`、`gfxbench40`、`scripts`、`app_android`、`doc`、`3rdparty/zlib`、`3rdparty/libpng`、`3rdparty/poco/Foundation` | 完整仓库约 1.7 GB；场景数据单独取，见 [06](06-data-packs.md) |
+| GFXBench | `git clone --filter=blob:none --depth 1` 后用 sparse-checkout 只取 `frameworks`、`gfxbench40`、`scripts`、`app_android`、`doc`、`3rdparty/zlib`、`3rdparty/libpng`、`3rdparty/poco/Foundation` | 完整仓库约 1.7 GB；场景数据见下 |
+| GFXBench 场景数据 | 不用 sparse-checkout，按需批量取 blob（`scripts/feasibility-gfxbench-run.ps1` 已实现） | 见下方说明 |
 | CoreMark、cpuinfo、zstd、zlib、tinymembench | git submodule，固定到具体 commit | 固定版本，成绩才可比 |
 | SciMark 2 | 从 NIST 下载 C 源码包，直接放进仓库 | 没有 git 仓库 |
 | SQLite | 下载 amalgamation 源码包 | 固定版本 |
 
-调研时的浅克隆在 `%TEMP%\rmb-research\gfxbench`（约 180 MB，不含场景数据，已包含 Poco Foundation），可以直接拿来开始移植。
+取场景数据时要注意（实测踩过的坑）：
+
+- 仓库是 `blob:none` 部分克隆，场景数据是普通 git 对象，不是 Git LFS。
+- 不要对数据目录直接跑 `git ls-tree -l`、`git archive`、`git checkout`：缺的对象会**一个一个**按需下载，一千个文件要几十分钟甚至卡住。
+- 正确做法：先用 `git ls-tree -r` 列出要的文件（只要 `images_ETC1`），用 `git cat-file --batch-check` 找出本地缺的对象，再用 `git fetch origin <sha>...` 每批 200 个取回来（T-Rex 加 common 约 900 个对象，34 秒），最后通过临时索引文件（`GIT_INDEX_FILE`）+ `git checkout-index` 导出，不碰克隆本身的工作区。
+- 设置 `GIT_NO_LAZY_FETCH=1` 可以让漏取的对象直接报错，而不是悄悄开始逐个下载。
+
+调研时的浅克隆在 `%TEMP%\rmb-research\gfxbench`（不含场景数据，已包含 Poco Foundation），可以直接拿来开始移植。

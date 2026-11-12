@@ -2,7 +2,7 @@
 
 给旧安卓手机用的离线跑分软件。第一版只做 Android 4.x，最低兼容 Android 4.1（API 16）。
 
-> 状态：**调研和设计阶段**（2026-11-12），还没有写代码。本文档和 `docs/` 下的内容都整理自调研，结论来自阅读源码、查文档和静态扫描，**都还没在真机上编译验证过**。
+> 状态（2026-11-12）：**可行性验证阶段**。工具链和 minSdk 16 的空 App 已搭好（M0）；GFXBench 的 OpenGL ES 2.0 部分已用 NDK r23c 编译（ARM 有 NEON / 无 NEON、x86 三套），并在 Android 4.1.2 模拟器上跑通全部 6 项离屏测试，T-Rex、Egypt 画面正确（M1/M2 模拟器部分）。**还没有在 ARM 真机上跑过**。验证经过和结果见 [docs/10-feasibility.md](docs/10-feasibility.md)；`docs/` 里其余内容大多来自调研，已验证的部分文中有标注。
 
 ## 目标
 
@@ -57,6 +57,7 @@
 | [docs/07-measurement.md](docs/07-measurement.md) | 测量方法与老机器上的各种坑 |
 | [docs/08-licenses.md](docs/08-licenses.md) | 第三方许可证、署名和命名规则 |
 | [docs/09-roadmap.md](docs/09-roadmap.md) | 里程碑、验证方法、风险清单 |
+| [docs/10-feasibility.md](docs/10-feasibility.md) | 可行性验证记录：做了什么、结果、怎么在真机上复现 |
 | [docs/references.md](docs/references.md) | 参考资料链接 |
 
 ## 发布方式
@@ -72,6 +73,17 @@ targetSdk 定为 **23** 的原因：
 - 在 Android 4.x 设备上，targetSdk 23 和任何 ≥ 19 的值效果相同（4.x 系统只认识到 API 19 为止的行为变更）。再往上调只会在新手机上打开新行为（24 起限制 `file://` 分享，29/30 起分区存储），反而让 SD 卡数据包导入和成绩分享更麻烦。
 - 代价：在 Android 6.0+ 的新手机上调试时，存储权限要在运行时申请（4.x 上是安装时授予，不受影响）。
 
+## 目录结构
+
+| 路径 | 内容 |
+|---|---|
+| `app/` | Android App（Java，目前只有探针界面和 `NativeLoader`） |
+| `native/` | App 的原生代码（目前是探针：编译变体、CPU、EGL/ES2 信息） |
+| `feasibility/gfxbench-es2/` | GFXBench ES2 移植的独立 CMake 工程和宿主代码（以后并进 `native/`） |
+| `scripts/` | 构建、运行、检查脚本（PowerShell） |
+| `docs/` | 设计文档 |
+| `feasibility/out/` | 编译产物、导出的测试数据、成绩（不提交） |
+
 ## 调研资料
 
-调研时浅克隆的 GFXBench 源码（不含场景数据，约 180 MB）和下载的 GFXBench 历史成绩 CSV（约 90 MB）放在 `%TEMP%\rmb-research`，移植时可以直接用；不需要的话可以删掉。
+调研时浅克隆的 GFXBench 源码（`blob:none` 部分克隆，场景数据按需取）和下载的 GFXBench 历史成绩 CSV（约 90 MB）放在 `%TEMP%\rmb-research`。`scripts/feasibility-gfxbench-*.ps1` 默认就用这份克隆，删掉的话要重新克隆（见 [docs/05](docs/05-build-and-toolchain.md) §7）。
