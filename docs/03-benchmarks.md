@@ -40,20 +40,21 @@
   - 只能改 `core_portme*` 文件；`make check` 会校验其他文件的 MD5。
   - 成绩格式：`CoreMark 1.0 : 分数 / 编译器+参数`。
 - **商标协议**要点：改过核心文件的版本不能用 CoreMark 这个名字；要显示 EEMBC 商标声明；不能用于贬损 EEMBC 的场合。
-- **API 16**：posix 移植只用到 `clock_gettime` 和 pthread，应该没问题（待编译验证）。
+- **已实现**：固定源码未改核心文件，定制 core_portme、pthread 1–4 线程；单线程/并行均通过两套种子，每个正式阶段 ≥10 秒，附完整上游输出与编译参数。API 16 x86 正式验证通过，协议 `cpu-coremark-v1`。
 
 ### 2.2 SciMark 2
 
 - ANSI C，5 个子项：FFT、SOR、蒙特卡洛、稀疏矩阵乘、LU 分解，结果单位 Mflops。
 - 公有领域，NIST 希望注明出处。
 - LU 分解覆盖了 Linpack 那类负载，所以不再单独用 Linpack（Linpack C 版没有许可证）。
+- **已实现**：`cpu-scimark-small-v1`，固定 small 数据集、seed 101010，每项至少 1500 ms，五项各自进行数值验证。RMB 自定义计时外壳，输出分项 MFLOPS，不输出上游综合分；仅在 Random/MonteCarlo 中标注并补充分配失败处理。
 
 ### 2.3 zstd / zlib
 
-**已实现**：zlib 1.3.1 固定源码，单线程及最多 4 线程的独立流压缩 / 解压。数据为固定 1 MiB 文本 / 二进制混合语料，级别 6、每项至少 1.5 秒，校验和、实际线程数与迭代数进入结果；协议 `cpu-zlib-v1`，细节及 API 16 验证见 [11-backend.md](11-backend.md)。zstd 仍待接入。
+**已实现**：zlib 1.3.1 固定源码，单线程及最多 4 线程的独立流压缩 / 解压。数据为固定 1 MiB 文本 / 二进制混合语料，级别 6、每项至少 1.5 秒，校验和、实际线程数与迭代数进入结果；协议 `cpu-zlib-v1`，细节及 API 16 验证见 [11-backend.md](11-backend.md)。zstd 1.5.7 也已接入，协议 `cpu-zstd-v1`，level 3、同一语料和线程/校验策略。
 
 - 用库，不用它们自带的 bench 程序。自己写计时外壳：固定一份测试数据（例如内置一段文本 + 一段二进制），测压缩和解压 MB/s。
-- zstd 开 `ZSTD_MULTITHREAD` 后可以多线程压缩，用来测多核。
+- 当前 zstd 并行项使用多个独立压缩流测合计吞吐量，不开启单流 `ZSTD_MULTITHREAD`。
 - 打包固定版本的 zlib，**不用系统自带的 libz**，否则不同 ROM 的 zlib 版本不同，成绩不可比。
 - 注意：LZ4 的库是 BSD-2，但它的 bench 程序是 GPL-2，不能拿来用。
 
@@ -80,14 +81,15 @@
   1. 延迟测试用了 `posix_memalign`（API 17），换成 `memalign`。
   2. 汇编文件（`arm-neon.S` 等）用了 `.func` 等指令和 Intel 语法，clang 内置汇编器不接受（上游 issue #20 从 2018 年开着，修复 PR #21 没合并）。编译这些文件时加 `-fno-integrated-as -Wa,-march=armv7-a`。
   3. 结果从 `printf` 改成返回结构体，交给 JNI。
-- **无 NEON 设备**：tinymembench 运行时读 `/proc/cpuinfo` 的 Features 行决定是否跑 NEON 版本，在 Tegra 2 上会自动跳过 NEON 测试。`arm-neon.S` 文件里自己声明了 `.fpu neon`，在无 NEON 那套库里应该也能正常汇编，只是运行时不会调用（待验证）。
+- **当前实现**：`memory-tiny-v1` 仅使用 util.c 中原始 C 对齐复制/填充，8 MiB 缓冲区；另有 RMB 固定 4 MiB 随机依赖链延迟。以上汇编适配是上游调研，当前不编入任何 NEON/SSE 汇编；无 NEON 库的全部 C 源码均以 `-mfpu=vfpv3-d16` 编译。
 - **注意**：tinymembench 的 1 MB = 1,000,000 字节，界面显示时要统一单位。
 
 ### 3.2 多核带宽（STREAM 改版）
 
 - tinymembench 只测单线程。多核带宽用 STREAM 的 Triad 等 4 个操作，用 pthread 改写（原版只支持 OpenMP）。
 - STREAM 许可证允许修改，但改过的版本发布成绩时必须标注，例如"基于 STREAM 改版"（based on a variant of the STREAM benchmark code）。
-- STREAM 运行规则：每个数组至少是缓存大小的 4 倍，每项测试至少 20 个时钟刻度。
+- 标准 STREAM 要求每个数组至少是缓存大小的 4 倍，每项测试至少 20 个时钟刻度。
+- **当前实现**：`memory-stream-variant-v1`，每线程三个 2 MiB 数组、1–4 pthread、每项至少 1500 ms、同步预热起跑、计时后验证。为老设备限制工作集，不保证满足标准 STREAM 的缓存倍数要求；明确提示可能有缓存影响，不能声称标准 STREAM 带宽。
 
 ### 3.3 不用的内存测试
 
@@ -124,10 +126,10 @@
 | 测试项 | INSERT、UPDATE、DELETE |
 | 每项事务数 | 300（AndroBench 默认） |
 | 结果单位 | TPS（每秒事务数） |
-| SQLite 版本 | 打包固定版本，不用系统自带的 |
+| SQLite 版本 | 已打包 3.53.1 amalgamation，系统 SQLite 只存历史 |
 
 - AndroBench 论文没写表结构、记录大小和日志模式，这些我们自己定，并写进测试版本号。
-- 编译 SQLite 时可能需要 `-DSQLITE_DISABLE_LFS`（见 [02](02-platform-constraints.md) §3），`SQLITE_TEMP_STORE=3`（Android 没有 `/tmp`），待验证。
+- **已实现**：`sqlite-tps-v1`，每事务一行 1024 字节 payload；BEGIN IMMEDIATE，DELETE 日志、synchronous FULL、4096 页、2048 KiB cache、禁用 mmap。编译 `SQLITE_DISABLE_LFS=1`、`SQLITE_TEMP_STORE=3`；API 16 x86 校验通过。前后清理独立测试库并校验数据/quick_check，参数见 [11](11-backend.md)。
 
 ### 4.3 不用的存储测试
 
@@ -141,6 +143,8 @@
 ## 5. 设备信息
 
 ### 5.1 pytorch/cpuinfo
+
+尚未引入；下列是选型调研。当前使用 /proc/cpuinfo 白名单字段和 CPU0–31 的 sysfs 频率/online/governor 快照，不猜测未知的微架构或缓存。
 
 - BSD-2，能拿到 SoC 名称（从 Android 系统属性读）、核心数、缓存大小、微架构、指令集特性。
 - 它用 `dlopen`/`dlsym` 查找 `getauxval`，找不到就读 `/proc/self/auxv`，所以能在 API 16 上运行。官方 CI 就是按 `android-14` 编 armeabi-v7a 和 x86 的。
@@ -165,13 +169,13 @@
 
 ## 6. GPU
 
-见 [04-gfxbench-port.md](04-gfxbench-port.md)。
+见 [04-gfxbench-port.md](04-gfxbench-port.md)。当前六项 `_off` 离屏测试已整合到 App 的私有 GPU 子进程；ETC1、1920×1080，底层包默认内置，场景可导入或通过 `-PgpuData=full` 内置。屏上测试尚未接入界面。
 
 | 测试 | 内容 | 时长 | 原始单位 |
 |---|---|---|---|
 | gl_trex / gl_trex_off | T-Rex 场景（屏上 / 1080p 离屏） | 56 秒 | frames |
 | gl_egypt / gl_egypt_off | Egypt 场景 | 113 秒 | frames |
-| gl_alu / gl_alu_off | 着色器算力 | 30 秒 | frames |
-| gl_fill / gl_fill_off | 纹理填充率 | 30 秒 | MTexels/s |
-| gl_driver / gl_driver_off | 驱动开销 | 30 秒 | frames |
-| gl_blending / gl_blending_off | 混合（UI 合成负载） | 30 秒 | MB/s |
+| gl_alu / gl_alu_off | 着色器算力 | 屏上 30 秒 / 离屏 60 秒 | frames |
+| gl_fill / gl_fill_off | 纹理填充率 | 屏上 30 秒 / 离屏 60 秒 | MTexels/s |
+| gl_driver / gl_driver_off | 驱动开销 | 屏上 30 秒 / 离屏 60 秒 | frames |
+| gl_blending / gl_blending_off | 混合（UI 合成负载） | 屏上 30 秒 / 离屏 60 秒 | MB/s |

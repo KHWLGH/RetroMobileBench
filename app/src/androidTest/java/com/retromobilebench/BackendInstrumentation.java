@@ -16,9 +16,12 @@ import java.util.concurrent.atomic.AtomicReference;
 
 /** Real JNI + SQLite regression checks using only the API 16 framework. */
 public final class BackendInstrumentation extends Instrumentation {
+    private boolean gpuOnly, fullGpu;
     @Override
     public void onCreate(Bundle arguments) {
         super.onCreate(arguments);
+        gpuOnly = arguments != null && "true".equals(arguments.getString("gpuOnly"));
+        fullGpu = arguments != null && "true".equals(arguments.getString("fullGpu"));
         start();
     }
 
@@ -28,21 +31,39 @@ public final class BackendInstrumentation extends Instrumentation {
         try {
             Context context = getTargetContext();
             check(NativeLoader.load() != null, "native library loads");
+            if (gpuOnly) {
+                GpuBackendChecks.run(context, fullGpu, this::progress);
+                result.putString("stream", "\nPASS: GPU isolated processes, data validation, cancellation, timeout and restart\n");
+                finish(Activity.RESULT_OK, result);
+                return;
+            }
+            progress("storage");
             JSONObject measurement = testStorage(context);
             testCancellation(context);
             testSummary(measurement);
+            progress("zlib");
             JSONObject cpu = testCpu();
             testCpuCancellation();
             testCpuSummary(cpu);
             testPreflight();
             testPersistence(context, measurement, cpu);
-            result.putString("stream", "\nPASS: storage/CPU JNI, 1/2/4 threads, codec validation, cancellation/cleanup, "
-                    + "medians, preflight, mixed history and interrupted-run recovery\nCPU fixture: " + cpu + "\n");
+            progress("CoreMark/SciMark/memory/zstd/SQLite");
+            AdditionalBackendChecks.run(context);
+            progress("GPU" + (fullGpu ? " full six tests" : " available tests"));
+            GpuBackendChecks.run(context, fullGpu, this::progress);
+            result.putString("stream", "\nPASS: CoreMark formal double-seed validation, SciMark, memory/STREAM, zstd/SQLite + storage/CPU JNI, 1/2/4 threads, cancellation/cleanup, "
+                    + "medians, preflight, mixed history and interrupted-run recovery, GPU isolated processes/data validation/restart\nCPU fixture: " + cpu + "\n");
             finish(Activity.RESULT_OK, result);
         } catch (Throwable e) {
             result.putString("stream", "\nFAIL: " + android.util.Log.getStackTraceString(e));
             finish(Activity.RESULT_CANCELED, result);
         }
+    }
+
+    private void progress(String stage) {
+        Bundle progress = new Bundle();
+        progress.putString("stream", "\nRUNNING: " + stage + "\n");
+        sendStatus(0, progress);
     }
 
     private static JSONObject testStorage(Context context) throws Exception {

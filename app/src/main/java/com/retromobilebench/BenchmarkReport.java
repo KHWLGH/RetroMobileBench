@@ -74,13 +74,36 @@ final class BenchmarkReport {
                 JSONObject sample = samples.getJSONObject(i);
                 text.append("\n第 ").append(i + 1).append(" 轮 · ")
                         .append(statusLabel(sample.optString("status"))).append('\n');
-                if (suite == BenchmarkSuite.CPU) {
-                    text.append("zlib ").append(sample.optString("codec_version"))
+                if (suite.isGpu()) {
+                    text.append(sample.optString("vendor")).append(" / ").append(sample.optString("renderer")).append('\n')
+                            .append("1920 × 1080 离屏 / ETC1；数据摘要 ").append(sample.optString("data_sha256")).append('\n');
+                    if (sample.optInt("diagnostic_duration_ms") > 0) text.append("短时诊断结果，不能与完整时长成绩比较。\n");
+                } else if (suite.isCompression()) {
+                    text.append(suite == BenchmarkSuite.CPU ? "zlib " : "zstd ").append(sample.optString("codec_version"))
                             .append(" / 压缩级别 ").append(sample.optInt("compression_level"))
                             .append(" / 数据 ").append(sample.optLong("input_bytes") / 1024).append(" KiB\n")
                             .append("并行阶段：").append(sample.optInt("parallel_threads")).append(" 线程；每项至少 ")
                             .append(sample.optInt("duration_ms")).append(" ms\n");
                     if (sample.optInt("parallel_threads") == 1) text.append("仅 1 个可用线程，并行阶段仍为单线程。\n");
+                } else if (suite == BenchmarkSuite.MEMORY) {
+                    text.append("tinymembench C 内核 / RMB 协议；8 MiB 缓冲区，4 MiB 依赖访问\n")
+                            .append("复制计读＋写字节；延迟越低越好，包含循环及索引开销。\n");
+                } else if (suite == BenchmarkSuite.STREAM) {
+                    text.append("基于 STREAM 变体的结果 / ").append(sample.optInt("threads"))
+                            .append(" 线程；每线程 3 × 2 MiB；含缓存影响\n");
+                } else if (suite == BenchmarkSuite.SCIMARK) {
+                    text.append("NIST SciMark 2.0 内核 / 单线程 / 小数据集\n")
+                            .append("独立 RMB 计时协议；每项至少 ").append(sample.optInt("duration_ms")).append(" ms\n");
+                } else if (suite == BenchmarkSuite.COREMARK) {
+                    text.append("2000 字节 / 上游双种子校验 / 每段至少 10 秒\n")
+                            .append(sample.optString("compiler_version")).append('\n')
+                            .append(sample.optString("compiler_flags")).append('\n')
+                            .append("栈内存；PThreads / 并行线程数：").append(sample.optInt("parallel_threads")).append('\n')
+                            .append("CoreMark® 是 EEMBC 的注册商标；完整校验输出见 JSON。\n");
+                } else if (suite == BenchmarkSuite.SQLITE) {
+                    text.append("SQLite ").append(sample.optString("sqlite_version"))
+                            .append(" / 每项 ").append(sample.optInt("transactions")).append(" 个事务\n")
+                            .append("1 KiB / 行；DELETE 日志；FULL 同步提交\n");
                 } else {
                     text.append("文件 ").append(sample.optLong("file_bytes") / (1024 * 1024))
                             .append(" MiB / 随机 ").append(sample.optInt("random_operations")).append(" 次\n");
@@ -91,7 +114,7 @@ final class BenchmarkReport {
                 int completed = Math.min(sample.optInt("completed_metrics"), suite.metrics.length);
                 for (int j = 0; j < completed; j++) appendMetric(text, suite, sample, j);
                 if (!"completed".equals(sample.optString("status"))) {
-                    String errorKey = suite == BenchmarkSuite.CPU ? "error_code" : "errno";
+                    String errorKey = suite == BenchmarkSuite.STORAGE ? "errno" : "error_code";
                     text.append("停止位置：").append(sample.optString("error_stage"))
                             .append(" / ").append(errorKey).append(' ').append(sample.optInt(errorKey)).append('\n');
                 }

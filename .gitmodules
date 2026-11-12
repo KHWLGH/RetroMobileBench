@@ -1,3 +1,18 @@
 [submodule "third_party/zlib"]
 	path = third_party/zlib
 	url = https://github.com/madler/zlib.git
+[submodule "third_party/zstd"]
+	path = third_party/zstd
+	url = https://github.com/facebook/zstd.git
+[submodule "third_party/coremark"]
+	path = third_party/coremark
+	url = https://github.com/eembc/coremark.git
+[submodule "third_party/tinymembench"]
+	path = third_party/tinymembench
+	url = https://github.com/ssvb/tinymembench.git
+[submodule "third_party/stream"]
+	path = third_party/stream
+	url = https://github.com/jeffhammond/STREAM.git
+[submodule "third_party/gfxbench"]
+	path = third_party/gfxbench
+	url = https://github.com/Kishonti-Opensource/gfxbench.git

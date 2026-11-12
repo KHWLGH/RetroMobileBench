@@ -30,7 +30,7 @@ sdkmanager "ndk;23.2.8568313" "cmake;3.18.1"
 
 ## 3. Gradle 配置
 
-主 App 新增固定版本 zlib 源码子模块，首次 checkout 后先运行 `git submodule update --init third_party/zlib`。不初始化时 CMake 会给出明确错误。构建没有下载源码的步骤；只将内存 codec 源文件分别编入每套 `librmb`，`Z_PREFIX` 和隐藏符号隔离系统 libz。固定版本与许可见 [third_party/README.md](../third_party/README.md)。
+主 App 的 CPU/内存/GPU 依赖通过固定提交子模块维护，SQLite/SciMark 使用哈希固定的归档源码。初始化命令和 GFXBench 稀疏检出目录见 [third_party/README.md](../third_party/README.md)。依赖准备完成后，Gradle/CMake 不下载源码。每套 librmb 包含全部计算内核和静态 GFXBench 依赖；CPU zlib 用 Z_PREFIX、z_errmsg 私有重命名和隐藏符号隔离 GPU 旧版 zlib 及 ROM libz。
 
 实际配置见 `app/build.gradle.kts`，要点：
 
@@ -86,14 +86,14 @@ dependencies { }                            // 不加 AndroidX / appcompat / mat
 
 ## 5. 构建变体
 
-数据包的两种提供方式（见 [06](06-data-packs.md)）用 product flavor 区分：
+当前通过 Gradle 属性选择内置数据，尚未定义 product flavor：
 
-| flavor | 内容 | 大小 |
-|---|---|---|
-| `lite` | App + 三套原生库 + 底层 GPU 测试需要的小数据（不到 3 MB） | 主要取决于原生库：GFXBench 部分每套约 17 MB（未压缩、未裁剪符号） |
-| `full` | 再加 T-Rex、Egypt 的 ETC1 场景数据 | 比 lite 多约 171 MB |
+| 构建参数 | 内容 |
+|---|---|
+| 默认 | 三套原生库 + 四项底层 GPU 数据（约 2.6 MB 解包后） |
+| `-PgpuData=full` | 再加 T-Rex/Egypt ETC1（约 171 MB 解包后） |
 
-两个 flavor 用同一个 `applicationId`，装哪个都行，不能同时装。full 版可以通过"导入"把数据复制到 SD 卡给别的设备用，反过来 lite 版可以导入数据包。
+`generateGpuPack` 输出 `app/build/generated/gpuPack/gpu-data.zip`；所有 variant 的 assets 自动引用该任务。默认/完整构建使用同一 applicationId，安装会更新同一 App。默认版可以导入完整 ZIP；导入目标目前是内部私有目录。详见 [06](06-data-packs.md)。
 
 ## 6. GFXBench 的构建
 
@@ -111,16 +111,16 @@ scripts\feasibility-gfxbench-run.ps1
 
 - CMake 工程：`feasibility/gfxbench-es2/CMakeLists.txt`（源文件清单、宏定义见 [04](04-gfxbench-port.md) §4.2）。
 - 每次全量编译约 200 个文件，本机 Ninja 并行编译约 20 秒。
-- 产物：`libgfxbench_es2_probe.so`（JNI 入口，以后并进 `librmb.so`）和 `gfxprobe`（命令行程序，用 `adb shell` 直接跑测试，不需要 App）。
-- 并进 App 时，把这个 CMake 工程的内容合并进 `native/CMakeLists.txt`（M4）。
+- 独立模式仍输出 `libgfxbench_es2_probe.so` 和 `gfxprobe`，用于不安装 App 的可行性检查。
+- **App 已整合**：`native/CMakeLists.txt` 每套库调用该子工程，静态目标名带 rmb_/rmb_noneon_ 前缀，宿主/JNI 直接加入主库；不产生额外 App 动态依赖。无 NEON 子工程所有源文件同样加 -mfpu=vfpv3-d16，C++ 运行时静态链接。
 
 ## 7. 获取第三方源码
 
 | 组件 | 获取方式 | 备注 |
 |---|---|---|
 | GFXBench | `git clone --filter=blob:none --depth 1` 后用 sparse-checkout 只取 `frameworks`、`gfxbench40`、`scripts`、`app_android`、`doc`、`3rdparty/zlib`、`3rdparty/libpng`、`3rdparty/poco/Foundation` | 完整仓库约 1.7 GB；场景数据见下 |
-| GFXBench 场景数据 | 不用 sparse-checkout，按需批量取 blob（`scripts/feasibility-gfxbench-run.ps1` 已实现） | 见下方说明 |
-| CoreMark、cpuinfo、zstd、zlib、tinymembench | git submodule，固定到具体 commit | 固定版本，成绩才可比 |
+| GFXBench 场景数据 | App 子模块可用 sparse-checkout add 检出；独立脚本使用批量 blob 导出 | 第三方 README 给出 App 实际命令；下方记录早期逐对象下载问题 |
+| CoreMark、zstd、zlib、tinymembench、STREAM、GFXBench | git submodule，固定到具体 commit | 版本见 third_party/README；cpuinfo 尚未引入 |
 | SciMark 2 | 从 NIST 下载 C 源码包，直接放进仓库 | 没有 git 仓库 |
 | SQLite | 下载 amalgamation 源码包 | 固定版本 |
 
@@ -131,4 +131,4 @@ scripts\feasibility-gfxbench-run.ps1
 - 正确做法：先用 `git ls-tree -r` 列出要的文件（只要 `images_ETC1`），用 `git cat-file --batch-check` 找出本地缺的对象，再用 `git fetch origin <sha>...` 每批 200 个取回来（T-Rex 加 common 约 900 个对象，34 秒），最后通过临时索引文件（`GIT_INDEX_FILE`）+ `git checkout-index` 导出，不碰克隆本身的工作区。
 - 设置 `GIT_NO_LAZY_FETCH=1` 可以让漏取的对象直接报错，而不是悄悄开始逐个下载。
 
-调研时的浅克隆在 `%TEMP%\rmb-research\gfxbench`（不含场景数据，已包含 Poco Foundation），可以直接拿来开始移植。
+调研时的浅克隆在 `%TEMP%\rmb-research\gfxbench`，独立脚本默认仍使用它。主 App 使用仓库内固定提交的 `third_party/gfxbench`，不依赖临时研究目录。

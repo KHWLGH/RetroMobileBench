@@ -110,7 +110,7 @@
 | 无 NEON 版在 Tegra 2 上跑通 | Motorola Xoom、Galaxy Tab 10.1 等 | M5 |
 | 不支持片元 highp 的 GPU 上 gl_blending 能跑 | Mali-400 或 Tegra 2/3 | M1 |
 | 屏上测试（窗口表面） | App 里的 `SurfaceView` 宿主 | M4 |
-| CPU / 内存 / 存储组件在 API 16 上编译运行 | — | M3 |
+| CPU / 内存 / 存储组件的 ARM 真机稳定性与对比 | App 已集成，API 16 x86 功能验证见 [11](11-backend.md)；仍需实机 | M3 |
 
 ## 6. 在真机上复现
 

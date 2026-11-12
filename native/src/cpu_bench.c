@@ -15,7 +15,39 @@
 
 #define DATA_BYTES (1024U * 1024U)
 #define MAX_THREADS 4
+#ifdef RMB_CODEC_ZSTD
+#include <zstd.h>
+#include <zstd_errors.h>
+#if ZSTD_VERSION_NUMBER != 10507
+#error "cpu-zstd-v1 requires the pinned zstd 1.5.7 source"
+#endif
+#define rmb_cpu_reset_cancel rmb_zstd_reset_cancel
+#define rmb_cpu_cancel rmb_zstd_cancel
+#define rmb_cpu_run rmb_zstd_run
+#define LEVEL 3
+#define SUITE_VERSION "cpu-zstd-v1"
+#define codec_bound ZSTD_compressBound
+#define codec_version ZSTD_versionString
+static int codec_compress(unsigned char *out, uLong *length, const unsigned char *in, uLong size, int level) {
+    size_t result = ZSTD_compress(out, *length, in, size, level);
+    if (ZSTD_isError(result)) return -1000 - (int) ZSTD_getErrorCode(result);
+    *length = (uLong) result;
+    return 0;
+}
+static int codec_decompress(unsigned char *out, uLong *length, const unsigned char *in, uLong size) {
+    size_t result = ZSTD_decompress(out, *length, in, size);
+    if (ZSTD_isError(result)) return -1000 - (int) ZSTD_getErrorCode(result);
+    *length = (uLong) result;
+    return 0;
+}
+#else
 #define LEVEL 6
+#define SUITE_VERSION "cpu-zlib-v1"
+#define codec_bound compressBound
+#define codec_version zlibVersion
+#define codec_compress compress2
+#define codec_decompress uncompress
+#endif
 
 static int cancelled;
 void rmb_cpu_reset_cancel(void) { __atomic_store_n(&cancelled, 0, __ATOMIC_RELAXED); }
@@ -61,14 +93,14 @@ typedef struct {
 static int operation(worker *w) {
     w->output_size = w->compressing ? w->bound : DATA_BYTES;
     if (w->compressing)
-        return compress2(w->output, &w->output_size, w->input, DATA_BYTES, LEVEL);
-    return uncompress(w->output, &w->output_size, w->packed, w->packed_size);
+        return codec_compress(w->output, &w->output_size, w->input, DATA_BYTES, LEVEL);
+    return codec_decompress(w->output, &w->output_size, w->packed, w->packed_size);
 }
 
 static int validate(worker *w) {
     if (w->compressing) {
         uLong length = DATA_BYTES;
-        int code = uncompress(w->verify, &length, w->output, w->output_size);
+        int code = codec_decompress(w->verify, &length, w->output, w->output_size);
         if (code != Z_OK) return code;
         if (length != DATA_BYTES || memcmp(w->verify, w->input, DATA_BYTES) != 0)
             return Z_DATA_ERROR;
@@ -125,7 +157,7 @@ static int measure(const unsigned char *input, const unsigned char *packed, uLon
         w->input = input;
         w->packed = packed;
         w->packed_size = packed_size;
-        w->bound = compressBound(DATA_BYTES);
+        w->bound = codec_bound(DATA_BYTES);
         w->compressing = compressing;
         w->output = malloc(w->bound);
         if (compressing) w->verify = malloc(DATA_BYTES);
@@ -188,13 +220,13 @@ void rmb_cpu_run(int parallel_threads, int duration_ms, char *json, size_t capac
     if (is_cancelled()) goto finish;
     stage = "allocate";
     input = malloc(DATA_BYTES);
-    packed_size = compressBound(DATA_BYTES);
+    packed_size = codec_bound(DATA_BYTES);
     packed = malloc(packed_size);
     if (!input || !packed) { error = ENOMEM; goto finish; }
     stage = "corpus";
     make_data(input);
     checksum = crc32(0L, input, DATA_BYTES);
-    error = compress2(packed, &packed_size, input, DATA_BYTES, LEVEL);
+    error = codec_compress(packed, &packed_size, input, DATA_BYTES, LEVEL);
     if (error != Z_OK) goto finish;
     for (int i = 0; i < 4; i++) {
         stage = stages[i];
@@ -210,7 +242,7 @@ finish:
     free(input);
     const char *status = error ? "failed" : is_cancelled() ? "cancelled" : "completed";
     snprintf(json, capacity,
-        "{\"test_version\":\"cpu-zlib-v1\",\"status\":\"%s\",\"error_stage\":\"%s\",\"error_code\":%d,"
+        "{\"test_version\":\"" SUITE_VERSION "\",\"status\":\"%s\",\"error_stage\":\"%s\",\"error_code\":%d,"
         "\"codec_version\":\"%s\",\"corpus_version\":\"mixed-1m-v1\",\"input_bytes\":%u,"
         "\"input_crc32\":%lu,\"compressed_bytes\":%lu,\"compression_level\":%d,"
         "\"parallel_threads\":%d,\"duration_ms\":%d,\"completed_metrics\":%d,"
@@ -218,7 +250,7 @@ finish:
         "\"parallel_compress_mbps\":%.6f,\"parallel_decompress_mbps\":%.6f,"
         "\"elapsed_seconds\":[%.9f,%.9f,%.9f,%.9f],"
         "\"iterations\":[%llu,%llu,%llu,%llu]}",
-        status, stage, error, zlibVersion(), DATA_BYTES, checksum, packed_size, LEVEL,
+        status, stage, error, codec_version(), DATA_BYTES, checksum, packed_size, LEVEL,
         parallel_threads, duration_ms, completed, mbps[0], mbps[1], mbps[2], mbps[3],
         elapsed[0], elapsed[1], elapsed[2], elapsed[3],
         iterations[0], iterations[1], iterations[2], iterations[3]);

@@ -27,7 +27,11 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # Same spirit as GFXBench's compiler_flags.cmake, minus -pedantic-errors: we want to see
 # real API-level problems, not style errors from a newer clang.
-add_compile_options(-w -fno-strict-aliasing)
+add_compile_options(-w -O2 -fno-strict-aliasing -fvisibility=hidden)
+# When embedded, each ABI/NEON variant owns a complete set of static libraries.
+if(NOT DEFINED RMB_GFX_PREFIX)
+    set(RMB_GFX_PREFIX "")
+endif()
 
 # Tegra 2 build (decision 5): no NEON anywhere, same flag as native/CMakeLists.txt uses
 # for librmb_noneon.so. Check the result with scripts/check-neon.ps1.
@@ -51,28 +55,28 @@ configure_file("${G}/3rdparty/zlib/zconf.h.cmakein" "${GEN}/zconf.h" @ONLY)
 configure_file("${G}/3rdparty/libpng/scripts/pnglibconf.h.prebuilt" "${GEN}/pnglibconf.h" COPYONLY)
 
 # --- zlib (the GFXBench-bundled copy) ----------------------------------------
-add_library(gfx_zlib STATIC
+add_library(${RMB_GFX_PREFIX}gfx_zlib STATIC
     ${G}/3rdparty/zlib/adler32.c ${G}/3rdparty/zlib/compress.c ${G}/3rdparty/zlib/crc32.c
     ${G}/3rdparty/zlib/deflate.c ${G}/3rdparty/zlib/gzclose.c ${G}/3rdparty/zlib/gzlib.c
     ${G}/3rdparty/zlib/gzread.c ${G}/3rdparty/zlib/gzwrite.c ${G}/3rdparty/zlib/inflate.c
     ${G}/3rdparty/zlib/infback.c ${G}/3rdparty/zlib/inftrees.c ${G}/3rdparty/zlib/inffast.c
     ${G}/3rdparty/zlib/trees.c ${G}/3rdparty/zlib/uncompr.c ${G}/3rdparty/zlib/zutil.c)
-target_include_directories(gfx_zlib PUBLIC "${GEN}" "${G}/3rdparty/zlib")
+target_include_directories(${RMB_GFX_PREFIX}gfx_zlib PUBLIC "${GEN}" "${G}/3rdparty/zlib")
 
 # --- libpng 1.6.7 (NEON code disabled, as GFXBench's CMake does) --------------
-add_library(gfx_png STATIC
+add_library(${RMB_GFX_PREFIX}gfx_png STATIC
     ${G}/3rdparty/libpng/png.c ${G}/3rdparty/libpng/pngerror.c ${G}/3rdparty/libpng/pngget.c
     ${G}/3rdparty/libpng/pngmem.c ${G}/3rdparty/libpng/pngpread.c ${G}/3rdparty/libpng/pngread.c
     ${G}/3rdparty/libpng/pngrio.c ${G}/3rdparty/libpng/pngrtran.c ${G}/3rdparty/libpng/pngrutil.c
     ${G}/3rdparty/libpng/pngset.c ${G}/3rdparty/libpng/pngtrans.c ${G}/3rdparty/libpng/pngwio.c
     ${G}/3rdparty/libpng/pngwrite.c ${G}/3rdparty/libpng/pngwtran.c ${G}/3rdparty/libpng/pngwutil.c)
-target_compile_definitions(gfx_png PRIVATE PNG_ARM_NEON_OPT=0)
-target_include_directories(gfx_png PUBLIC "${G}/3rdparty/libpng" "${GEN}")
-target_link_libraries(gfx_png PUBLIC gfx_zlib)
+target_compile_definitions(${RMB_GFX_PREFIX}gfx_png PRIVATE PNG_ARM_NEON_OPT=0)
+target_include_directories(${RMB_GFX_PREFIX}gfx_png PUBLIC "${G}/3rdparty/libpng" "${GEN}")
+target_link_libraries(${RMB_GFX_PREFIX}gfx_png PUBLIC ${RMB_GFX_PREFIX}gfx_zlib)
 
 # --- ngrtl core (logging, json, streams) --------------------------------------
 set(NGRTL "${FW}/ngrtl")
-add_library(gfx_ngrtl STATIC
+add_library(${RMB_GFX_PREFIX}gfx_ngrtl STATIC
     ${NGRTL}/libs/core/src/require.cpp ${NGRTL}/libs/core/src/format.cpp
     ${NGRTL}/libs/core/src/stream/bytestream.cpp ${NGRTL}/libs/core/src/stream/filestreambuf.cpp
     ${NGRTL}/libs/core/src/stream/memstreambuf.cpp ${NGRTL}/libs/core/src/stream/textstream.cpp
@@ -88,21 +92,21 @@ add_library(gfx_ngrtl STATIC
     ${NGRTL}/libs/core/src/json_var/json_parse.cpp ${NGRTL}/libs/core/src/json_var/json_stringify.cpp
     ${NGRTL}/libs/core/src/json_var/js_json.cpp ${NGRTL}/libs/core/src/result.cpp
     ${NGRTL}/libs/core/src/frequency_counter.cpp ${NGRTL}/libs/core/src/hr_clock.cpp)
-target_compile_definitions(gfx_ngrtl PUBLIC NGRTL_STATIC NGLOG_ENABLE=NGLOG_SEVERITY_INFO)
-target_include_directories(gfx_ngrtl PUBLIC "${NGRTL}/include/core")
-target_link_libraries(gfx_ngrtl PUBLIC log)
+target_compile_definitions(${RMB_GFX_PREFIX}gfx_ngrtl PUBLIC NGRTL_STATIC NGLOG_ENABLE=NGLOG_SEVERITY_INFO)
+target_include_directories(${RMB_GFX_PREFIX}gfx_ngrtl PUBLIC "${NGRTL}/include/core")
+target_link_libraries(${RMB_GFX_PREFIX}gfx_ngrtl PUBLIC log)
 
 # --- platform-utils (JNI glue: AssetManager, battery) -------------------------
-add_library(gfx_platform STATIC ${FW}/platform-utils/platform_android.cpp ${FW}/platform-utils/battery.cpp)
-target_include_directories(gfx_platform PUBLIC "${FW}/platform-utils")
-target_link_libraries(gfx_platform PUBLIC log android)
+add_library(${RMB_GFX_PREFIX}gfx_platform STATIC ${FW}/platform-utils/platform_android.cpp ${FW}/platform-utils/battery.cpp)
+target_include_directories(${RMB_GFX_PREFIX}gfx_platform PUBLIC "${FW}/platform-utils")
+target_link_libraries(${RMB_GFX_PREFIX}gfx_platform PUBLIC log android)
 
 # --- Common GL definitions for everything GFXBench --------------------------------
 # HAVE_GLES2 without HAVE_GLES3 is the whole point: API 16 has no libGLESv3.
 set(GFX_DEFS USE_ANY_GL HAVE_EGL HAVE_GLES HAVE_GLES2 GFXB_DEPRECATED DISPLAY_PROTOCOL_ANDROID=1)
 
 # --- KCL (scene graph, image/texture loading, IO) ------------------------------
-add_library(gfx_kcl STATIC
+add_library(${RMB_GFX_PREFIX}gfx_kcl STATIC
     ${KCL}/src/mesh_tool.cpp ${KCL}/src/kcl_base.cpp ${KCL}/src/kcl_actor.cpp
     ${KCL}/src/kcl_animation4.cpp ${KCL}/src/kcl_animationtrack.cpp ${KCL}/src/kcl_camera2.cpp
     ${KCL}/src/kcl_effect.cpp ${KCL}/src/kcl_image.cpp ${KCL}/src/kcl_light2.cpp
@@ -126,20 +130,20 @@ add_library(gfx_kcl STATIC
     ${KCLLIB}/libogg_theora_vorbis/src/idct.c ${KCLLIB}/libogg_theora_vorbis/src/info.c
     ${KCLLIB}/libogg_theora_vorbis/src/internal.c ${KCLLIB}/libogg_theora_vorbis/src/quant.c
     ${KCLLIB}/libogg_theora_vorbis/src/state.c)
-target_compile_definitions(gfx_kcl PUBLIC ${GFX_DEFS})
-target_include_directories(gfx_kcl PUBLIC
+target_compile_definitions(${RMB_GFX_PREFIX}gfx_kcl PUBLIC ${GFX_DEFS})
+target_include_directories(${RMB_GFX_PREFIX}gfx_kcl PUBLIC
     "${KCL}/src" "${KCLLIB}/libetc1/src" "${KCLLIB}/libogg_theora_vorbis" "${KCLLIB}/tinythread"
     "${KCLLIB}/tinyxml/src" "${KCLLIB}/tinyxml2/src" "${FW}/oglx/..")
-target_link_libraries(gfx_kcl PUBLIC gfx_png gfx_ngrtl gfx_platform)
+target_link_libraries(${RMB_GFX_PREFIX}gfx_kcl PUBLIC ${RMB_GFX_PREFIX}gfx_png ${RMB_GFX_PREFIX}gfx_ngrtl ${RMB_GFX_PREFIX}gfx_platform)
 
 # --- KRL (render-layer scene/material base) -----------------------------------
-add_library(gfx_krl STATIC
+add_library(${RMB_GFX_PREFIX}gfx_krl STATIC
     ${FW}/krl/krl_material.cpp ${FW}/krl/krl_scene.cpp ${FW}/krl/krl_scene_reload.cpp ${FW}/krl/krl_mesh.cpp)
-target_include_directories(gfx_krl PUBLIC "${FW}/krl")
-target_link_libraries(gfx_krl PUBLIC gfx_kcl)
+target_include_directories(${RMB_GFX_PREFIX}gfx_krl PUBLIC "${FW}/krl")
+target_link_libraries(${RMB_GFX_PREFIX}gfx_krl PUBLIC ${RMB_GFX_PREFIX}gfx_kcl)
 
 # --- testfw core + schemas (no SWIG / Java here) ----------------------------------
-add_library(gfx_testfw STATIC
+add_library(${RMB_GFX_PREFIX}gfx_testfw STATIC
     ${FW}/testfw/testfw.cpp
     ${FW}/testfw/graphics/eglgraphicscontext.cpp
     ${FW}/testfw/schemas/apidefinition.cpp ${FW}/testfw/schemas/descriptors.cpp
@@ -151,9 +155,9 @@ add_library(gfx_testfw STATIC
     ${FW}/testfw/schemas/gfxresult.cpp ${FW}/testfw/schemas/result.cpp
     ${FW}/testfw/schemas/graphics.cpp ${FW}/testfw/schemas/compute.cpp
     ${FW}/testfw/schemas/environment.cpp)
-target_compile_definitions(gfx_testfw PUBLIC ${GFX_DEFS})
-target_include_directories(gfx_testfw PUBLIC "${FW}/testfw" "${FW}/testfw/schemas")
-target_link_libraries(gfx_testfw PUBLIC gfx_ngrtl EGL GLESv2 dl)
+target_compile_definitions(${RMB_GFX_PREFIX}gfx_testfw PUBLIC ${GFX_DEFS})
+target_include_directories(${RMB_GFX_PREFIX}gfx_testfw PUBLIC "${FW}/testfw" "${FW}/testfw/schemas")
+target_link_libraries(${RMB_GFX_PREFIX}gfx_testfw PUBLIC ${RMB_GFX_PREFIX}gfx_ngrtl EGL GLESv2 dl)
 
 # --- GFXBench ES2 tests ---------------------------------------------------------
 set(GL_COMMON
@@ -206,30 +210,36 @@ set(GFX_FRONT
     ${G40}/tests/40/corporate/create_factory_egypt_corporate.cpp
     ${G40}/tests/40/corporate/create_factory_lowlevel_corporate.cpp)
 
-add_library(gfxbench_es2 STATIC ${GL_COMMON} ${GFX30_SCENE} ${GFX30_LOWLEVEL} ${GFX_FRONT})
+add_library(${RMB_GFX_PREFIX}gfxbench_es2 STATIC ${GL_COMMON} ${GFX30_SCENE} ${GFX30_LOWLEVEL} ${GFX_FRONT})
 # OPT_TEST_GFX2: build GLB_Scene_ES2 (T-Rex, Egypt). Deliberately NOT defining
 # OPT_TEST_GFX30/31/40 or HAVE_GLES3.
-target_compile_definitions(gfxbench_es2 PRIVATE OPT_TEST_GFX2 PRODUCT_VERSION=4.0.0)
-target_include_directories(gfxbench_es2 PRIVATE
+target_compile_definitions(${RMB_GFX_PREFIX}gfxbench_es2 PRIVATE OPT_TEST_GFX2 PRODUCT_VERSION=4.0.0)
+target_include_directories(${RMB_GFX_PREFIX}gfxbench_es2 PRIVATE
     "${G40}" "${G40}/common" "${G40}/es2_common"
     "${G40}/gfx3_0" "${G40}/gfx3_0/high_level_tests_3" "${G40}/gfx3_0/low_level_tests"
     "${G40}/gfxbench" "${G40}/gfxbench/corporate" "${G40}/frame_player"
     "${G}/gfxbench40/resources/data/gfx/shaders_40/shaders.20")
-target_link_libraries(gfxbench_es2 PUBLIC gfx_krl gfx_kcl gfx_testfw)
+target_link_libraries(${RMB_GFX_PREFIX}gfxbench_es2 PUBLIC ${RMB_GFX_PREFIX}gfx_krl ${RMB_GFX_PREFIX}gfx_kcl ${RMB_GFX_PREFIX}gfx_testfw)
 
 # --- Final shared library: everything linked in, no undefined symbols ------------
 set(GFX_LINK_LIBS
-    -Wl,--whole-archive gfxbench_es2 -Wl,--no-whole-archive
-    gfx_testfw gfx_krl gfx_kcl gfx_png gfx_zlib gfx_ngrtl gfx_platform
+    -Wl,--whole-archive ${RMB_GFX_PREFIX}gfxbench_es2 -Wl,--no-whole-archive
+    ${RMB_GFX_PREFIX}gfx_testfw ${RMB_GFX_PREFIX}gfx_krl ${RMB_GFX_PREFIX}gfx_kcl ${RMB_GFX_PREFIX}gfx_png ${RMB_GFX_PREFIX}gfx_zlib ${RMB_GFX_PREFIX}gfx_ngrtl ${RMB_GFX_PREFIX}gfx_platform
     EGL GLESv2 log android dl m)
 
 set(RMB_HOST_SRCS probe_main.cpp rmb_egl_context.cpp)
 
-add_library(gfxbench_es2_probe SHARED ${RMB_HOST_SRCS})
-target_link_libraries(gfxbench_es2_probe PRIVATE ${GFX_LINK_LIBS})
-target_link_options(gfxbench_es2_probe PRIVATE -Wl,--no-undefined)
-
-# --- Command-line runner for adb shell (no Java needed) ----------------------------
-# PIE, the NDK default: Android 4.1 runs PIE executables and 5.0+ requires them.
-add_executable(gfxprobe cli_main.cpp ${RMB_HOST_SRCS})
-target_link_libraries(gfxprobe PRIVATE ${GFX_LINK_LIBS})
+if(RMB_EMBED_TARGET)
+    target_sources(${RMB_EMBED_TARGET} PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/probe_main.cpp ${CMAKE_CURRENT_SOURCE_DIR}/rmb_egl_context.cpp)
+    target_link_libraries(${RMB_EMBED_TARGET} PRIVATE ${GFX_LINK_LIBS})
+    target_compile_features(${RMB_EMBED_TARGET} PRIVATE cxx_std_11)
+    target_link_options(${RMB_EMBED_TARGET} PRIVATE -Wl,--no-undefined -Wl,--exclude-libs,ALL)
+else()
+    add_library(gfxbench_es2_probe SHARED ${RMB_HOST_SRCS})
+    target_link_libraries(gfxbench_es2_probe PRIVATE ${GFX_LINK_LIBS})
+    target_link_options(gfxbench_es2_probe PRIVATE -Wl,--no-undefined)
+    # PIE works on Android 4.1 and is required on 5.0+.
+    add_executable(gfxprobe cli_main.cpp ${RMB_HOST_SRCS})
+    target_link_libraries(gfxprobe PRIVATE ${GFX_LINK_LIBS})
+endif()

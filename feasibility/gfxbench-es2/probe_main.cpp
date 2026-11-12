@@ -104,6 +104,12 @@ std::string rmbRunGfxTest(const std::string &configPath, const std::string &data
     desc.env().setWidth(width);
     desc.env().setHeight(height);
     if (playTimeMs > 0) desc.setRawConfig("play_time", (double) playTimeMs);
+    // Enforce bounded, offscreen runs even when a user-supplied pack has altered config.
+    desc.setRawConfig("endless", false);
+    desc.setRawConfig("battery", false);
+    desc.setRawConfig("screenmode", 1.0);
+    desc.setRawConfig("offscreen_width", 1920.0);
+    desc.setRawConfig("offscreen_height", 1080.0);
     // ETC1 is the one compressed format every ES2 device has (docs/04 §4.6).
     desc.setRawConfig("texture_type", std::string("ETC1"));
     // Debug aid: RMB_SCREENSHOT_FRAMES="5000,20000" makes GFXBench save those
@@ -147,10 +153,16 @@ std::string rmbRunGfxTest(const std::string &configPath, const std::string &data
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_retromobilebench_GfxProbe_runTest(JNIEnv *env, jclass, jstring jconfig, jstring jdata,
                                            jstring jwrite, jint width, jint height, jint playTimeMs) {
+    if (!jconfig || !jdata || !jwrite) return env->NewStringUTF("ERROR: null GPU path");
     const char *c = env->GetStringUTFChars(jconfig, nullptr);
+    if (!c) return nullptr;
     const char *d = env->GetStringUTFChars(jdata, nullptr);
+    if (!d) { env->ReleaseStringUTFChars(jconfig, c); return nullptr; }
     const char *w = env->GetStringUTFChars(jwrite, nullptr);
-    std::string res = rmbRunGfxTest(c, d, w, width, height, playTimeMs);
+    if (!w) { env->ReleaseStringUTFChars(jconfig, c); env->ReleaseStringUTFChars(jdata, d); return nullptr; }
+    std::string res;
+    try { res = rmbRunGfxTest(c, d, w, width, height, playTimeMs); }
+    catch (const std::exception &error) { res = std::string("ERROR: ") + error.what(); }
     env->ReleaseStringUTFChars(jconfig, c);
     env->ReleaseStringUTFChars(jdata, d);
     env->ReleaseStringUTFChars(jwrite, w);

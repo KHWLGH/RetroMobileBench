@@ -25,7 +25,9 @@
 
 全部是宽松许可证，App 本身用什么许可证（开源或闭源）都可以。
 
-当前主 App 实际引入 **zlib 1.3.1**，固定提交 `51b7f2abdade71cd9bb0e7a373ef2610ec6f9daf`；源码未修改，构建定义 `Z_PREFIX` 并只选择内存 codec 文件。许可证原文在 `third_party/zlib/LICENSE`，也随 APK 打包于 `app/src/main/assets/licenses.txt`，界面“开源许可”可查看。其他表中组件除独立 GFXBench 可行性工程外仍为计划依赖。
+当前主 App 已引入 **zlib 1.3.1、zstd 1.5.7、SQLite 3.53.1、CoreMark、SciMark C 2.0、tinymembench C 内核、STREAM 变体及 GFXBench ES2**。固定提交/归档 SHA-256 和本地修改见 [third_party/README.md](../third_party/README.md)。pytorch/cpuinfo 尚未引入；Poco、IJG 未编入当前 GPU 目标。
+
+APK 中 `licenses.txt` 提供版本、项目来源和署名；Gradle 从实际依赖生成 `benchmark-notices.txt`，收录 CoreMark Apache/商标协议、STREAM、tinymembench、GFXBench、libpng、GPU zlib、tinyxml/tinyxml2、libetc1 原始许可；`xiph-notices.txt` 提供 libogg/libtheora BSD 声明。界面“开源许可”合并显示三份文件。GFXBench 数据包清单同时附 CC BY 4.0 链接、版权和 ETC1 子集/删图/精度回退修改说明。
 
 ## 2. 成绩命名规则
 

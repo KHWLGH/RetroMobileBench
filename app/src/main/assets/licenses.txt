@@ -27,3 +27,88 @@ Copyright notice:
 
   Jean-loup Gailly        Mark Adler
   jloup@gzip.org          madler@alumni.caltech.edu
+
+────────────────
+Zstandard 1.5.7 — https://github.com/facebook/zstd
+固定提交：f8745da6ff1ad1e7bab384bd1f9d742439278e99
+源码未修改；选择 BSD 许可。只编译 codec，关闭汇编和 legacy 支持。
+
+BSD License
+
+For Zstandard software
+
+Copyright (c) Meta Platforms, Inc. and affiliates. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification,
+are permitted provided that the following conditions are met:
+
+ * Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+
+ * Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+ * Neither the name Facebook, nor Meta, nor the names of its contributors may
+   be used to endorse or promote products derived from this software without
+   specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+────────────────
+SQLite 3.53.1 — https://sqlite.org
+官方 amalgamation，源码未修改，用于固定版本事务跑分。
+SQLite 位于公有领域：https://sqlite.org/copyright.html
+
+The author disclaims copyright to this source code. In place of
+ a legal notice, here is a blessing:
+
+    May you do good and not evil.
+    May you find forgiveness for yourself and forgive others.
+    May you share freely, never taking more than you give.
+
+────────────────
+CoreMark® 1.0 — https://github.com/eembc/coremark
+固定提交：1f483d5b8316753a742cbf5590caf5bd0a4e4777
+Copyright 2018 Embedded Microprocessor Benchmark Consortium (EEMBC).
+CoreMark® is a registered trademark of EEMBC.
+核心源码未修改；自定义 core_portme Android 端口。完整 Apache 2.0 许可和商标使用约定见后附原文件。
+只有两组种子都校验通过且各正式计时不少于 10 秒，才报告成绩。
+
+SciMark 2.0 (C) — https://math.nist.gov/scimark2/
+Authors: Roldan Pozo and Bruce Miller, National Institute of Standards and Technology.
+NIST public-domain numerical benchmark. 原始包 scimark2c.zip。
+RetroMobileBench 修改 Random.c / MonteCarlo.c 的内存不足处理；计算内核不变。
+独立墙钟计时、预热和校验驱动；展示内核 MFLOPS，不宣称是原版 SciMark 综合成绩。
+
+TinyMemBench — https://github.com/ssvb/tinymembench
+固定提交：a2cf6d7e382e3aea1eb39173174d9fa28cad15f3
+Copyright © 2011 Siarhei Siamashka <siarhei.siamashka@gmail.com>.
+仅使用原版 util.c 的 C 复制/填充内核；独立计时协议。随机依赖延迟由本项目实现。
+完整 MIT 许可见后附 util.h 文件头。
+
+STREAM — https://www.cs.virginia.edu/stream/
+参考源码镜像：https://github.com/jeffhammond/STREAM
+固定提交：6703f7504a38a8da96b353cadafa64d3c2d7a2d3
+Copyright 1991-2003: John D. McCalpin.
+Based on a variant of the STREAM benchmark code.
+RMB 改用 pthread、固定每线程工作集与持续重复计时；结果属于 STREAM 变体，可能受缓存影响。
+完整许可和成绩发布规则见后附 LICENSE.txt。
+
+────────────────
+GFXBench ES2 — https://github.com/Kishonti-Opensource/gfxbench
+固定提交：89aa956f43836798d1eaaab8ec32d3dc8b02eead
+Copyright (c) 2005-2025 Kishonti Ltd.
+代码 BSD 3-Clause；素材 CC BY 4.0：https://creativecommons.org/licenses/by/4.0/
+修改：ES2 子集构建、Android 4.1 EGL 宿主、静态工厂、独立进程；素材只保留 ETC1、去掉画质参考图，ui.fs 增加 mediump 回退。
+结果来自本项目移植版；未获得 Kishonti 的认证或背书。
+内含 libpng、zlib、TinyXML、TinyXML2、libetc1 及 Xiph Ogg/Theora 代码，完整通知见后附。

@@ -39,7 +39,7 @@ API 16 的 bionic 缺很多后来才加的函数，编译时 NDK 会按 API 等�
 | `pthread_barrier_*` | 24 | 自己写多线程测试时可能想用 | 用 mutex + condvar 自己实现 |
 | `pthread_setaffinity_np` | 36 | CoreMark-PRO（我们不用） | 绑核用 `sched_setaffinity`（API 16 就有） |
 | `getline` | 18 | — | 解析 /proc 文件时用 `fgets` |
-| `_FILE_OFFSET_BITS=64` | — | SQLite 默认会定义 | API 24 以下有些 off_t 函数不可用；编 SQLite 时可能要加 `-DSQLITE_DISABLE_LFS`（待验证） |
+| `_FILE_OFFSET_BITS=64` | — | SQLite 默认会定义 | 当前 SQLite 3.53.1 已用 `SQLITE_DISABLE_LFS=1`、`SQLITE_TEMP_STORE=3`，API 16 x86 事务验证通过 |
 
 ## 4. 图形
 

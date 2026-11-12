@@ -1,6 +1,6 @@
 # 01 架构
 
-> 本文主要是完整版本的设计方案。当前已实现 Java `BenchmarkRunner` / `BenchmarkSuite`、`ResultStore`、`DeviceSnapshot`、存储文件读写及 zlib CPU 压缩 JNI、最小 Holo 控制界面和许可入口，详见 [11-backend.md](11-backend.md)。CoreMark、SciMark、zstd、内存、SQLite 事务、GPU 调度和最终计分仍是待实现部分。
+> 当前已实现串行调度、CPU / 内存 / 存储 / SQLite 后端、GPU 独立进程、场景包校验导入、三轮中位数、全部顺序运行和本地记录。实际协议见 [11-backend.md](11-backend.md)。下文的计分、完整产品页面、外置 SD 目录选择和 cpuinfo 微架构识别仍是设计项；现阶段展示原始测量值。
 
 ## 1. 总体结构
 
@@ -74,6 +74,8 @@
 - 读不到 ARM 指令集能力时保守选择无 NEON；无 NEON 库加载失败时报告错误，不回退到 NEON 库，防止 Tegra 2 在加载阶段执行非法指令。
 
 ## 4. 运行流程
+
+实际版本提供“所选单轮 / 所选三轮 / 全部依次一轮”，全部模式按 BenchmarkSuite 枚举顺序运行并逐项保存；条件不满足直接记录跳过，不提供强制越过温度/电量检查。GPU 私有 :gpu Service 已实现，每项结束/取消/超时后退出进程。下列快速/完整套餐和屏上界面是后续产品设计，尚未作为独立模式实现。
 
 一次完整跑分的顺序（暂定，按"先轻后重、先冷后热"排列）：
 

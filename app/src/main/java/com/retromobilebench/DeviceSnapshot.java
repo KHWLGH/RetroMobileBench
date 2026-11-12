@@ -8,6 +8,7 @@ import android.os.BatteryManager;
 import android.os.Build;
 import android.os.StatFs;
 
+import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -55,6 +56,8 @@ final class DeviceSnapshot {
         data.put("cpu0_frequency_khz", firstLine("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq"));
         data.put("cpu0_max_frequency_khz", firstLine("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq"));
         data.put("cpu0_governor", firstLine("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor"));
+        data.put("cpu_cores", cpuCores());
+        data.put("cpu_identity", cpuIdentity());
         Intent battery = context.registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
         if (battery != null) {
             int level = battery.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
@@ -72,6 +75,45 @@ final class DeviceSnapshot {
         StatFs stat = new StatFs(directory.getAbsolutePath());
         // Cast BEFORE multiplying: even a small old phone can overflow a 32-bit product.
         return (long) stat.getAvailableBlocks() * (long) stat.getBlockSize();
+    }
+
+    private static JSONArray cpuCores() throws JSONException {
+        JSONArray cores = new JSONArray();
+        // Fixed bounded scan also includes offline CPUs missing from availableProcessors().
+        for (int index = 0; index < 32; index++) {
+            String root = "/sys/devices/system/cpu/cpu" + index + "/";
+            if (!new File(root).isDirectory()) continue;
+            JSONObject core = new JSONObject().put("index", index);
+            String online = firstLine(root + "online");
+            core.put("online", index == 0 && "unknown".equals(online) ? "1" : online);
+            core.put("frequency_khz", firstLine(root + "cpufreq/scaling_cur_freq"));
+            core.put("min_frequency_khz", firstLine(root + "cpufreq/cpuinfo_min_freq"));
+            core.put("max_frequency_khz", firstLine(root + "cpufreq/cpuinfo_max_freq"));
+            core.put("governor", firstLine(root + "cpufreq/scaling_governor"));
+            cores.put(core);
+        }
+        return cores;
+    }
+
+    /** Bounded CPU identity only; omit unique serial numbers from exported reports. */
+    private static JSONObject cpuIdentity() throws JSONException {
+        JSONObject identity = new JSONObject();
+        try (BufferedReader reader = new BufferedReader(new FileReader("/proc/cpuinfo"))) {
+            String line;
+            int count = 0;
+            while (count++ < 512 && (line = reader.readLine()) != null) {
+                int colon = line.indexOf(':');
+                if (colon < 0) continue;
+                String key = line.substring(0, colon).trim();
+                if ("Hardware".equals(key) || "Processor".equals(key) || "model name".equals(key)
+                        || "vendor_id".equals(key) || "CPU implementer".equals(key)
+                        || "CPU architecture".equals(key) || "CPU part".equals(key)
+                        || "CPU revision".equals(key) || "Features".equals(key) || "flags".equals(key)) {
+                    if (!identity.has(key)) identity.put(key, line.substring(colon + 1).trim());
+                }
+            }
+        } catch (IOException | SecurityException ignored) { }
+        return identity;
     }
 
     private static String firstLine(String path) {

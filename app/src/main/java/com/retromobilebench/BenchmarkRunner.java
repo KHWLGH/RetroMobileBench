@@ -11,6 +11,8 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.io.File;
+import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.Reader;
 import java.util.concurrent.ExecutorService;
@@ -56,6 +58,8 @@ final class BenchmarkRunner {
         store = new ResultStore(context);
         worker.execute(() -> {
             try {
+                cleanupSqliteFiles(context.getCacheDir());
+                GpuDataPack.cleanup(context);
                 store.recoverInterrupted();
                 showHistory(1);
             } catch (Exception e) {
@@ -79,22 +83,43 @@ final class BenchmarkRunner {
 
     void startCpu(boolean full) { start(BenchmarkSuite.CPU, full); }
 
-    private void start(BenchmarkSuite suite, boolean full) {
+    void start(BenchmarkSuite suite, boolean full) {
         if (state.busy) return;
         cancelRequested = false;
         update(new State(true, "准备" + suite.label, state.text, ""));
-        worker.execute(() -> run(suite, full ? 3 : 1));
+        worker.execute(() -> run(suite, full ? 3 : 1, false));
+    }
+
+    void startAll() {
+        if (state.busy) return;
+        cancelRequested = false;
+        update(new State(true, "准备全部测试", "各套件依次运行一轮，单独保存；缺数据或失败会记录并继续。", ""));
+        worker.execute(() -> {
+            for (BenchmarkSuite suite : BenchmarkSuite.values()) {
+                if (cancelRequested) break;
+                run(suite, 1, true);
+                long until = SystemClock.elapsedRealtime() + 3000;
+                while (!cancelRequested && SystemClock.elapsedRealtime() < until) SystemClock.sleep(100);
+            }
+            try { showHistory(20); }
+            catch (Exception e) { publish(false, "全部测试结束，读取历史失败", e.toString(), ""); }
+        });
     }
 
     void licenses() {
         if (state.busy) return;
         update(new State(true, "正在读取开源许可", state.text, ""));
         worker.execute(() -> {
-            try (Reader reader = new InputStreamReader(context.getAssets().open("licenses.txt"), "UTF-8")) {
+            try {
                 StringBuilder text = new StringBuilder();
                 char[] buffer = new char[2048];
-                int count;
-                while ((count = reader.read(buffer)) != -1) text.append(buffer, 0, count);
+                for (String asset : new String[]{"licenses.txt", "benchmark-notices.txt", "xiph-notices.txt"}) {
+                    try (Reader reader = new InputStreamReader(context.getAssets().open(asset), "UTF-8")) {
+                        int count;
+                        while ((count = reader.read(buffer)) != -1) text.append(buffer, 0, count);
+                    }
+                    text.append("\n\n");
+                }
                 publish(false, "开源许可", text.toString(), "");
             } catch (Exception e) { publish(false, "读取许可失败", e.toString(), ""); }
         });
@@ -102,10 +127,29 @@ final class BenchmarkRunner {
 
     void cancel() {
         cancelRequested = true;
+        GpuClient.cancel();
         if (nativeReady) {
             NativeBridge.cancelStorage();
             NativeBridge.cancelCpu();
+            NativeBridge.cancelZstd();
+            NativeBridge.cancelSqlite();
+            NativeBridge.cancelCoremark();
+            NativeBridge.cancelScimark();
+            NativeBridge.cancelMemory();
         }
+    }
+
+    void importGpu(android.net.Uri uri) {
+        if (state.busy) return;
+        cancelRequested = false;
+        update(new State(true, "正在校验并导入 GPU 数据", "可取消；原有数据包保留到新包校验完成。", ""));
+        worker.execute(() -> {
+            try (java.io.InputStream input = context.getContentResolver().openInputStream(uri)) {
+                if (input == null) throw new IOException("无法读取所选文件");
+                File installed = GpuDataPack.install(new File(context.getFilesDir(), "gpu-packs"), input, () -> cancelRequested);
+                publish(false, "GPU 数据导入完成", GpuDataPack.manifest(installed).getJSONArray("tests").toString(), "");
+            } catch (Exception error) { publish(false, cancelRequested ? "导入已取消" : "导入失败", error.toString(), ""); }
+        });
     }
 
     void history() {
@@ -134,7 +178,7 @@ final class BenchmarkRunner {
         });
     }
 
-    private void run(BenchmarkSuite suite, int repetitions) {
+    private void run(BenchmarkSuite suite, int repetitions, boolean batch) {
         JSONObject report = new JSONObject();
         long id = -1;
         String persistenceProblem = "";
@@ -216,10 +260,10 @@ final class BenchmarkRunner {
         try {
             String message = persistenceProblem.isEmpty()
                     ? "结果已保存 · " + BenchmarkReport.statusLabel(report.optString("status")) : persistenceProblem;
-            publish(false, message, BenchmarkReport.format(report), report.toString(2));
+            publish(batch, message, BenchmarkReport.format(report), report.toString(2));
             Log.i("RMB", suite.name() + "_DONE status=" + report.optString("status") + " id=" + id);
         } catch (JSONException e) {
-            publish(false, "结果格式错误", e.toString(), report.toString());
+            publish(batch, "结果格式错误", e.toString(), report.toString());
         }
     }
 
@@ -234,6 +278,33 @@ final class BenchmarkRunner {
                 || (device.has("available_memory_bytes") && device.optLong("available_memory_bytes") < 32 * MIB))
             return "可用内存不足，请关闭其他应用后再运行 CPU 测试。";
         return batteryPreflight(device);
+    }
+
+    static String gpuPreflight(JSONObject device, int requiredMiB) {
+        if (device.optBoolean("low_memory") || device.optLong("available_memory_bytes") < requiredMiB * MIB)
+            return "GPU 测试需要至少 " + requiredMiB + " MiB 可用内存，请关闭其他应用后重试。";
+        return batteryPreflight(device);
+    }
+
+    static String memoryPreflight(JSONObject device) {
+        if (device.optBoolean("low_memory")
+                || (device.has("available_memory_bytes") && device.optLong("available_memory_bytes") < 64 * MIB))
+            return "内存测试需要至少 64 MiB 可用内存；请关闭其他应用后重试。";
+        return batteryPreflight(device);
+    }
+
+    static String sqlitePreflight(JSONObject device) {
+        if (device.optLong("available_storage_bytes") < 20 * MIB)
+            return "SQLite 测试需要至少 20 MiB 可用空间（包含 16 MiB 预留）。";
+        return cpuPreflight(device);
+    }
+
+    /** Only our fixed benchmark files; never the user's history database. Worker only. */
+    static void cleanupSqliteFiles(File directory) throws IOException {
+        for (String suffix : new String[]{"-journal", "-wal", "-shm", ""}) {
+            File file = new File(directory, "rmb-sqlite-bench.db" + suffix);
+            if (file.exists() && !file.delete()) throw new IOException("无法清理 SQLite 测试文件：" + file);
+        }
     }
 
     private static String batteryPreflight(JSONObject device) {
@@ -251,7 +322,7 @@ final class BenchmarkRunner {
             if (i > 0) text.append("\n────────────────\n\n");
             text.append(BenchmarkReport.format(reports.getJSONObject(i)));
         }
-        if (reports.length() == 0) text.append("尚无本地成绩。可开始单轮或三轮 CPU / 存储测试。\n"
+        if (reports.length() == 0) text.append("尚无本地成绩。请选择测试套件，开始单轮或三轮测试。\n"
                 + "测试期间请保持应用在前台，屏幕会保持亮起。\n"
                 + "切到后台会取消测试；旋转屏幕会保留进度。\n");
         String json = reports.length() == 1 ? reports.getJSONObject(0).toString(2)

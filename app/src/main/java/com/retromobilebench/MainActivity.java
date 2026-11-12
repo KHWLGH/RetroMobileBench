@@ -1,12 +1,16 @@
 package com.retromobilebench;
 
 import android.app.Activity;
+import android.content.Intent;
+import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.util.TypedValue;
 import android.view.WindowManager;
+import android.widget.ArrayAdapter;
+import android.widget.Spinner;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -18,10 +22,11 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener {
     private BenchmarkRunner runner;
     private TextView status;
     private TextView result;
-    private Button cpuSingle;
-    private Button cpuFull;
+    private Spinner suites;
     private Button licenses;
+    private Button importData;
     private Button single;
+    private Button all;
     private Button full;
     private Button cancel;
     private Button history;
@@ -46,10 +51,18 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener {
         status = new TextView(this);
         status.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
         column.addView(status);
-        cpuSingle = button(column, R.string.cpu_single, () -> runner.startCpu(false));
-        cpuFull = button(column, R.string.cpu_full, () -> runner.startCpu(true));
-        single = button(column, R.string.storage_single, () -> runner.startStorage(false));
-        full = button(column, R.string.storage_full, () -> runner.startStorage(true));
+        suites = new Spinner(this);
+        suites.setContentDescription("选择测试项目");
+        ArrayAdapter<BenchmarkSuite> adapter = new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_item, BenchmarkSuite.values());
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        suites.setAdapter(adapter);
+        suites.setSelection(savedInstanceState == null ? BenchmarkSuite.CPU.ordinal()
+                : savedInstanceState.getInt("suite", BenchmarkSuite.CPU.ordinal()));
+        column.addView(suites);
+        single = button(column, R.string.suite_single, () -> runner.start((BenchmarkSuite) suites.getSelectedItem(), false));
+        full = button(column, R.string.suite_full, () -> runner.start((BenchmarkSuite) suites.getSelectedItem(), true));
+        all = button(column, R.string.run_all, () -> runner.startAll());
         cancel = button(column, R.string.cancel_run, () -> runner.cancel());
         history = button(column, R.string.history, () -> runner.history());
         probe = button(column, R.string.probe, () -> runner.probe());
@@ -59,6 +72,14 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener {
                 clipboard.setPrimaryClip(ClipData.newPlainText("RetroMobileBench", exportJson));
                 Toast.makeText(this, R.string.copied, Toast.LENGTH_SHORT).show();
             }
+        });
+        importData = button(column, R.string.import_gpu, () -> {
+            Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+            intent.setType("application/zip");
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            try { startActivityForResult(Intent.createChooser(intent, "选择 GPU 数据包"), 1); }
+            catch (ActivityNotFoundException e) { Toast.makeText(this, "请先安装支持文件选择的文件管理器", Toast.LENGTH_LONG).show(); }
         });
         licenses = button(column, R.string.licenses, () -> runner.licenses());
         result = new TextView(this);
@@ -70,6 +91,12 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener {
         setContentView(scroll);
     }
 
+    @Override protected void onActivityResult(int request, int resultCode, Intent data) {
+        super.onActivityResult(request, resultCode, data);
+        if (request == 1 && resultCode == RESULT_OK && data != null && data.getData() != null)
+            runner.importGpu(data.getData());
+    }
+
     private Button button(LinearLayout column, int label, Runnable action) {
         Button button = new Button(this);
         button.setText(label);
@@ -77,6 +104,12 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener {
         column.addView(button, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         return button;
+    }
+
+    @Override
+    protected void onSaveInstanceState(Bundle outState) {
+        outState.putInt("suite", suites.getSelectedItemPosition());
+        super.onSaveInstanceState(outState);
     }
 
     @Override
@@ -100,10 +133,11 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener {
         status.setText(state.message);
         result.setText(state.text);
         exportJson = state.exportJson;
-        cpuSingle.setEnabled(!state.busy);
-        cpuFull.setEnabled(!state.busy);
+        suites.setEnabled(!state.busy);
         licenses.setEnabled(!state.busy);
+        importData.setEnabled(!state.busy);
         single.setEnabled(!state.busy);
+        all.setEnabled(!state.busy);
         full.setEnabled(!state.busy);
         history.setEnabled(!state.busy);
         probe.setEnabled(!state.busy);
