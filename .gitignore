@@ -1,0 +1,39 @@
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# Android
+local.properties
+*.apk
+*.aab
+*.ap_
+*.dex
+captures/
+.externalNativeBuild/
+.cxx/
+*.hprof
+
+# IntelliJ / Android Studio (keep shared project settings, drop per-user state)
+*.iml
+.idea/*
+!.idea/codeStyles/
+!.idea/runConfigurations/
+out/
+
+# Native build intermediates
+obj/
+*.o
+*.so.debug
+
+# GFXBench scene data packs and generated data (distributed separately, see docs/06-data-packs.md)
+datapacks/
+*.zip
+
+# Feasibility probe outputs
+/feasibility/out/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
