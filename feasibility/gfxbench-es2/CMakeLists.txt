@@ -1,0 +1,216 @@
+cmake_minimum_required(VERSION 3.18.1)
+project(gfxbench_es2_feasibility C CXX)
+
+# M1 feasibility check (docs/09-roadmap.md): does GFXBench's OpenGL ES 2.0 code path
+# compile and link with NDK r23c at API 16, without libGLESv3?
+#
+# This build does NOT use GFXBench's own build scripts. It compiles only the sources the
+# ES2 tests need (docs/04-gfxbench-port.md §4.2) straight from a GFXBench checkout, into
+# one shared library with a static C++ runtime (docs/01-architecture.md §3.1).
+#
+# Usage: see scripts/feasibility-gfxbench-es2.ps1 (passes -DGFXBENCH_DIR=...).
+
+if(NOT GFXBENCH_DIR OR NOT EXISTS "${GFXBENCH_DIR}/gfxbench40/src/gfx3_0")
+    message(FATAL_ERROR "Set GFXBENCH_DIR to a GFXBench checkout (sparse: frameworks, gfxbench40, 3rdparty/zlib, 3rdparty/libpng)")
+endif()
+
+set(G   "${GFXBENCH_DIR}")
+set(FW  "${G}/frameworks")
+set(G40 "${G}/gfxbench40/src")
+set(KCL "${FW}/kcl_framework/kcl")
+set(KCLLIB "${FW}/kcl_framework/kcl_libraries")
+
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
+# Same spirit as GFXBench's compiler_flags.cmake, minus -pedantic-errors: we want to see
+# real API-level problems, not style errors from a newer clang.
+add_compile_options(-w -fno-strict-aliasing)
+
+# Fill in enum names GLES2 headers lack but GFXBench's guarded code mentions (C++ only;
+# the C sources are third-party libraries that never include GL headers).
+set(RMB_COMPAT_HEADER "${CMAKE_CURRENT_LIST_DIR}/compat/rmb_gles2_compat.h")
+add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:SHELL:-include ${RMB_COMPAT_HEADER}>")
+
+# --- Generated headers -------------------------------------------------------
+set(GEN "${CMAKE_CURRENT_BINARY_DIR}/gen")
+file(MAKE_DIRECTORY "${GEN}")
+configure_file("${G}/3rdparty/zlib/zconf.h.cmakein" "${GEN}/zconf.h" @ONLY)
+configure_file("${G}/3rdparty/libpng/scripts/pnglibconf.h.prebuilt" "${GEN}/pnglibconf.h" COPYONLY)
+
+# --- zlib (the GFXBench-bundled copy) ----------------------------------------
+add_library(gfx_zlib STATIC
+    ${G}/3rdparty/zlib/adler32.c ${G}/3rdparty/zlib/compress.c ${G}/3rdparty/zlib/crc32.c
+    ${G}/3rdparty/zlib/deflate.c ${G}/3rdparty/zlib/gzclose.c ${G}/3rdparty/zlib/gzlib.c
+    ${G}/3rdparty/zlib/gzread.c ${G}/3rdparty/zlib/gzwrite.c ${G}/3rdparty/zlib/inflate.c
+    ${G}/3rdparty/zlib/infback.c ${G}/3rdparty/zlib/inftrees.c ${G}/3rdparty/zlib/inffast.c
+    ${G}/3rdparty/zlib/trees.c ${G}/3rdparty/zlib/uncompr.c ${G}/3rdparty/zlib/zutil.c)
+target_include_directories(gfx_zlib PUBLIC "${GEN}" "${G}/3rdparty/zlib")
+
+# --- libpng 1.6.7 (NEON code disabled, as GFXBench's CMake does) --------------
+add_library(gfx_png STATIC
+    ${G}/3rdparty/libpng/png.c ${G}/3rdparty/libpng/pngerror.c ${G}/3rdparty/libpng/pngget.c
+    ${G}/3rdparty/libpng/pngmem.c ${G}/3rdparty/libpng/pngpread.c ${G}/3rdparty/libpng/pngread.c
+    ${G}/3rdparty/libpng/pngrio.c ${G}/3rdparty/libpng/pngrtran.c ${G}/3rdparty/libpng/pngrutil.c
+    ${G}/3rdparty/libpng/pngset.c ${G}/3rdparty/libpng/pngtrans.c ${G}/3rdparty/libpng/pngwio.c
+    ${G}/3rdparty/libpng/pngwrite.c ${G}/3rdparty/libpng/pngwtran.c ${G}/3rdparty/libpng/pngwutil.c)
+target_compile_definitions(gfx_png PRIVATE PNG_ARM_NEON_OPT=0)
+target_include_directories(gfx_png PUBLIC "${G}/3rdparty/libpng" "${GEN}")
+target_link_libraries(gfx_png PUBLIC gfx_zlib)
+
+# --- ngrtl core (logging, json, streams) --------------------------------------
+set(NGRTL "${FW}/ngrtl")
+add_library(gfx_ngrtl STATIC
+    ${NGRTL}/libs/core/src/require.cpp ${NGRTL}/libs/core/src/format.cpp
+    ${NGRTL}/libs/core/src/stream/bytestream.cpp ${NGRTL}/libs/core/src/stream/filestreambuf.cpp
+    ${NGRTL}/libs/core/src/stream/memstreambuf.cpp ${NGRTL}/libs/core/src/stream/textstream.cpp
+    ${NGRTL}/libs/core/src/log/log.cpp ${NGRTL}/libs/core/src/bytevec.cpp
+    ${NGRTL}/libs/core/src/json/deserialize.cpp ${NGRTL}/libs/core/src/json/json.cpp
+    ${NGRTL}/libs/core/src/json/JSON_parser.c ${NGRTL}/libs/core/src/json/serialize.cpp
+    ${NGRTL}/libs/core/src/mutex.cpp ${NGRTL}/libs/core/src/timer.cpp
+    ${NGRTL}/libs/core/src/base64/cdecode.c ${NGRTL}/libs/core/src/base64/cencode.c
+    ${NGRTL}/libs/core/src/base64/decode.cpp ${NGRTL}/libs/core/src/base64/encode.cpp
+    ${NGRTL}/libs/core/src/stringutil.cpp ${NGRTL}/libs/core/src/cstring.cpp
+    ${NGRTL}/libs/core/src/substring.cpp ${NGRTL}/libs/core/src/macros.cpp
+    ${NGRTL}/libs/core/src/object.cpp ${NGRTL}/libs/core/src/var.cpp
+    ${NGRTL}/libs/core/src/json_var/json_parse.cpp ${NGRTL}/libs/core/src/json_var/json_stringify.cpp
+    ${NGRTL}/libs/core/src/json_var/js_json.cpp ${NGRTL}/libs/core/src/result.cpp
+    ${NGRTL}/libs/core/src/frequency_counter.cpp ${NGRTL}/libs/core/src/hr_clock.cpp)
+target_compile_definitions(gfx_ngrtl PUBLIC NGRTL_STATIC NGLOG_ENABLE=NGLOG_SEVERITY_INFO)
+target_include_directories(gfx_ngrtl PUBLIC "${NGRTL}/include/core")
+target_link_libraries(gfx_ngrtl PUBLIC log)
+
+# --- platform-utils (JNI glue: AssetManager, battery) -------------------------
+add_library(gfx_platform STATIC ${FW}/platform-utils/platform_android.cpp ${FW}/platform-utils/battery.cpp)
+target_include_directories(gfx_platform PUBLIC "${FW}/platform-utils")
+target_link_libraries(gfx_platform PUBLIC log android)
+
+# --- Common GL definitions for everything GFXBench --------------------------------
+# HAVE_GLES2 without HAVE_GLES3 is the whole point: API 16 has no libGLESv3.
+set(GFX_DEFS USE_ANY_GL HAVE_EGL HAVE_GLES HAVE_GLES2 GFXB_DEPRECATED DISPLAY_PROTOCOL_ANDROID=1)
+
+# --- KCL (scene graph, image/texture loading, IO) ------------------------------
+add_library(gfx_kcl STATIC
+    ${KCL}/src/mesh_tool.cpp ${KCL}/src/kcl_base.cpp ${KCL}/src/kcl_actor.cpp
+    ${KCL}/src/kcl_animation4.cpp ${KCL}/src/kcl_animationtrack.cpp ${KCL}/src/kcl_camera2.cpp
+    ${KCL}/src/kcl_effect.cpp ${KCL}/src/kcl_image.cpp ${KCL}/src/kcl_light2.cpp
+    ${KCL}/src/kcl_lod.cpp ${KCL}/src/kcl_material.cpp ${KCL}/src/kcl_math3d.cpp
+    ${KCL}/src/kcl_mesh.cpp ${KCL}/src/kcl_node.cpp ${KCL}/src/kcl_object.cpp
+    ${KCL}/src/kcl_serializable.cpp ${KCL}/src/kcl_room.cpp ${KCL}/src/kcl_particlesystem.cpp
+    ${KCL}/src/kcl_particlesystem2.cpp ${KCL}/src/kcl_planarmap.cpp ${KCL}/src/kcl_scene_handler.cpp
+    ${KCL}/src/kcl_texture.cpp ${KCL}/src/kcl_scene_xml.cpp ${KCL}/src/kcl_io.cpp
+    ${KCL}/src/ogg_decoder.cpp ${KCL}/src/kcl_buffer.cpp ${KCL}/src/kcl_envprobe.cpp
+    ${KCL}/src/hdr.cpp
+    ${KCL}/platforms/android/src/kcl_os.cpp ${KCL}/platforms/android/src/kcl_io_os.cpp
+    # KCL bundled libraries
+    ${KCLLIB}/libetc1/src/etc1.cpp
+    ${KCLLIB}/tinyxml/src/tinystr.cpp ${KCLLIB}/tinyxml/src/tinyxml.cpp
+    ${KCLLIB}/tinyxml/src/tinyxmlerror.cpp ${KCLLIB}/tinyxml/src/tinyxmlparser.cpp
+    ${KCLLIB}/tinyxml2/src/tinyxml2.cpp
+    ${KCLLIB}/libogg_theora_vorbis/src/bitpack.c ${KCLLIB}/libogg_theora_vorbis/src/bitwise.c
+    ${KCLLIB}/libogg_theora_vorbis/src/decinfo.c ${KCLLIB}/libogg_theora_vorbis/src/decode.c
+    ${KCLLIB}/libogg_theora_vorbis/src/dequant.c ${KCLLIB}/libogg_theora_vorbis/src/fragment.c
+    ${KCLLIB}/libogg_theora_vorbis/src/framing.c ${KCLLIB}/libogg_theora_vorbis/src/huffdec.c
+    ${KCLLIB}/libogg_theora_vorbis/src/idct.c ${KCLLIB}/libogg_theora_vorbis/src/info.c
+    ${KCLLIB}/libogg_theora_vorbis/src/internal.c ${KCLLIB}/libogg_theora_vorbis/src/quant.c
+    ${KCLLIB}/libogg_theora_vorbis/src/state.c)
+target_compile_definitions(gfx_kcl PUBLIC ${GFX_DEFS})
+target_include_directories(gfx_kcl PUBLIC
+    "${KCL}/src" "${KCLLIB}/libetc1/src" "${KCLLIB}/libogg_theora_vorbis" "${KCLLIB}/tinythread"
+    "${KCLLIB}/tinyxml/src" "${KCLLIB}/tinyxml2/src" "${FW}/oglx/..")
+target_link_libraries(gfx_kcl PUBLIC gfx_png gfx_ngrtl gfx_platform)
+
+# --- KRL (render-layer scene/material base) -----------------------------------
+add_library(gfx_krl STATIC
+    ${FW}/krl/krl_material.cpp ${FW}/krl/krl_scene.cpp ${FW}/krl/krl_scene_reload.cpp ${FW}/krl/krl_mesh.cpp)
+target_include_directories(gfx_krl PUBLIC "${FW}/krl")
+target_link_libraries(gfx_krl PUBLIC gfx_kcl)
+
+# --- testfw core + schemas (no SWIG / Java here) ----------------------------------
+add_library(gfx_testfw STATIC
+    ${FW}/testfw/testfw.cpp
+    ${FW}/testfw/graphics/eglgraphicscontext.cpp
+    ${FW}/testfw/schemas/apidefinition.cpp ${FW}/testfw/schemas/descriptors.cpp
+    ${FW}/testfw/schemas/compareitem.cpp ${FW}/testfw/schemas/compareresult.cpp
+    ${FW}/testfw/schemas/configuration.cpp ${FW}/testfw/schemas/compositedescriptor.cpp
+    ${FW}/testfw/schemas/resultitem.cpp ${FW}/testfw/schemas/testinfo.cpp
+    ${FW}/testfw/schemas/testitem.cpp ${FW}/testfw/schemas/testrepository.cpp
+    ${FW}/testfw/schemas/chart.cpp ${FW}/testfw/schemas/computeresult.cpp
+    ${FW}/testfw/schemas/gfxresult.cpp ${FW}/testfw/schemas/result.cpp
+    ${FW}/testfw/schemas/graphics.cpp ${FW}/testfw/schemas/compute.cpp
+    ${FW}/testfw/schemas/environment.cpp)
+target_compile_definitions(gfx_testfw PUBLIC ${GFX_DEFS})
+target_include_directories(gfx_testfw PUBLIC "${FW}/testfw" "${FW}/testfw/schemas")
+target_link_libraries(gfx_testfw PUBLIC gfx_ngrtl EGL GLESv2 dl)
+
+# --- GFXBench ES2 tests ---------------------------------------------------------
+set(GL_COMMON
+    ${G40}/common/testfw_functions.cpp ${G40}/common/newnotificationmanager.cpp
+    ${G40}/common/test_descriptor.cpp ${G40}/common/render_statistics.cpp
+    ${G40}/common/xml_utils.cpp ${G40}/common/printable_result.cpp ${G40}/common/test_base.cpp
+    ${G40}/common/opengl/bitmask.cpp ${G40}/common/opengl/ext.cpp ${G40}/common/opengl/fbo.cpp
+    ${G40}/common/opengl/glbshader.cpp ${G40}/common/opengl/shader.cpp
+    ${G40}/common/opengl/glb_shader_common.cpp ${G40}/common/opengl/glwindow.cpp
+    ${G40}/common/opengl/misc2.cpp ${G40}/common/opengl/misc2_opengl.cpp
+    ${G40}/common/opengl/glb_opengl_state_manager.cpp ${G40}/common/opengl/glb_discard_functions.cpp
+    ${G40}/common/opengl/glb_image.cpp ${G40}/common/opengl/glb_texture.cpp
+    ${G40}/common/opengl/notificationman_opengl.cpp ${G40}/common/opengl/offscrman_opengl.cpp
+    ${G40}/common/opengl/texture.cpp ${G40}/common/opengl/newnotificationmanager_opengl.cpp
+    ${G40}/common/opengl/glb_opengl_limits.cpp ${G40}/common/opengl/glb_opengl_debug_output.cpp
+    ${G40}/common/opengl/vbopool.cpp)
+
+set(GFX30_SCENE
+    ${G40}/gfx3_0/high_level_tests_3/engine.cpp
+    ${G40}/gfx3_0/high_level_tests_3/spacepartition.cpp ${G40}/gfx3_0/high_level_tests_3/qualitymatch.cpp
+    ${G40}/gfx3_0/high_level_tests_3/test_wrapper.cpp ${G40}/gfx3_0/high_level_tests_3/battery_test.cpp
+    ${G40}/es2_common/glb_scene_.cpp ${G40}/es2_common/glb_mesh.cpp ${G40}/es2_common/glb_mesh_opengl.cpp
+    ${G40}/gfx3_0/high_level_tests_3/opengl/glb_scene_utils_opengl.cpp
+    ${G40}/gfx3_0/high_level_tests_3/opengl/cubemap_opengl.cpp
+    ${G40}/gfx3_0/high_level_tests_3/opengl/glb_light.cpp
+    ${G40}/gfx3_0/high_level_tests_3/opengl/glb_material.cpp
+    ${G40}/gfx3_0/high_level_tests_3/opengl/glb_material_opengl.cpp
+    ${G40}/gfx3_0/high_level_tests_3/opengl/glb_planarmap_opengl.cpp
+    ${G40}/gfx3_0/high_level_tests_3/opengl/glb_scene_opengl27.cpp
+    ${G40}/gfx3_0/high_level_tests_3/opengl/shadowmap_opengl.cpp
+    ${G40}/gfx3_0/high_level_tests_3/opengl/glb_scene.cpp
+    ${G40}/gfx3_0/high_level_tests_3/opengl/xiph_decode/glb_ogg_decoder.cpp
+    ${G40}/gfx3_0/high_level_tests_3/opengl/glb_particlesystem.cpp
+    ${G40}/gfx3_0/high_level_tests_3/opengl/gbuffer.cpp
+    ${G40}/gfx3_0/high_level_tests_3/opengl/glb_scene_opengl.cpp
+    ${G40}/gfx3_0/high_level_tests_3/opengl/vao_storage.cpp)
+
+set(GFX30_LOWLEVEL
+    ${G40}/gfx3_0/low_level_tests/alu_base.cpp ${G40}/gfx3_0/low_level_tests/blending_base.cpp
+    ${G40}/gfx3_0/low_level_tests/driver_base.cpp ${G40}/gfx3_0/low_level_tests/fill_base.cpp
+    ${G40}/gfx3_0/low_level_tests/opengl/gl_alu.cpp ${G40}/gfx3_0/low_level_tests/opengl/gl_blending.cpp
+    ${G40}/gfx3_0/low_level_tests/opengl/gl_driver.cpp ${G40}/gfx3_0/low_level_tests/opengl/gl_fill.cpp)
+
+set(GFX_FRONT
+    ${G40}/gfxbench/global_test_environment.cpp ${G40}/gfxbench/status_report.cpp
+    ${G40}/gfxbench/gfxbench.cpp
+    # Always built by GFXBench's own CMake; the function body is empty outside iOS.
+    ${G40}/gfxbench/gfxbench_ios_rawconfig.cpp
+    ${G40}/tests/40/corporate/create_factory_trex_corporate.cpp
+    ${G40}/tests/40/corporate/create_factory_egypt_corporate.cpp
+    ${G40}/tests/40/corporate/create_factory_lowlevel_corporate.cpp)
+
+add_library(gfxbench_es2 STATIC ${GL_COMMON} ${GFX30_SCENE} ${GFX30_LOWLEVEL} ${GFX_FRONT})
+# OPT_TEST_GFX2: build GLB_Scene_ES2 (T-Rex, Egypt). Deliberately NOT defining
+# OPT_TEST_GFX30/31/40 or HAVE_GLES3.
+target_compile_definitions(gfxbench_es2 PRIVATE OPT_TEST_GFX2 PRODUCT_VERSION=4.0.0)
+target_include_directories(gfxbench_es2 PRIVATE
+    "${G40}" "${G40}/common" "${G40}/es2_common"
+    "${G40}/gfx3_0" "${G40}/gfx3_0/high_level_tests_3" "${G40}/gfx3_0/low_level_tests"
+    "${G40}/gfxbench" "${G40}/gfxbench/corporate" "${G40}/frame_player"
+    "${G}/gfxbench40/resources/data/gfx/shaders_40/shaders.20")
+target_link_libraries(gfxbench_es2 PUBLIC gfx_krl gfx_kcl gfx_testfw)
+
+# --- Final shared library: everything linked in, no undefined symbols ------------
+add_library(gfxbench_es2_probe SHARED probe_main.cpp)
+target_link_libraries(gfxbench_es2_probe PRIVATE
+    -Wl,--whole-archive gfxbench_es2 -Wl,--no-whole-archive
+    gfx_testfw gfx_krl gfx_kcl gfx_png gfx_zlib gfx_ngrtl gfx_platform
+    EGL GLESv2 log android dl m)
+target_link_options(gfxbench_es2_probe PRIVATE -Wl,--no-undefined)
