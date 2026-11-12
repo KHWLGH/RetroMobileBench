@@ -29,6 +29,16 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 # real API-level problems, not style errors from a newer clang.
 add_compile_options(-w -fno-strict-aliasing)
 
+# Tegra 2 build (decision 5): no NEON anywhere, same flag as native/CMakeLists.txt uses
+# for librmb_noneon.so. Check the result with scripts/check-neon.ps1.
+option(RMB_NO_NEON "Build for ARMv7 CPUs without NEON (VFPv3-D16)" OFF)
+if(RMB_NO_NEON)
+    if(NOT ANDROID_ABI STREQUAL "armeabi-v7a")
+        message(FATAL_ERROR "RMB_NO_NEON only applies to armeabi-v7a")
+    endif()
+    add_compile_options(-mfpu=vfpv3-d16)
+endif()
+
 # Fill in enum names GLES2 headers lack but GFXBench's guarded code mentions (C++ only;
 # the C sources are third-party libraries that never include GL headers).
 set(RMB_COMPAT_HEADER "${CMAKE_CURRENT_LIST_DIR}/compat/rmb_gles2_compat.h")
@@ -208,9 +218,18 @@ target_include_directories(gfxbench_es2 PRIVATE
 target_link_libraries(gfxbench_es2 PUBLIC gfx_krl gfx_kcl gfx_testfw)
 
 # --- Final shared library: everything linked in, no undefined symbols ------------
-add_library(gfxbench_es2_probe SHARED probe_main.cpp)
-target_link_libraries(gfxbench_es2_probe PRIVATE
+set(GFX_LINK_LIBS
     -Wl,--whole-archive gfxbench_es2 -Wl,--no-whole-archive
     gfx_testfw gfx_krl gfx_kcl gfx_png gfx_zlib gfx_ngrtl gfx_platform
     EGL GLESv2 log android dl m)
+
+set(RMB_HOST_SRCS probe_main.cpp rmb_egl_context.cpp)
+
+add_library(gfxbench_es2_probe SHARED ${RMB_HOST_SRCS})
+target_link_libraries(gfxbench_es2_probe PRIVATE ${GFX_LINK_LIBS})
 target_link_options(gfxbench_es2_probe PRIVATE -Wl,--no-undefined)
+
+# --- Command-line runner for adb shell (no Java needed) ----------------------------
+# PIE, the NDK default: Android 4.1 runs PIE executables and 5.0+ requires them.
+add_executable(gfxprobe cli_main.cpp ${RMB_HOST_SRCS})
+target_link_libraries(gfxprobe PRIVATE ${GFX_LINK_LIBS})

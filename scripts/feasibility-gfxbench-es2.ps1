@@ -4,8 +4,11 @@
 
 .DESCRIPTION
     Configures feasibility/gfxbench-es2 with the NDK's CMake toolchain and builds it with
-    Ninja. Output goes to feasibility/out/<abi>. The full compiler log is written to
-    feasibility/out/<abi>/build.log so failures can be grouped and counted.
+    Ninja. Output goes to feasibility/out/<abi> (or feasibility/out/armeabi-v7a-noneon with
+    -NoNeon). The full compiler log is written to build.log in that directory so failures
+    can be grouped and counted.
+
+    Targets: libgfxbench_es2_probe.so (JNI) and gfxprobe (adb shell runner).
 
 .PARAMETER GfxbenchDir
     GFXBench checkout (sparse is fine: frameworks, gfxbench40, 3rdparty/zlib, 3rdparty/libpng).
@@ -14,16 +17,22 @@
 .PARAMETER Abi
     armeabi-v7a (default) or x86.
 
+.PARAMETER NoNeon
+    armeabi-v7a only: build for CPUs without NEON (Tegra 2), with -mfpu=vfpv3-d16.
+
 .PARAMETER KeepGoing
     Pass -k 0 to Ninja so every failing file is reported, not just the first one.
 #>
 param(
     [string]$GfxbenchDir = (Join-Path $env:TEMP 'rmb-research\gfxbench'),
     [ValidateSet('armeabi-v7a', 'x86')][string]$Abi = 'armeabi-v7a',
+    [switch]$NoNeon,
     [switch]$KeepGoing
 )
 
 $ErrorActionPreference = 'Stop'
+
+if ($NoNeon -and $Abi -ne 'armeabi-v7a') { throw '-NoNeon only applies to armeabi-v7a' }
 
 $root = Split-Path -Parent $PSScriptRoot
 $sdk = if ($env:ANDROID_HOME) { $env:ANDROID_HOME } elseif ($env:ANDROID_SDK_ROOT) { $env:ANDROID_SDK_ROOT } else { Join-Path $env:LOCALAPPDATA 'Android\Sdk' }
@@ -35,7 +44,8 @@ foreach ($p in $ndk, $cmake, $ninja, $GfxbenchDir) {
     if (-not (Test-Path $p)) { throw "Missing $p" }
 }
 
-$out = Join-Path $root "feasibility\out\$Abi"
+$variant = if ($NoNeon) { 'armeabi-v7a-noneon' } else { $Abi }
+$out = Join-Path $root "feasibility\out\$variant"
 New-Item -ItemType Directory -Force $out | Out-Null
 $log = Join-Path $out 'build.log'
 
@@ -49,6 +59,7 @@ $ErrorActionPreference = 'Continue'
     -DANDROID_PLATFORM=android-16 `
     -DANDROID_STL=c++_static `
     -DCMAKE_BUILD_TYPE=Release `
+    "-DRMB_NO_NEON=$(if ($NoNeon) { 'ON' } else { 'OFF' })" `
     "-DGFXBENCH_DIR=$($GfxbenchDir -replace '\\','/')" 2>&1 | Out-File -Encoding utf8 (Join-Path $out 'configure.log')
 if ($LASTEXITCODE -ne 0) { Get-Content (Join-Path $out 'configure.log') -Tail 30; throw "cmake configure failed ($LASTEXITCODE)" }
 
