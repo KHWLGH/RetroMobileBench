@@ -28,7 +28,13 @@ final class BenchmarkReport {
             JSONObject sample = samples.getJSONObject(i);
             boolean matches = "completed".equals(sample.optString("status"))
                     && sample.optInt("completed_metrics") == suite.metrics.length
-                    && suite.version.equals(sample.optString("test_version"));
+                    && suite.version.equals(sample.optString("test_version"))
+                    && first.optString("native_build_id", "legacy").equals(sample.optString("native_build_id", "legacy"))
+                    && first.optString("native_library", "legacy").equals(sample.optString("native_library", "legacy"))
+                    && first.optString("native_abi", "legacy").equals(sample.optString("native_abi", "legacy"));
+            JSONObject device = report.optJSONObject("device");
+            if (device != null && device.has("native_build_id"))
+                matches &= device.getString("native_build_id").equals(sample.optString("native_build_id"));
             for (String key : suite.parameters) {
                 if (!sample.has(key) || !first.has(key)
                         || !sample.get(key).toString().equals(first.get(key).toString())) matches = false;
@@ -65,9 +71,10 @@ final class BenchmarkReport {
                     .append(" (API ").append(device.optInt("sdk")).append(")\n");
             if (device.optBoolean("emulator")) text.append("模拟器：成绩仅用于验证流程，不能代表真机性能。\n");
             text.append("原生库：").append(device.optString("native_library", "加载失败")).append('\n');
+            text.append("构建：").append(device.optString("native_build_id", "旧版构建（独立比较组）")).append('\n');
         }
         String message = report.optString("message");
-        if (!message.isEmpty()) text.append(message).append('\n');
+        if (message.length() != 0) text.append(message).append('\n');
         JSONArray samples = report.optJSONArray("samples");
         if (samples != null) {
             for (int i = 0; i < samples.length(); i++) {

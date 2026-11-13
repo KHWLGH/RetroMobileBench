@@ -16,12 +16,13 @@ import java.util.concurrent.atomic.AtomicReference;
 
 /** Real JNI + SQLite regression checks using only the API 16 framework. */
 public final class BackendInstrumentation extends Instrumentation {
-    private boolean gpuOnly, fullGpu;
+    private boolean gpuOnly, fullGpu, production;
     @Override
     public void onCreate(Bundle arguments) {
         super.onCreate(arguments);
         gpuOnly = arguments != null && "true".equals(arguments.getString("gpuOnly"));
         fullGpu = arguments != null && "true".equals(arguments.getString("fullGpu"));
+        production = arguments != null && "true".equals(arguments.getString("production"));
         start();
     }
 
@@ -30,6 +31,12 @@ public final class BackendInstrumentation extends Instrumentation {
         Bundle result = new Bundle();
         try {
             Context context = getTargetContext();
+            if (production) {
+                String summary = ProductionFlowChecks.run(this, this::progress);
+                result.putString("stream", "\nPASS: production UI all-tests, official GPU durations, full CPU parameters and saved history\n" + summary);
+                finish(Activity.RESULT_OK, result);
+                return;
+            }
             check(NativeLoader.load() != null, "native library loads");
             if (gpuOnly) {
                 GpuBackendChecks.run(context, fullGpu, this::progress);
@@ -37,6 +44,8 @@ public final class BackendInstrumentation extends Instrumentation {
                 finish(Activity.RESULT_OK, result);
                 return;
             }
+            progress("API 8 compatibility and native build identity");
+            LegacyCompatibilityChecks.run(context);
             progress("storage");
             JSONObject measurement = testStorage(context);
             testCancellation(context);

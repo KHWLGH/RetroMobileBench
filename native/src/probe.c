@@ -1,6 +1,7 @@
 #include "probe.h"
 
-#include <EGL/egl.h>
+extern void *rmb_egl_create(int width, int height);
+extern void rmb_egl_release(void *context);
 #include <GLES2/gl2.h>
 #include <android/api-level.h>
 #include <stdarg.h>
@@ -107,52 +108,18 @@ static void probe_timing(sb_t *sb) {
               t1 - t0, t2 - t1, acc, x);
 }
 
-static const char *egl_err(EGLint e) {
-    switch (e) {
-        case EGL_SUCCESS: return "EGL_SUCCESS";
-        case EGL_NOT_INITIALIZED: return "EGL_NOT_INITIALIZED";
-        case EGL_BAD_CONFIG: return "EGL_BAD_CONFIG";
-        case EGL_BAD_MATCH: return "EGL_BAD_MATCH";
-        case EGL_BAD_ATTRIBUTE: return "EGL_BAD_ATTRIBUTE";
-        case EGL_BAD_ALLOC: return "EGL_BAD_ALLOC";
-        default: return "EGL_error";
-    }
-}
 
 /*
  * Create a 1x1 pbuffer ES2 context (no window needed) and query the GPU.
  * This is the same EGL path GFXBench's testfw uses on Android (eglgraphicscontext.cpp).
  */
 static void probe_gles2(sb_t *sb) {
-    EGLDisplay dpy = eglGetDisplay(EGL_DEFAULT_DISPLAY);
-    EGLint major = 0, minor = 0;
-    if (dpy == EGL_NO_DISPLAY || !eglInitialize(dpy, &major, &minor)) {
-        sb_printf(sb, "egl: init failed (%s)\n", egl_err(eglGetError()));
+    void *context = rmb_egl_create(1, 1);
+    if (!context) {
+        sb_printf(sb, "egl: Java EGL10 ES2 context unavailable\n");
         return;
     }
-    sb_printf(sb, "egl: %d.%d vendor=%s\n", major, minor, eglQueryString(dpy, EGL_VENDOR));
-
-    const EGLint cfg_attr[] = {
-        EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
-        EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
-        EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8,
-        EGL_DEPTH_SIZE, 16,
-        EGL_NONE
-    };
-    EGLConfig cfg;
-    EGLint ncfg = 0;
-    if (!eglChooseConfig(dpy, cfg_attr, &cfg, 1, &ncfg) || ncfg < 1) {
-        sb_printf(sb, "egl: no ES2 pbuffer config (%s)\n", egl_err(eglGetError()));
-        eglTerminate(dpy);
-        return;
-    }
-    const EGLint pb_attr[] = {EGL_WIDTH, 1, EGL_HEIGHT, 1, EGL_NONE};
-    EGLSurface surf = eglCreatePbufferSurface(dpy, cfg, pb_attr);
-    const EGLint ctx_attr[] = {EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE};
-    EGLContext ctx = eglCreateContext(dpy, cfg, EGL_NO_CONTEXT, ctx_attr);
-    if (surf == EGL_NO_SURFACE || ctx == EGL_NO_CONTEXT || !eglMakeCurrent(dpy, surf, surf, ctx)) {
-        sb_printf(sb, "egl: context/surface failed (%s)\n", egl_err(eglGetError()));
-    } else {
+    {
         sb_printf(sb, "gl vendor: %s\n", (const char *) glGetString(GL_VENDOR));
         sb_printf(sb, "gl renderer: %s\n", (const char *) glGetString(GL_RENDERER));
         sb_printf(sb, "gl version: %s\n", (const char *) glGetString(GL_VERSION));
@@ -177,10 +144,7 @@ static void probe_gles2(sb_t *sb) {
         glGetIntegerv(GL_MAX_TEXTURE_SIZE, &max_tex);
         sb_printf(sb, "gl max texture size: %d\n", max_tex);
     }
-    eglMakeCurrent(dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-    if (ctx != EGL_NO_CONTEXT) eglDestroyContext(dpy, ctx);
-    if (surf != EGL_NO_SURFACE) eglDestroySurface(dpy, surf);
-    eglTerminate(dpy);
+    rmb_egl_release(context);
 }
 
 size_t rmb_probe_report(char *buf, size_t cap) {
@@ -194,7 +158,10 @@ size_t rmb_probe_report(char *buf, size_t cap) {
     sb_printf(&sb, "built for API: %d\n", __ANDROID_API__);
 #if defined(__clang__)
     sb_printf(&sb, "compiler: clang %s\n", __clang_version__);
+#else
+    sb_printf(&sb, "compiler: gcc %s\n", __VERSION__);
 #endif
+    sb_printf(&sb, "native build: %s\n", RMB_NATIVE_BUILD_ID);
 #if defined(__ARM_NEON__) || defined(__ARM_NEON)
     sb_printf(&sb, "compiled with NEON: yes\n");
 #else

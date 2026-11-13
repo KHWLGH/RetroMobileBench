@@ -1,37 +1,27 @@
-// ES2 off-screen (pbuffer) context for running GFXBench tests without a window.
-//
-// Why not testfw's EGLGraphicsContext::initPBufferSurface():
-//   it treats an EGLConfig handle equal to 0 as "no config found". EGLConfig is an
-//   opaque handle, and Android 4.1's emulator EGL hands out index-based handles, so
-//   its first config IS 0: eglChooseConfig returns ok=1 num=1 cfg=0x0 and testfw
-//   gives up on a working device. This class does the same job but trusts only the
-//   count returned by eglChooseConfig.
-//
-// It derives from EGLGraphicsContext (not just GraphicsContext) because gfxbench.cpp
-// casts its context to EGLGraphicsContext* on Android to read selectedConfig(). The
-// base part stays default-constructed (no EGL objects), so that read returns 0 and the
-// base destructor does nothing. Our EGL objects live in the members below.
-
+// API 8 EGL host: Java EGL10 owns the display/context, native code owns rendering.
 #ifndef RMB_EGL_CONTEXT_H
 #define RMB_EGL_CONTEXT_H
-
+#ifdef RMB_JAVA_EGL
+#include <jni.h>
+#else
 #include <EGL/egl.h>
+#endif
+#include "graphics/graphicscontext.h"
 
-#include "graphics/eglgraphicscontext.h"
-
-class RmbPbufferContext : public EGLGraphicsContext {
+class RmbPbufferContext : public GraphicsContext {
 public:
-    RmbPbufferContext() {}
+    RmbPbufferContext() = default;
     ~RmbPbufferContext() override { release(); }
-
-    // Creates an ES2 context on a width x height pbuffer and makes it current on the
-    // calling thread. On failure, error() names the EGL call that failed.
     bool create(int width, int height);
     void release();
     const char *error() const { return error_; }
-
-    // GraphicsContext
-    bool isValid() override { return ctx_ != EGL_NO_CONTEXT; }
+    bool isValid() override {
+#ifdef RMB_JAVA_EGL
+        return context_ != nullptr;
+#else
+        return context_ != EGL_NO_CONTEXT;
+#endif
+    }
     bool makeCurrent() override;
     bool detachThread() override;
     bool swapBuffers() override;
@@ -39,12 +29,14 @@ public:
     int versionMajor() override { return 2; }
     int versionMinor() override { return 0; }
     bool hasFlag(int) override { return false; }
-
 private:
-    EGLDisplay dpy_ = EGL_NO_DISPLAY;
-    EGLSurface surf_ = EGL_NO_SURFACE;
-    EGLContext ctx_ = EGL_NO_CONTEXT;
-    char error_[160] = {0};
+#ifdef RMB_JAVA_EGL
+    jobject context_ = nullptr;
+#else
+    EGLDisplay display_ = EGL_NO_DISPLAY;
+    EGLSurface surface_ = EGL_NO_SURFACE;
+    EGLContext context_ = EGL_NO_CONTEXT;
+#endif
+    char error_[256] = {};
 };
-
 #endif

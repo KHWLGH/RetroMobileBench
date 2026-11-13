@@ -3,8 +3,7 @@ package com.retromobilebench;
 import android.app.Activity;
 import android.content.Intent;
 import android.content.ActivityNotFoundException;
-import android.content.ClipData;
-import android.content.ClipboardManager;
+import android.text.ClipboardManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.util.TypedValue;
@@ -17,7 +16,7 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
-/** Minimal Holo control surface for the local benchmark backend, API 16+. */
+/** Framework-only control surface for Android 2.2 and later. */
 public class MainActivity extends Activity implements BenchmarkRunner.Listener {
     private BenchmarkRunner runner;
     private TextView status;
@@ -69,7 +68,7 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener {
         copy = button(column, R.string.copy_json, () -> {
             ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
             if (clipboard != null) {
-                clipboard.setPrimaryClip(ClipData.newPlainText("RetroMobileBench", exportJson));
+                clipboard.setText(exportJson);
                 Toast.makeText(this, R.string.copied, Toast.LENGTH_SHORT).show();
             }
         });
@@ -84,7 +83,7 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener {
         licenses = button(column, R.string.licenses, () -> runner.licenses());
         result = new TextView(this);
         result.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        result.setTextIsSelectable(true);
+        PlatformCompat.selectable(result);
         column.addView(result);
         ScrollView scroll = new ScrollView(this);
         scroll.addView(column);
@@ -123,7 +122,7 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener {
         runner.detach(this);
         // Foreground benchmarks only. Rotation recreates the UI and reattaches to
         // the same worker; leaving the app cooperatively cancels the active suite.
-        if (!isChangingConfigurations() && runner.isBusy()) runner.cancel();
+        if (!PlatformCompat.changingConfigurations(this) && runner.isBusy()) runner.cancel();
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         super.onStop();
     }
@@ -142,7 +141,7 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener {
         history.setEnabled(!state.busy);
         probe.setEnabled(!state.busy);
         cancel.setEnabled(state.busy);
-        copy.setEnabled(!state.busy && !exportJson.isEmpty());
+        copy.setEnabled(!state.busy && exportJson.length() != 0);
         if (state.busy) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
     }

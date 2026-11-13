@@ -18,7 +18,7 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.util.Locale;
 
-/** API 16-only device/measurement metadata; collect on the benchmark worker. */
+/** API 8-compatible device/measurement metadata; collect on the worker. */
 final class DeviceSnapshot {
     private DeviceSnapshot() { }
 
@@ -37,6 +37,7 @@ final class DeviceSnapshot {
         data.put("app_version", BuildConfig.VERSION_NAME);
         data.put("app_version_code", BuildConfig.VERSION_CODE);
         data.put("native_library", NativeLoader.load());
+        data.put("native_build_id", BuildConfig.NATIVE_BUILD_ID);
         String identity = (Build.FINGERPRINT + " " + Build.MODEL + " " + Build.HARDWARE)
                 .toLowerCase(Locale.US);
         data.put("emulator", identity.contains("generic") || identity.contains("emulator")
@@ -47,7 +48,8 @@ final class DeviceSnapshot {
             ActivityManager.MemoryInfo memory = new ActivityManager.MemoryInfo();
             manager.getMemoryInfo(memory);
             data.put("available_memory_bytes", memory.availMem);
-            data.put("total_memory_bytes", memory.totalMem);
+            long total = PlatformCompat.totalMemory(memory);
+            if (total > 0) data.put("total_memory_bytes", total);
             data.put("low_memory", memory.lowMemory);
         }
         data.put("available_storage_bytes", availableBytes(context.getCacheDir()));

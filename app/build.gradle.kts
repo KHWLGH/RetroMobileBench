@@ -1,4 +1,9 @@
 import java.security.MessageDigest
+import java.net.URI
+import java.net.HttpURLConnection
+import java.util.concurrent.Executors
+import java.io.File
+import java.util.zip.ZipFile
 import java.util.zip.ZipOutputStream
 import java.util.zip.ZipEntry
 import java.util.zip.CRC32
@@ -7,34 +12,165 @@ plugins {
     alias(libs.plugins.android.application)
 }
 
+// Changing native sources or toolchain creates a separate score comparison group.
+val nativeInputs = files(rootProject.file("app/build.gradle.kts"),
+    rootProject.fileTree("native") { include("**/*.c", "**/*.h", "**/CMakeLists.txt") },
+    rootProject.fileTree("feasibility/gfxbench-es2") { include("**/*.cpp", "**/*.h", "**/CMakeLists.txt") },
+    rootProject.fileTree("third_party") {
+        include("**/*.c", "**/*.cpp", "**/*.h", "**/*.hpp")
+        exclude("**/.git/**", "**/build/**")
+    })
+val nativeBuildId = providers.provider {
+    val digest = MessageDigest.getInstance("SHA-256")
+    digest.update("r10e-gcc4.9-gnustl_static-O2-api8-armv7-api9-x86-v1".toByteArray())
+    nativeInputs.files.sortedBy { it.relativeTo(rootDir).invariantSeparatorsPath }.forEach {
+        digest.update(it.relativeTo(rootDir).invariantSeparatorsPath.toByteArray())
+        it.inputStream().use { stream -> val buffer = ByteArray(65536); while (true) {
+            val count = stream.read(buffer); if (count < 0) break; digest.update(buffer, 0, count)
+        } }
+    }
+    "r10e-gcc49-" + digest.digest().take(12).joinToString("") { "%02x".format(it) }
+}
+
+val legacyNdkDirectory = rootProject.layout.projectDirectory.dir(
+    providers.gradleProperty("legacyNdkDir").orElse(".tools/android-ndk-r10e").get())
+
+abstract class PrepareLegacyNdk : DefaultTask() {
+    @get:OutputDirectory abstract val ndkDirectory: DirectoryProperty
+    @get:Input abstract val archiveUrl: Property<String>
+    @get:Input abstract val archiveSha256: Property<String>
+    @TaskAction fun prepare() {
+        val destination = ndkDirectory.get().asFile
+        val marker = destination.resolve(".rmb-r10e-sha256")
+        if (marker.isFile && marker.readText().trim() == archiveSha256.get()) return
+        val archive = temporaryDir.resolve("ndk.zip")
+        val archiveSize = 1066110352L
+        if (archive.length() != archiveSize) {
+            logger.lifecycle("Downloading the official NDK r10e archive (about 1 GB, resumable parts)")
+            val pool = Executors.newFixedThreadPool(8)
+            val partSize = 16L * 1024 * 1024
+            val parts = (0 until ((archiveSize + partSize - 1) / partSize).toInt()).map { index ->
+                val start = index * partSize
+                val end = minOf(archiveSize, start + partSize) - 1
+                val part = temporaryDir.resolve("ndk.part$index")
+                pool.submit<File> {
+                    if (part.length() != end - start + 1) {
+                        val connection = URI(archiveUrl.get()).toURL().openConnection() as HttpURLConnection
+                        connection.connectTimeout = 30000; connection.readTimeout = 60000
+                        connection.setRequestProperty("Range", "bytes=$start-$end")
+                        try {
+                            check(connection.responseCode == 206) { "NDK server did not accept range request" }
+                            connection.inputStream.use { input -> part.outputStream().buffered().use { input.copyTo(it, 65536) } }
+                            check(part.length() == end - start + 1) { "Incomplete NDK download part $index" }
+                            logger.lifecycle("NDK part ${index + 1}/64 downloaded")
+                        } finally { connection.disconnect() }
+                    }
+                    part
+                }
+            }
+            try {
+                val completed = parts.map { it.get() }
+                archive.outputStream().buffered().use { output -> completed.forEach { part ->
+                    part.inputStream().use { it.copyTo(output, 65536) }
+                } }
+            } finally { pool.shutdownNow() }
+        }
+        val digest = MessageDigest.getInstance("SHA-256")
+        archive.inputStream().use { input -> val bytes = ByteArray(65536); while (true) {
+            val n = input.read(bytes); if (n < 0) break; digest.update(bytes, 0, n)
+        } }
+        val actual = digest.digest().joinToString("") { "%02x".format(it) }
+        check(actual == archiveSha256.get()) { "NDK checksum mismatch: $actual" }
+        ZipFile(archive).use { zip ->
+            zip.entries().asSequence().forEach { entry ->
+                val relative = entry.name.removePrefix("android-ndk-r10e/")
+                val output = destination.resolve(relative).canonicalFile
+                check(output.toPath().startsWith(destination.canonicalFile.toPath())) { "Invalid archive path" }
+                if (entry.isDirectory) output.mkdirs() else {
+                    output.parentFile.mkdirs()
+                    zip.getInputStream(entry).use { input -> output.outputStream().use { input.copyTo(it) } }
+                }
+            }
+        }
+        check(destination.resolve("RELEASE.TXT").readText().trim().startsWith("r10e")) { "Invalid NDK archive" }
+        marker.writeText(actual + "\n")
+    }
+}
+val prepareLegacyNdk = tasks.register<PrepareLegacyNdk>("prepareLegacyNdk") {
+    ndkDirectory.set(legacyNdkDirectory)
+    archiveUrl.set("https://dl.google.com/android/repository/android-ndk-r10e-windows-x86_64.zip")
+    // SHA-256 of the archive retrieved from the official HTTPS URL above.
+    archiveSha256.set("4be4192971e1ced4cfb3da8e1242f80741d46c9cb4b44650af17b8053a3f8871")
+}
+
+abstract class LegacyNativeBuild : DefaultTask() {
+    @get:Inject abstract val execOperations: org.gradle.process.ExecOperations
+    @get:Internal abstract val ndkDirectory: DirectoryProperty
+    @get:Internal abstract val sdkDirectory: DirectoryProperty
+    @get:Internal abstract val rootDirectory: DirectoryProperty
+    @get:InputFiles @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val sources: ConfigurableFileCollection
+    @get:Input abstract val buildId: Property<String>
+    @get:OutputDirectory abstract val outputDirectory: DirectoryProperty
+    @TaskAction fun build() {
+        val ndk = ndkDirectory.get().asFile
+        check(ndk.resolve("RELEASE.TXT").isFile && ndk.resolve("RELEASE.TXT").readText().trim().startsWith("r10e")) {
+            "Run :app:prepareLegacyNdk first, or pass -PlegacyNdkDir=<r10e directory>"
+        }
+        val cmakeBin = sdkDirectory.get().asFile.resolve("cmake/3.18.1/bin")
+        val root = rootDirectory.get().asFile
+        listOf("armeabi-v7a", "x86").forEach { abi ->
+            val build = temporaryDir.resolve("gcc49/$abi")
+            execOperations.exec {
+                commandLine(cmakeBin.resolve("cmake.exe"), "-S", root.resolve("native"), "-B", build,
+                    "-G", "Ninja", "-DCMAKE_MAKE_PROGRAM=${cmakeBin.resolve("ninja.exe").invariantSeparatorsPath}",
+                    "-DCMAKE_SYSTEM_NAME=Android", "-DCMAKE_SYSTEM_VERSION=${if (abi == "x86") 9 else 8}",
+                    "-DCMAKE_ANDROID_ARCH_ABI=$abi", "-DCMAKE_ANDROID_NDK=${ndk.invariantSeparatorsPath}",
+                    "-DCMAKE_ANDROID_NDK_TOOLCHAIN_VERSION=4.9", "-DCMAKE_ANDROID_STL_TYPE=gnustl_static",
+                    "-DCMAKE_BUILD_TYPE=Release", "-DRMB_NATIVE_BUILD_ID=${buildId.get()}",
+                    "-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=${outputDirectory.get().asFile.resolve(abi).invariantSeparatorsPath}")
+            }
+            execOperations.exec { commandLine(cmakeBin.resolve("cmake.exe"), "--build", build, "--parallel", "8") }
+        }
+    }
+}
+val legacyNative = tasks.register<LegacyNativeBuild>("buildLegacyNative") {
+    mustRunAfter(prepareLegacyNdk)
+    ndkDirectory.set(legacyNdkDirectory)
+    sdkDirectory.set(androidComponents.sdkComponents.sdkDirectory)
+    rootDirectory.set(rootProject.layout.projectDirectory)
+    sources.from(nativeInputs)
+    buildId.set(nativeBuildId)
+    outputDirectory.set(layout.buildDirectory.dir("generated/legacyJniLibs"))
+}
+androidComponents.onVariants { variant ->
+    variant.sources.jniLibs?.addGeneratedSourceDirectory(legacyNative, LegacyNativeBuild::outputDirectory)
+}
+
 android {
     namespace = "com.retromobilebench"
     compileSdk = 37
-
-    // NDK r23c is the last NDK that supports API 16-18 and non-NEON ARMv7 (docs/02-platform-constraints.md).
+    // AGP uses the installed modern tools only to strip/package prebuilt JNI libs.
+    // Compilation is exclusively handled by buildLegacyNative with r10e.
     ndkVersion = "23.2.8568313"
+    packaging.jniLibs.useLegacyPackaging = true
+
 
     defaultConfig {
         applicationId = "com.retromobilebench"
-        minSdk = 16
+        minSdk = 8
+        buildConfigField("String", "NATIVE_BUILD_ID", "\"${nativeBuildId.get()}\"")
         // 23: lowest target Android 14+ will install; no behaviour change on 4.x (README "发布方式").
         targetSdk = 23
         versionCode = 1
         versionName = "0.0.1"
-        // Framework Instrumentation works on API 16 without AndroidX/JUnit dependencies.
+        // Framework Instrumentation avoids newer AndroidX runtime requirements.
         testInstrumentationRunner = "com.retromobilebench.BackendInstrumentation"
 
         ndk {
             abiFilters += listOf("armeabi-v7a", "x86")
         }
-        externalNativeBuild {
-            cmake {
-                arguments += listOf(
-                    "-DANDROID_STL=c++_static",
-                    "-DANDROID_PLATFORM=android-16",
-                )
-            }
-        }
+
     }
 
     buildTypes {
@@ -44,18 +180,13 @@ android {
     }
 
     compileOptions {
-        // D8 desugars Java 9-17 language features and backports the java.util.Objects etc.
-        // calls javac emits, so this is safe for minSdk 16.
+        // D8 desugars language features for the API 8 runtime; API lint stays fatal.
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    externalNativeBuild {
-        cmake {
-            path = file("../native/CMakeLists.txt")
-            version = "3.18.1"
-        }
-    }
+    // Froyo only understands JAR/v1 signatures, including future release keys.
+    signingConfigs.configureEach { enableV1Signing = true }
 
     buildFeatures {
         buildConfig = true
@@ -89,8 +220,11 @@ abstract class BenchmarkNotices : DefaultTask() {
 }
 
 val benchmarkNotices = tasks.register<BenchmarkNotices>("generateBenchmarkNotices") {
+    mustRunAfter(prepareLegacyNdk)
     noticeFiles.from(
         rootProject.file("third_party/coremark/LICENSE.md"),
+        legacyNdkDirectory.file("build/tools/toolchain-licenses/COPYING3"),
+        legacyNdkDirectory.file("build/tools/toolchain-licenses/COPYING.RUNTIME"),
         rootProject.file("third_party/stream/LICENSE.txt"),
         rootProject.file("third_party/tinymembench/util.h"),
         rootProject.file("third_party/gfxbench/LICENSE"),

@@ -220,6 +220,9 @@ final class BenchmarkRunner {
                     publish(true, "正在运行" + suite.label + "，第 " + (round + 1) + " / " + repetitions + " 轮",
                             suite.progress(parameter), "");
                     JSONObject sample = new JSONObject(suite.run(context, parameter));
+                    sample.put("native_build_id", BuildConfig.NATIVE_BUILD_ID);
+                    sample.put("native_library", NativeLoader.load());
+                    sample.put("native_abi", before.getString("abi"));
                     sample.put("conditions_start", before);
                     sample.put("conditions_end", DeviceSnapshot.collect(context));
                     samples.put(sample);
@@ -258,7 +261,7 @@ final class BenchmarkRunner {
             persistenceProblem = "保存失败，可先复制 JSON：" + e;
         }
         try {
-            String message = persistenceProblem.isEmpty()
+            String message = persistenceProblem.length() == 0
                     ? "结果已保存 · " + BenchmarkReport.statusLabel(report.optString("status")) : persistenceProblem;
             publish(batch, message, BenchmarkReport.format(report), report.toString(2));
             Log.i("RMB", suite.name() + "_DONE status=" + report.optString("status") + " id=" + id);

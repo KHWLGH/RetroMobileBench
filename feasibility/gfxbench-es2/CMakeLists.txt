@@ -36,6 +36,9 @@ endif()
 # Tegra 2 build (decision 5): no NEON anywhere, same flag as native/CMakeLists.txt uses
 # for librmb_noneon.so. Check the result with scripts/check-neon.ps1.
 option(RMB_NO_NEON "Build for ARMv7 CPUs without NEON (VFPv3-D16)" OFF)
+if(ANDROID_ABI STREQUAL "armeabi-v7a" AND NOT RMB_NO_NEON)
+    add_compile_options(-mfpu=neon)
+endif()
 if(RMB_NO_NEON)
     if(NOT ANDROID_ABI STREQUAL "armeabi-v7a")
         message(FATAL_ERROR "RMB_NO_NEON only applies to armeabi-v7a")
@@ -51,6 +54,23 @@ add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:SHELL:-include ${RMB_COMPAT_HEADE
 # --- Generated headers -------------------------------------------------------
 set(GEN "${CMAKE_CURRENT_BINARY_DIR}/gen")
 file(MAKE_DIRECTORY "${GEN}")
+# API 8 has GLES2 but no public native EGL. Use only the API 9 EGL type
+# declarations; all context operations are delegated to Java EGL10.
+if(CMAKE_SYSTEM_VERSION LESS 9)
+    file(COPY "${CMAKE_ANDROID_NDK}/platforms/android-9/arch-arm/usr/include/EGL" DESTINATION "${GEN}")
+    file(COPY "${CMAKE_ANDROID_NDK}/platforms/android-9/arch-arm/usr/include/KHR" DESTINATION "${GEN}")
+endif()
+include_directories(BEFORE "${CMAKE_CURRENT_SOURCE_DIR}/compat" "${GEN}")
+file(READ "${G40}/gfxbench/gfxbench.cpp" RMB_GFX_FRONT)
+string(REPLACE "#include \"graphics/eglgraphicscontext.h\"" "// Context hosted through Java EGL10" RMB_GFX_FRONT "${RMB_GFX_FRONT}")
+string(REPLACE "((EGLGraphicsContext*)ctx_)->selectedConfig()" "0" RMB_GFX_FRONT "${RMB_GFX_FRONT}")
+file(WRITE "${GEN}/gfxbench.cpp" "${RMB_GFX_FRONT}")
+file(READ "${FW}/platform-utils/battery.cpp" RMB_BATTERY)
+string(REPLACE "\"platform/platform_android.h\"" "\"${CMAKE_CURRENT_SOURCE_DIR}/compat/platform/platform_android.h\"" RMB_BATTERY "${RMB_BATTERY}")
+file(WRITE "${GEN}/battery.cpp" "${RMB_BATTERY}")
+file(READ "${KCL}/platforms/android/src/kcl_os.cpp" RMB_KCL_OS)
+string(REPLACE "#include <android/asset_manager.h>" "// Assets are extracted by Java" RMB_KCL_OS "${RMB_KCL_OS}")
+file(WRITE "${GEN}/kcl_os.cpp" "${RMB_KCL_OS}")
 configure_file("${G}/3rdparty/zlib/zconf.h.cmakein" "${GEN}/zconf.h" @ONLY)
 configure_file("${G}/3rdparty/libpng/scripts/pnglibconf.h.prebuilt" "${GEN}/pnglibconf.h" COPYONLY)
 
@@ -96,10 +116,10 @@ target_compile_definitions(${RMB_GFX_PREFIX}gfx_ngrtl PUBLIC NGRTL_STATIC NGLOG_
 target_include_directories(${RMB_GFX_PREFIX}gfx_ngrtl PUBLIC "${NGRTL}/include/core")
 target_link_libraries(${RMB_GFX_PREFIX}gfx_ngrtl PUBLIC log)
 
-# --- platform-utils (JNI glue: AssetManager, battery) -------------------------
-add_library(${RMB_GFX_PREFIX}gfx_platform STATIC ${FW}/platform-utils/platform_android.cpp ${FW}/platform-utils/battery.cpp)
-target_include_directories(${RMB_GFX_PREFIX}gfx_platform PUBLIC "${FW}/platform-utils")
-target_link_libraries(${RMB_GFX_PREFIX}gfx_platform PUBLIC log android)
+# --- platform-utils (API 8 sysfs battery fallback) -------------------------
+add_library(${RMB_GFX_PREFIX}gfx_platform STATIC compat/platform_android.cpp ${GEN}/battery.cpp)
+target_include_directories(${RMB_GFX_PREFIX}gfx_platform BEFORE PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/compat" "${FW}/platform-utils")
+target_link_libraries(${RMB_GFX_PREFIX}gfx_platform PUBLIC log)
 
 # --- Common GL definitions for everything GFXBench --------------------------------
 # HAVE_GLES2 without HAVE_GLES3 is the whole point: API 16 has no libGLESv3.
@@ -117,7 +137,7 @@ add_library(${RMB_GFX_PREFIX}gfx_kcl STATIC
     ${KCL}/src/kcl_texture.cpp ${KCL}/src/kcl_scene_xml.cpp ${KCL}/src/kcl_io.cpp
     ${KCL}/src/ogg_decoder.cpp ${KCL}/src/kcl_buffer.cpp ${KCL}/src/kcl_envprobe.cpp
     ${KCL}/src/hdr.cpp
-    ${KCL}/platforms/android/src/kcl_os.cpp ${KCL}/platforms/android/src/kcl_io_os.cpp
+    ${GEN}/kcl_os.cpp compat/kcl_io_os.cpp
     # KCL bundled libraries
     ${KCLLIB}/libetc1/src/etc1.cpp
     ${KCLLIB}/tinyxml/src/tinystr.cpp ${KCLLIB}/tinyxml/src/tinyxml.cpp
@@ -132,7 +152,7 @@ add_library(${RMB_GFX_PREFIX}gfx_kcl STATIC
     ${KCLLIB}/libogg_theora_vorbis/src/state.c)
 target_compile_definitions(${RMB_GFX_PREFIX}gfx_kcl PUBLIC ${GFX_DEFS})
 target_include_directories(${RMB_GFX_PREFIX}gfx_kcl PUBLIC
-    "${KCL}/src" "${KCLLIB}/libetc1/src" "${KCLLIB}/libogg_theora_vorbis" "${KCLLIB}/tinythread"
+    "${KCL}/src" "${KCL}/platforms/android/src" "${KCLLIB}/libetc1/src" "${KCLLIB}/libogg_theora_vorbis" "${KCLLIB}/tinythread"
     "${KCLLIB}/tinyxml/src" "${KCLLIB}/tinyxml2/src" "${FW}/oglx/..")
 target_link_libraries(${RMB_GFX_PREFIX}gfx_kcl PUBLIC ${RMB_GFX_PREFIX}gfx_png ${RMB_GFX_PREFIX}gfx_ngrtl ${RMB_GFX_PREFIX}gfx_platform)
 
@@ -145,7 +165,6 @@ target_link_libraries(${RMB_GFX_PREFIX}gfx_krl PUBLIC ${RMB_GFX_PREFIX}gfx_kcl)
 # --- testfw core + schemas (no SWIG / Java here) ----------------------------------
 add_library(${RMB_GFX_PREFIX}gfx_testfw STATIC
     ${FW}/testfw/testfw.cpp
-    ${FW}/testfw/graphics/eglgraphicscontext.cpp
     ${FW}/testfw/schemas/apidefinition.cpp ${FW}/testfw/schemas/descriptors.cpp
     ${FW}/testfw/schemas/compareitem.cpp ${FW}/testfw/schemas/compareresult.cpp
     ${FW}/testfw/schemas/configuration.cpp ${FW}/testfw/schemas/compositedescriptor.cpp
@@ -157,7 +176,7 @@ add_library(${RMB_GFX_PREFIX}gfx_testfw STATIC
     ${FW}/testfw/schemas/environment.cpp)
 target_compile_definitions(${RMB_GFX_PREFIX}gfx_testfw PUBLIC ${GFX_DEFS})
 target_include_directories(${RMB_GFX_PREFIX}gfx_testfw PUBLIC "${FW}/testfw" "${FW}/testfw/schemas")
-target_link_libraries(${RMB_GFX_PREFIX}gfx_testfw PUBLIC ${RMB_GFX_PREFIX}gfx_ngrtl EGL GLESv2 dl)
+target_link_libraries(${RMB_GFX_PREFIX}gfx_testfw PUBLIC ${RMB_GFX_PREFIX}gfx_ngrtl GLESv2 dl)
 
 # --- GFXBench ES2 tests ---------------------------------------------------------
 set(GL_COMMON
@@ -203,7 +222,7 @@ set(GFX30_LOWLEVEL
 
 set(GFX_FRONT
     ${G40}/gfxbench/global_test_environment.cpp ${G40}/gfxbench/status_report.cpp
-    ${G40}/gfxbench/gfxbench.cpp
+    ${GEN}/gfxbench.cpp
     # Always built by GFXBench's own CMake; the function body is empty outside iOS.
     ${G40}/gfxbench/gfxbench_ios_rawconfig.cpp
     ${G40}/tests/40/corporate/create_factory_trex_corporate.cpp
@@ -225,11 +244,13 @@ target_link_libraries(${RMB_GFX_PREFIX}gfxbench_es2 PUBLIC ${RMB_GFX_PREFIX}gfx_
 set(GFX_LINK_LIBS
     -Wl,--whole-archive ${RMB_GFX_PREFIX}gfxbench_es2 -Wl,--no-whole-archive
     ${RMB_GFX_PREFIX}gfx_testfw ${RMB_GFX_PREFIX}gfx_krl ${RMB_GFX_PREFIX}gfx_kcl ${RMB_GFX_PREFIX}gfx_png ${RMB_GFX_PREFIX}gfx_zlib ${RMB_GFX_PREFIX}gfx_ngrtl ${RMB_GFX_PREFIX}gfx_platform
-    EGL GLESv2 log android dl m)
+    GLESv2 log dl m)
 
-set(RMB_HOST_SRCS probe_main.cpp rmb_egl_context.cpp)
+set(RMB_HOST_SRCS probe_main.cpp rmb_native_egl_context.cpp)
 
 if(RMB_EMBED_TARGET)
+    target_compile_definitions(${RMB_EMBED_TARGET} PRIVATE RMB_JAVA_EGL=1)
+    target_include_directories(${RMB_EMBED_TARGET} BEFORE PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/compat" "${GEN}")
     target_sources(${RMB_EMBED_TARGET} PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/probe_main.cpp ${CMAKE_CURRENT_SOURCE_DIR}/rmb_egl_context.cpp)
     target_link_libraries(${RMB_EMBED_TARGET} PRIVATE ${GFX_LINK_LIBS})
@@ -237,9 +258,9 @@ if(RMB_EMBED_TARGET)
     target_link_options(${RMB_EMBED_TARGET} PRIVATE -Wl,--no-undefined -Wl,--exclude-libs,ALL)
 else()
     add_library(gfxbench_es2_probe SHARED ${RMB_HOST_SRCS})
-    target_link_libraries(gfxbench_es2_probe PRIVATE ${GFX_LINK_LIBS})
+    target_link_libraries(gfxbench_es2_probe PRIVATE ${GFX_LINK_LIBS} EGL)
     target_link_options(gfxbench_es2_probe PRIVATE -Wl,--no-undefined)
     # PIE works on Android 4.1 and is required on 5.0+.
     add_executable(gfxprobe cli_main.cpp ${RMB_HOST_SRCS})
-    target_link_libraries(gfxprobe PRIVATE ${GFX_LINK_LIBS})
+    target_link_libraries(gfxprobe PRIVATE ${GFX_LINK_LIBS} EGL)
 endif()

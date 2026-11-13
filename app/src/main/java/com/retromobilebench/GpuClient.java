@@ -27,6 +27,9 @@ final class GpuClient {
             if (pack == null) return failure("skipped", "缺少场景数据包，请导入完整数据包").toString();
             JSONObject envelope = invoke(context, pack, test, diagnosticMs, 240000);
             envelope.put("test_version", "gpu-" + test + "-v1");
+            envelope.put("native_build_id", BuildConfig.NATIVE_BUILD_ID);
+            envelope.put("native_library", NativeLoader.load());
+            envelope.put("native_abi", android.os.Build.CPU_ABI);
             envelope.put("source_revision", GpuDataPack.SOURCE);
             envelope.put("data_sha256", GpuDataPack.digest(pack));
             envelope.put("test_id", test).put("texture_type", "ETC1");
@@ -116,12 +119,19 @@ final class GpuClient {
     }
 
     static JSONObject parse(String raw, String test) throws Exception {
+        if (raw != null && raw.startsWith("SKIP:")) return failure("skipped", raw.substring(5).trim());
         if (raw == null || raw.startsWith("ERROR:")) return failure("failed", raw == null ? "GPU 无结果" : raw);
         JSONObject original = new JSONObject(raw);
         JSONObject measurement = original.getJSONArray("results").getJSONObject(0);
         JSONObject result = new JSONObject().put("raw_result", original).put("completed_metrics", 0);
-        if (!"OK".equals(measurement.optString("status")))
-            return result.put("status", "failed").put("error_stage", measurement.optString("error_string", "GPU validation"));
+        if (!"OK".equals(measurement.optString("status"))) {
+            String error = measurement.optString("error_string", "GPU validation");
+            boolean unsupported = "OUT_OF_VMEMORY".equals(error) || "OUT_OF_MEMORY".equals(error)
+                    || "OFFSCREEN_NOT_SUPPORTED".equals(error) || "UNSUPPORTED_TC_TYPE".equals(error)
+                    || "OFFSCREEN_NOT_SUPPORTED_IN_MSAA".equals(error)
+                    || "Z24_NOT_SUPPORTED".equals(error) || "REQUIRED_FSAA_LEVEL_NOT_SUPPORTED".equals(error);
+            return result.put("status", unsupported ? "skipped" : "failed").put("error_stage", error);
+        }
         if (!test.equals(measurement.getString("test_id")))
             return result.put("status", "failed").put("error_stage", "GPU 返回了不同测试的结果");
         double score = measurement.getDouble("score");

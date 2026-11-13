@@ -143,7 +143,7 @@ final class GpuDataPack {
 
     private static void validateManifest(JSONObject manifest) throws Exception {
         if (manifest.getInt("format") != 2 || !SOURCE.equals(manifest.getString("source"))
-                || !"ETC1".equals(manifest.getString("texture_type")) || manifest.getString("license").isEmpty())
+                || !"ETC1".equals(manifest.getString("texture_type")) || manifest.getString("license").length() == 0)
             throw new IOException("不支持的数据包版本/来源/纹理格式");
         JSONArray files = manifest.getJSONArray("files"), tests = manifest.getJSONArray("tests");
         if (files.length() < 1 || files.length() > MAX_FILES || tests.length() < 1 || tests.length() > 6)

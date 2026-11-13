@@ -21,6 +21,9 @@ captures/
 !.idea/runConfigurations/
 out/
 
+# Locally prepared historical toolchain
+.tools/
+
 # Native build intermediates
 obj/
 *.o
