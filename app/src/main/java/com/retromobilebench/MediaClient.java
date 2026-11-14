@@ -4,81 +4,125 @@ import android.content.*;
 import android.os.*;
 import android.view.Surface;
 import org.json.JSONObject;
+import org.json.JSONArray;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Every media path gets a disposable process and a parent-side wall-clock watchdog. */
 final class MediaClient {
-    private static volatile boolean cancelled, externalPlayback;
+    private static final WorkerRequest.Cancellation cancellation = new WorkerRequest.Cancellation();
+    private static volatile boolean externalPlayback;
+    private static volatile boolean cleanupFailed;
     static boolean externalPlaybackActive() { return externalPlayback; }
-    static void resetCancellation() { cancelled = false; }
-    static void cancel() { cancelled = true; }
-    static boolean cancelled() { return cancelled; }
+    static void resetCancellation() { cancellation.reset(); }
+    static void cancel() { cancellation.cancel(); }
+    static boolean cancelled() { return cancellation.isCancelled(); }
     static JSONObject failure(String status, String reason) {
         JSONObject value = new JSONObject(); try { value.put("status", status).put("error_stage", reason); } catch (Exception ignored) { } return value;
     }
     static JSONObject run(Context context, JSONObject clip, String path, String mode, int threads) throws Exception {
-        if (cancelled) return failure("cancelled", "before_start");
+        if (cleanupFailed) return failure("failed", "此前媒体工作进程未能回收；请重启应用后再测");
+        JSONArray attempts = new JSONArray(); JSONObject result = null;
+        int count = Build.VERSION.SDK_INT >= 16 && !"software".equals(mode) ? 2 : 1;
+        for (int candidate = 0; candidate < count; candidate++) {
+            JSONObject value = invoke(context, clip, path, mode, threads, candidate);
+            if (value.optBoolean("candidate_missing") && result != null) break;
+            result = value; attempts.put(new JSONObject(value.toString()));
+            String status = value.optString("status");
+            if ("completed".equals(status) || "cancelled".equals(status) || "interrupted".equals(status)) break;
+            if ("playback".equals(mode) && candidate + 1 < count) {
+                try {
+                    DisplaySurface.retire(MediaClient::cancelled);
+                    attempts.getJSONObject(attempts.length() - 1).put("surface_destroyed_before_fallback", true);
+                } catch (java.io.IOException e) {
+                    result.put("surface_recovery_error", e.toString());
+                    break; // Do not hand a still-connected BufferQueue to another codec.
+                }
+            }
+        }
+        if (count > 1) result.put("attempts", attempts).put("selection", "vendor_or_unknown_then_known_software_name_lexical_max2")
+                .put("attempt_isolation", "one_process_per_candidate");
+        return result;
+    }
+    private static JSONObject invoke(Context context, JSONObject clip, String path, String mode, int threads, int candidate) throws Exception {
+        if (cancelled()) return failure("cancelled", "before_start");
         boolean legacyPlayback = "playback".equals(mode) && Build.VERSION.SDK_INT < 16;
-        Surface surface = "playback".equals(mode) && !legacyPlayback ? DisplaySurface.acquire() : null;
+        final Surface surface;
+        try { surface = "playback".equals(mode) && !legacyPlayback ? DisplaySurface.acquire(MediaClient::cancelled) : null; }
+        catch (java.io.IOException e) {
+            // No worker was started: retain this path's failure and allow the other clips.
+            return failure(cancelled() ? "cancelled" : "interrupted", "surface_acquire: " + e.getMessage());
+        }
         externalPlayback = legacyPlayback;
-        CountDownLatch done = new CountDownLatch(1), cleaned = new CountDownLatch(1);
-        AtomicReference<JSONObject> result = new AtomicReference<>();
+        CountDownLatch died = new CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicInteger pid = new java.util.concurrent.atomic.AtomicInteger();
+        AtomicReference<JSONObject> identity = new AtomicReference<>();
+        WorkerRequest pending = new WorkerRequest(failure("cancelled", "用户停止或 Surface 丢失"));
+        AtomicBoolean closed = new AtomicBoolean();
         AtomicReference<Messenger> remote = new AtomicReference<>(); AtomicReference<IBinder> binder = new AtomicReference<>();
-        IBinder.DeathRecipient death = () -> { result.compareAndSet(null, failure("failed", "媒体进程退出或解码器崩溃")); done.countDown(); };
+        IBinder.DeathRecipient death = () -> { died.countDown(); pending.complete(failure("failed", "媒体进程退出或解码器崩溃")); };
         Messenger reply = new Messenger(new Handler(Looper.getMainLooper()) {
             @Override public void handleMessage(Message message) {
-                if (message.what != 2) return;
+                if (message.what == 4 && !closed.get()) {
+                    pid.set(message.getData().getInt("pid"));
+                    try { String attempt = message.getData().getString("attempt"); if (attempt != null) identity.set(new JSONObject(attempt)); }
+                    catch (Exception ignored) { }
+                    return;
+                }
+                if (message.what != 2 || pending.isComplete()) return;
                 try {
                     JSONObject value = new JSONObject(message.getData().getString("result")).put("worker_pid", message.getData().getInt("pid"));
-                    result.compareAndSet(null, value);
-                    if (legacyPlayback && "cancelled".equals(value.optString("status"))) BenchmarkRunner.get(context).cancel();
-                    if (legacyPlayback && "interrupted".equals(value.optString("status"))) BenchmarkRunner.get(context).interrupt();
+                    pending.complete(value, () -> {
+                        if (legacyPlayback && "cancelled".equals(value.optString("status"))) BenchmarkRunner.get(context).cancel();
+                        if (legacyPlayback && "interrupted".equals(value.optString("status"))) BenchmarkRunner.get(context).interrupt();
+                    });
                 }
-                catch (Exception e) { result.compareAndSet(null, failure("failed", e.toString())); }
-                done.countDown();
+                catch (Exception e) { pending.complete(failure("failed", e.toString())); }
             }
         });
         ServiceConnection connection = new ServiceConnection() {
             public void onServiceConnected(ComponentName name, IBinder service) {
+                if (closed.get()) return;
                 binder.set(service); remote.set(new Messenger(service));
                 try {
-                    service.linkToDeath(death, 0); Message request = Message.obtain(null, 1); request.replyTo = reply;
+                    service.linkToDeath(death, 0);
+                    if (pending.isComplete()) return;
+                    Message request = Message.obtain(null, 1); request.replyTo = reply;
                     request.getData().putString("clip", clip.toString()); request.getData().putString("path", path);
-                    request.getData().putString("mode", mode); request.getData().putInt("threads", threads);
+                    request.getData().putString("mode", mode); request.getData().putInt("threads", threads); request.getData().putInt("candidate", candidate);
                     if (surface != null) request.getData().putParcelable("surface", surface);
                     remote.get().send(request);
-                } catch (Exception e) { result.compareAndSet(null, failure("failed", e.toString())); done.countDown(); }
+                } catch (Exception e) { pending.complete(failure("failed", e.toString())); }
             }
             public void onServiceDisconnected(ComponentName name) { death.binderDied(); }
         };
         boolean bound = false; long start = SystemClock.elapsedRealtime();
+        cancellation.attach(pending);
         try {
-            bound = context.bindService(new Intent(context, MediaService.class), connection, Context.BIND_AUTO_CREATE);
-            if (!bound) return failure("failed", "媒体进程绑定失败");
-            long limit = "software".equals(mode) ? 15000 : 12000;
-            while (!done.await(100, TimeUnit.MILLISECONDS)) {
-                if (cancelled) { result.compareAndSet(null, failure("cancelled", "用户停止或 Surface 丢失")); break; }
-                if (SystemClock.elapsedRealtime() - start >= limit) { result.compareAndSet(null, failure("timeout", "媒体路径超过独立进程时限")); break; }
+            if (!pending.isComplete()) {
+                bound = context.bindService(new Intent(context, MediaService.class), connection, Context.BIND_AUTO_CREATE);
+                if (!bound) pending.complete(failure("failed", "媒体进程绑定失败"));
             }
-            JSONObject value = result.get() == null ? failure("failed", "empty_result") : result.get();
+            long limit = "software".equals(mode) ? 15000 : 12000;
+            JSONObject value = pending.await(start + limit, failure("timeout", "媒体路径超过独立进程时限"));
+            JSONObject known = identity.get();
+            if (known != null) {
+                java.util.Iterator<String> keys = known.keys();
+                while (keys.hasNext()) { String key = keys.next(); value.put(key, known.get(key)); }
+            }
+            if (pid.get() > 0) value.put("worker_pid", pid.get());
             value.put("path_wall_ms", SystemClock.elapsedRealtime() - start); return value;
         } finally {
+            pending.complete(failure("failed", "媒体请求已关闭"));
+            cancellation.detach(pending);
             try {
-                if (surface != null) DisplaySurface.hide();
                 if (bound) {
-                    new Handler(Looper.getMainLooper()).post(() -> {
-                        try { if (remote.get() != null) remote.get().send(Message.obtain(null, 3)); } catch (Exception ignored) { }
-                        try { context.unbindService(connection); } finally { cleaned.countDown(); }
-                    });
-                    if (!cleaned.await(5, TimeUnit.SECONDS)) throw new java.io.IOException("媒体进程解绑超时");
-                    IBinder service = binder.get();
-                    long until = SystemClock.elapsedRealtime() + 3000;
-                    while (service != null && service.pingBinder() && SystemClock.elapsedRealtime() < until) SystemClock.sleep(20);
-                    if (service != null && service.pingBinder()) throw new java.io.IOException("媒体进程未能回收，停止后续媒体负载");
+                    closed.set(true);
+                    try { WorkerProcess.close(context, connection, remote.get(), binder.get(), death, died, pid.get()); }
+                    catch (Exception e) { cleanupFailed = true; throw e; }
                 }
-            } finally { externalPlayback = false; }
+            } finally { if (surface != null) DisplaySurface.hide(); externalPlayback = false; }
         }
     }
 }

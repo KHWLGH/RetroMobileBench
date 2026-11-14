@@ -76,7 +76,11 @@ static int measure(int threads, int mode, int duration, double *rate) {
     g.began = rmb_now(); g.deadline = g.began + duration / 1000.0;
     g.abort = error || rmb_media_cancelled(); g.start = 1; pthread_cond_broadcast(&g.condition); pthread_mutex_unlock(&g.mutex);
     unsigned long long iterations = 0; double end = g.began;
-    for (int i = 0; i < created; i++) { pthread_join(handles[i], NULL); iterations += workers[i].iterations;
+    /* Join every worker before reading/verifying buffers: another worker can
+       still be inside its last timed operation after an earlier join returns. */
+    for (int i = 0; i < created; i++) pthread_join(handles[i], NULL);
+    for (int i = 0; i < created; i++) {
+        iterations += workers[i].iterations;
         if (workers[i].end > end) end = workers[i].end;
         if (!error && (workers[i].error || (workers[i].iterations && verify(&workers[i])))) error = EILSEQ;
     }

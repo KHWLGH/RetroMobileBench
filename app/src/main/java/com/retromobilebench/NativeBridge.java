@@ -13,6 +13,8 @@ public final class NativeBridge {
     public static native void cancelMedia();
     public static native String runCrypto(int threads, int durationMs);
     public static native String runImage(byte[] data, String referencePath, boolean png, int width, int height, int durationMs);
+    /** MP4 packet timing/identity preflight only; never opens or invokes a software decoder. */
+    public static native String readVideoPacketTimeline(String path, int expectedFrames);
     public static native String runVideoSoftware(String path, int threads, int durationMs, int width, int height, String firstYuvSha256);
 
     /** Native file I/O suite. Single worker only; JSON includes parameters and cache mode. */

@@ -16,15 +16,20 @@ import java.util.concurrent.atomic.AtomicReference;
 
 /** Real JNI + SQLite regression checks using only the API 16 framework. */
 public final class BackendInstrumentation extends Instrumentation {
-    private boolean gpuOnly, fullGpu, production, fixedOnly, lifecycleOnly;
+    private boolean gpuOnly, fullGpu, production, fixedOnly, lifecycleOnly, interferenceOnly, mediaOnly, mediaTimestamps;
+    private String gpuTest;
     @Override
     public void onCreate(Bundle arguments) {
         super.onCreate(arguments);
         gpuOnly = arguments != null && "true".equals(arguments.getString("gpuOnly"));
+        gpuTest = arguments == null ? null : arguments.getString("gpuTest");
         fullGpu = arguments != null && "true".equals(arguments.getString("fullGpu"));
         lifecycleOnly = arguments != null && "true".equals(arguments.getString("lifecycleOnly"));
         fixedOnly = arguments != null && "true".equals(arguments.getString("fixedOnly"));
         production = arguments != null && "true".equals(arguments.getString("production"));
+        interferenceOnly = arguments != null && "true".equals(arguments.getString("interferenceOnly"));
+        mediaOnly = arguments != null && "true".equals(arguments.getString("mediaOnly"));
+        mediaTimestamps = arguments != null && "true".equals(arguments.getString("mediaTimestamps"));
         start();
     }
 
@@ -33,11 +38,37 @@ public final class BackendInstrumentation extends Instrumentation {
         Bundle result = new Bundle();
         try {
             Context context = getTargetContext();
+            if (mediaTimestamps) {
+                result.putString("stream", "\nDIAGNOSTIC: extractor sample timestamps\n" + MediaTimestampChecks.run(this) + "\n");
+                finish(Activity.RESULT_OK, result); return;
+            }
+            if (gpuTest != null) {
+                check(GpuClient.isTest(gpuTest), "known diagnostic GPU test");
+                startActivitySync(new android.content.Intent(context, MainActivity.class).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK));
+                GpuClient.resetCancellation();
+                File pack = GpuDataPack.ensure(context, gpuTest, () -> false);
+                JSONObject value = GpuClient.invoke(context, pack, gpuTest, 5000, 30000);
+                try (java.io.FileOutputStream out = new java.io.FileOutputStream(new File(context.getFilesDir(), "gpu-diagnostic.json"))) { out.write(value.toString(2).getBytes("UTF-8")); }
+                check("completed".equals(value.optString("status")), value.toString());
+                result.putString("stream", "\nPASS: 5-second diagnostic only: " + value + "\n");
+                finish(Activity.RESULT_OK, result); return;
+            }
             if (production) {
                 String summary = ProductionFlowChecks.run(this, this::progress);
                 result.putString("stream", "\nPASS: production UI all-tests, official GPU durations, full CPU parameters and saved history\n" + summary);
                 finish(Activity.RESULT_OK, result);
                 return;
+            }
+            if (mediaOnly) {
+                result.putString("stream", "\nPASS: " + MediaRegressionChecks.run(this, this::progress) + "\n");
+                finish(Activity.RESULT_OK, result); return;
+            }
+            if (interferenceOnly || !lifecycleOnly && !fixedOnly && !gpuOnly) {
+                InterferenceChecks.run();
+                if (interferenceOnly) {
+                    result.putString("stream", "\nPASS: event waits/cancellation races, stale callbacks, one background temperature source, stage windows and cleanup\n");
+                    finish(Activity.RESULT_OK, result); return;
+                }
             }
             check(NativeLoader.load() != null, "native library loads");
             if (lifecycleOnly) {

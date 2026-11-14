@@ -29,6 +29,15 @@ JNIEXPORT jstring JNICALL Java_com_retromobilebench_NativeBridge_runImage(JNIEnv
     (*e)->ReleaseByteArrayElements(e, data, bytes, JNI_ABORT); (*e)->ReleaseStringUTFChars(e, reference, path);
     return (*e)->NewStringUTF(e, json);
 }
+JNIEXPORT jstring JNICALL Java_com_retromobilebench_NativeBridge_readVideoPacketTimeline(JNIEnv *e, jclass c, jstring path, jint expected) {
+    (void)c; if (!path || expected < 1 || expected > 120) return NULL;
+    const char *p = (*e)->GetStringUTFChars(e, path, NULL); if (!p) return NULL;
+    char *json = malloc(32768);
+    if (!json) { (*e)->ReleaseStringUTFChars(e, path, p); return NULL; }
+    rmb_video_packet_timeline(p, expected, json, 32768);
+    (*e)->ReleaseStringUTFChars(e, path, p);
+    jstring result = (*e)->NewStringUTF(e, json); free(json); return result;
+}
 JNIEXPORT jstring JNICALL Java_com_retromobilebench_NativeBridge_runVideoSoftware(JNIEnv *e, jclass c, jstring path, jint n, jint duration, jint w, jint h, jstring expected) {
     (void)c; if (!path || !expected) return NULL;
     const char *p = (*e)->GetStringUTFChars(e, path, NULL); if (!p) return NULL;

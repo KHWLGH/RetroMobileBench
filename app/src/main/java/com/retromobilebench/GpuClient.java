@@ -9,23 +9,26 @@ import org.json.JSONObject;
 import java.io.File;
 import java.io.InterruptedIOException;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Worker-side synchronous facade over a disposable, explicitly bound GPU process. */
 final class GpuClient {
     static final String[] TESTS = {"gl_alu_off", "gl_fill_off", "gl_driver_off", "gl_blending_off", "gl_trex_off", "gl_egypt_off", "gl_trex", "gl_egypt"};
-    private static volatile boolean cancelled, externalDisplay;
+    private static final WorkerRequest.Cancellation cancellation = new WorkerRequest.Cancellation();
+    private static volatile boolean externalDisplay;
+    private static volatile boolean cleanupFailed;
     static boolean externalDisplayActive() { return externalDisplay; }
-    static void resetCancellation() { cancelled = false; }
-    static void cancel() { cancelled = true; }
+    static void resetCancellation() { cancellation.reset(); }
+    static void cancel() { cancellation.cancel(); }
     static boolean isTest(String test) { for (String id : TESTS) if (id.equals(test)) return true; return false; }
     static String run(Context context, String test, int diagnosticMs) {
         long preparationDeadline = SystemClock.elapsedRealtime() + 180000;
         try {
+            if (cleanupFailed) return failure("failed", "此前 GPU 工作进程未能回收；请重启应用后再测").toString();
             if (!isTest(test)) return failure("failed", "arguments").toString();
-            if (cancelled) return failure("cancelled", "preflight").toString();
-            File pack = GpuDataPack.ensure(context, test, () -> cancelled || SystemClock.elapsedRealtime() >= preparationDeadline);
+            if (cancellation.isCancelled()) return failure("cancelled", "preflight").toString();
+            File pack = GpuDataPack.ensure(context, test, () -> cancellation.isCancelled() || SystemClock.elapsedRealtime() >= preparationDeadline);
             if (pack == null) return failure("skipped", "内置固定资源不完整").toString();
             JSONObject envelope = invoke(context, pack, test, diagnosticMs, 240000);
             envelope.put("test_version", "gpu-" + test + "-v1");
@@ -43,25 +46,28 @@ final class GpuClient {
             envelope.put("refresh_hz", DisplaySurface.refreshHz).put("swap_interval_request", test.endsWith("_off") ? JSONObject.NULL : 1);
             return envelope.toString();
         } catch (InterruptedIOException e) {
-            return failure(cancelled ? "cancelled" : "timeout", e.getMessage()).toString();
+            return failure(cancellation.isCancelled() ? "cancelled" : "timeout", e.getMessage()).toString();
         } catch (Exception e) { return failure("failed", e.toString()).toString(); }
     }
 
     static JSONObject invoke(Context context, File pack, String test, int duration, long timeoutMs) throws Exception {
         final boolean legacyWindow = !test.endsWith("_off") && Build.VERSION.SDK_INT < 11;
-        final android.view.Surface surface = test.endsWith("_off") || legacyWindow ? null : DisplaySurface.acquire();
+        final android.view.Surface surface = test.endsWith("_off") || legacyWindow ? null : DisplaySurface.acquire(cancellation::isCancelled);
         externalDisplay = legacyWindow;
-        Handler main = new Handler(Looper.getMainLooper());
-        CountDownLatch done = new CountDownLatch(1), cleaned = new CountDownLatch(1);
-        AtomicReference<JSONObject> result = new AtomicReference<>();
+        CountDownLatch died = new CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicInteger pid = new java.util.concurrent.atomic.AtomicInteger();
+        WorkerRequest pending = new WorkerRequest(failure("cancelled", "GPU 测试已取消"));
+        AtomicBoolean closed = new AtomicBoolean();
         AtomicReference<Messenger> remote = new AtomicReference<>();
         AtomicReference<IBinder> binder = new AtomicReference<>();
         IBinder.DeathRecipient death = () -> {
-            result.compareAndSet(null, failure("failed", "GPU 进程退出（驱动崩溃或系统回收）")); done.countDown();
+            died.countDown();
+            pending.complete(failure("failed", "GPU 进程退出（驱动崩溃或系统回收）"));
         };
         Messenger reply = new Messenger(new Handler(Looper.getMainLooper()) {
             @Override public void handleMessage(Message message) {
-                if (message.what != GpuService.RESULT) return;
+                if (message.what == GpuService.READY && !closed.get()) { pid.set(message.getData().getInt("pid")); return; }
+                if (message.what != GpuService.RESULT || pending.isComplete()) return;
                 try {
                     String raw = message.getData().getString("raw");
                     JSONObject parsed = parse(raw, test);
@@ -70,18 +76,21 @@ final class GpuClient {
                         parsed = failure("failed", "屏上测试未成功交换窗口缓冲区");
                     parsed.put("successful_window_swaps", swaps);
                     parsed.put("worker_pid", message.getData().getInt("pid"));
-                    result.compareAndSet(null, parsed);
-                    if (legacyWindow && "cancelled".equals(parsed.optString("status"))) BenchmarkRunner.get(context).cancel();
-                    if (legacyWindow && "interrupted".equals(parsed.optString("status"))) BenchmarkRunner.get(context).interrupt();
-                } catch (Exception error) { result.compareAndSet(null, failure("failed", error.toString())); }
-                done.countDown();
+                    final String status = parsed.optString("status");
+                    pending.complete(parsed, () -> {
+                        if (legacyWindow && "cancelled".equals(status)) BenchmarkRunner.get(context).cancel();
+                        if (legacyWindow && "interrupted".equals(status)) BenchmarkRunner.get(context).interrupt();
+                    });
+                } catch (Exception error) { pending.complete(failure("failed", error.toString())); }
             }
         });
         ServiceConnection connection = new ServiceConnection() {
             @Override public void onServiceConnected(ComponentName name, IBinder service) {
+                if (closed.get()) return;
                 binder.set(service); remote.set(new Messenger(service));
                 try {
                     service.linkToDeath(death, 0);
+                    if (pending.isComplete()) return;
                     Message request = Message.obtain(null, GpuService.RUN);
                     request.replyTo = reply;
                     request.getData().putString("test", test);
@@ -93,49 +102,32 @@ final class GpuClient {
                         request.getData().putInt("height", DisplaySurface.height());
                     }
                     remote.get().send(request);
-                } catch (RemoteException error) { result.compareAndSet(null, failure("failed", error.toString())); done.countDown(); }
+                } catch (RemoteException error) { pending.complete(failure("failed", error.toString())); }
             }
             @Override public void onServiceDisconnected(ComponentName name) { death.binderDied(); }
         };
         boolean bound = false;
+        cancellation.attach(pending);
         try {
-            bound = context.bindService(new Intent(context, GpuService.class), connection, Context.BIND_AUTO_CREATE);
-            if (!bound) return failure("failed", "无法绑定 GPU 进程");
-            long deadline = SystemClock.elapsedRealtime() + timeoutMs;
-            while (!done.await(100, TimeUnit.MILLISECONDS)) {
-                if (cancelled) { result.compareAndSet(null, failure("cancelled", "GPU 测试已取消")); break; }
-                if (SystemClock.elapsedRealtime() >= deadline) { result.compareAndSet(null, failure("timeout", "GPU 测试超时")); break; }
+            if (!pending.isComplete()) {
+                bound = context.bindService(new Intent(context, GpuService.class), connection, Context.BIND_AUTO_CREATE);
+                if (!bound) pending.complete(failure("failed", "无法绑定 GPU 进程"));
             }
-            return result.get() == null ? failure("failed", "GPU 无结果") : result.get();
+            JSONObject value = pending.await(SystemClock.elapsedRealtime() + timeoutMs, failure("timeout", "GPU 测试超时"));
+            if (pid.get() > 0) value.put("worker_pid", pid.get());
+            return value;
         } finally {
+            // Seal an exceptional/interrupted request before any late Binder callback.
+            pending.complete(failure("failed", "GPU 请求已关闭"));
+            cancellation.detach(pending);
             externalDisplay = false;
-            if (surface != null) DisplaySurface.hide();
-            if (bound) {
-                main.post(() -> {
-                    try {
-                        try { if (remote.get() != null) remote.get().send(Message.obtain(null, GpuService.STOP)); }
-                        catch (RemoteException ignored) { }
-                        context.unbindService(connection);
-                    } finally { cleaned.countDown(); }
-                });
-                if (!cleaned.await(5, TimeUnit.SECONDS))
-                    throw new java.io.IOException("GPU 进程解绑超时");
-                // Keep the death notification registered until exit. On old Binder,
-                // isBinderAlive() alone can stay cached after unlinkToDeath().
-                IBinder service = binder.get();
-                try {
-                    long deadline = SystemClock.elapsedRealtime() + 5000;
-                    while (service != null && service.pingBinder() && SystemClock.elapsedRealtime() < deadline)
-                        SystemClock.sleep(20);
-                    if (service != null && service.pingBinder())
-                        throw new java.io.IOException("GPU 进程未退出，结果已丢弃");
-                } finally {
-                    if (service != null) {
-                        try { service.unlinkToDeath(death, 0); }
-                        catch (java.util.NoSuchElementException ignored) { /* Already dead. */ }
-                    }
+            try {
+                if (bound) {
+                    closed.set(true);
+                    try { WorkerProcess.close(context, connection, remote.get(), binder.get(), death, died, pid.get()); }
+                    catch (Exception e) { cleanupFailed = true; throw e; }
                 }
-            }
+            } finally { if (surface != null) DisplaySurface.hide(); }
         }
     }
 

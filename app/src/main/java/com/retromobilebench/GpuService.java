@@ -13,7 +13,7 @@ import java.io.File;
 
 /** Bound, unexported :gpu process. Each binding executes at most one native test. */
 public final class GpuService extends Service {
-    static final int RUN = 1, RESULT = 2, STOP = 3;
+    static final int RUN = 1, RESULT = 2, STOP = 3, READY = 4;
     private boolean started;
     private final Messenger messenger = new Messenger(new Handler(Looper.getMainLooper()) {
         @Override public void handleMessage(Message request) {
@@ -21,6 +21,8 @@ public final class GpuService extends Service {
             if (request.what != RUN || started || request.replyTo == null) return;
             started = true;
             final Messenger reply = request.replyTo;
+            Message ready = Message.obtain(null, READY); ready.getData().putInt("pid", Process.myPid());
+            try { reply.send(ready); } catch (RemoteException e) { terminate(); return; }
             final String test = request.getData().getString("test");
             final String root = request.getData().getString("root");
             final int duration = request.getData().getInt("duration");

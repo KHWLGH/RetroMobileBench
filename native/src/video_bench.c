@@ -9,6 +9,80 @@
 #include <string.h>
 #include <errno.h>
 
+static int interrupt_io(void *opaque);
+
+/* Timing-only preflight for old platform extractors. Never opens a decoder. Hash the
+ * exact Annex-B sample MediaExtractor must return, preserving packet/NAL order. */
+void rmb_video_packet_timeline(const char *path, int expected, char *json, size_t cap) {
+    AVFormatContext *format = NULL; AVPacket *packet = NULL;
+    int error = AVERROR_INVALIDDATA, stream = -1, count = 0, max_size = 0;
+    size_t used = 0; int64_t first_dts = AV_NOPTS_VALUE;
+    double deadline = rmb_now() + 4;
+    if (!path || expected < 1 || expected > 120 || cap < 256) goto done;
+    format = avformat_alloc_context();
+    if (!format) { error = AVERROR(ENOMEM); goto done; }
+    format->interrupt_callback.callback = interrupt_io;
+    format->interrupt_callback.opaque = &deadline;
+    error = avformat_open_input(&format, path, NULL, NULL); if (error < 0) goto done;
+    for (unsigned i = 0; i < format->nb_streams; i++) {
+        if (format->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
+            if (stream >= 0) { error = AVERROR_INVALIDDATA; goto done; }
+            stream = (int)i;
+        }
+    }
+    if (stream < 0) { error = AVERROR_STREAM_NOT_FOUND; goto done; }
+    AVCodecParameters *parameters = format->streams[stream]->codecpar;
+    if (parameters->codec_id != AV_CODEC_ID_H264 || parameters->extradata_size < 5
+            || parameters->extradata[0] != 1 || (parameters->extradata[4] & 3) != 3) {
+        error = AVERROR_INVALIDDATA; goto done;
+    }
+    packet = av_packet_alloc(); if (!packet) { error = AVERROR(ENOMEM); goto done; }
+    used = (size_t)snprintf(json, cap, "{\"packets\":[");
+    for (;;) {
+        error = av_read_frame(format, packet);
+        if (error == AVERROR_EOF) { error = count == expected ? 0 : AVERROR_INVALIDDATA; break; }
+        if (error < 0) break;
+        if (packet->stream_index != stream) { error = AVERROR_INVALIDDATA; break; }
+        if (count >= expected || packet->size <= 0 || packet->size > 2 * 1024 * 1024
+                || packet->pts == AV_NOPTS_VALUE || packet->dts == AV_NOPTS_VALUE
+                || (packet->flags & AV_PKT_FLAG_CORRUPT)) { error = AVERROR_INVALIDDATA; break; }
+        if (count == 0) first_dts = packet->dts;
+        AVRational time_base = format->streams[stream]->time_base;
+        int64_t pts = av_rescale_q_rnd(packet->pts, time_base, AV_TIME_BASE_Q, AV_ROUND_DOWN);
+        int64_t dts = av_rescale_q_rnd(packet->dts - first_dts, time_base, AV_TIME_BASE_Q, AV_ROUND_DOWN);
+        if (pts < 0 || pts > 10000000 || dts < 0 || dts > 10000000) { error = AVERROR_INVALIDDATA; break; }
+        mbedtls_sha256_context sha; unsigned char digest[32]; char hash[65];
+        const unsigned char prefix[4] = {0, 0, 0, 1};
+        mbedtls_sha256_init(&sha); mbedtls_sha256_starts_ret(&sha, 0);
+        size_t offset = 0; int valid = 1;
+        while (offset < (size_t)packet->size) {
+            if ((size_t)packet->size - offset < 4) { valid = 0; break; }
+            const unsigned char *p = packet->data + offset;
+            uint32_t size = ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | p[3];
+            offset += 4;
+            if (!size || size > (size_t)packet->size - offset) { valid = 0; break; }
+            mbedtls_sha256_update_ret(&sha, prefix, 4);
+            mbedtls_sha256_update_ret(&sha, packet->data + offset, size);
+            offset += size;
+        }
+        mbedtls_sha256_finish_ret(&sha, digest); mbedtls_sha256_free(&sha);
+        if (!valid || offset != (size_t)packet->size) { error = AVERROR_INVALIDDATA; break; }
+        for (int i = 0; i < 32; i++) snprintf(hash + i * 2, 3, "%02x", digest[i]);
+        if (cap - used < 256) { error = AVERROR(ENOSPC); break; }
+        int written = snprintf(json + used, cap - used,
+                "%s{\"pts_us\":%lld,\"normalized_dts_us\":%lld,\"size\":%d,\"annexb_sha256\":\"%s\"}",
+                count ? "," : "", (long long)pts, (long long)dts, packet->size, hash);
+        if (written < 0 || (size_t)written >= cap - used) { error = AVERROR(ENOSPC); break; }
+        used += (size_t)written; if (packet->size > max_size) max_size = packet->size;
+        count++; av_packet_unref(packet);
+    }
+done:
+    if (packet) av_packet_free(&packet); if (format) avformat_close_input(&format);
+    if (error) snprintf(json, cap, "{\"status\":\"failed\",\"error_code\":%d,\"packets_read\":%d}", error, count);
+    else snprintf(json + used, cap - used,
+            "],\"status\":\"completed\",\"max_sample_size\":%d,\"source\":\"FFmpeg 4.4.6 MP4 demux only\",\"decoder_opened\":false}", max_size);
+}
+
 static int verify_frame(AVFrame *frame, int width, int height, int first, const char *expected, char hash[65]) {
     if (frame->width != width || frame->height != height || frame->format != AV_PIX_FMT_YUV420P
             || frame->decode_error_flags || (frame->flags & AV_FRAME_FLAG_CORRUPT)) return AVERROR_INVALIDDATA;

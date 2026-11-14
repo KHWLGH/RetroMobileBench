@@ -18,18 +18,26 @@ final class ProductionFlowChecks {
     interface Progress { void stage(String message); }
     static String run(Instrumentation instrumentation, Progress progress) throws Exception {
         Context context = instrumentation.getTargetContext();
-        MainActivity activity = (MainActivity)instrumentation.startActivitySync(new Intent(context, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        Instrumentation.ActivityMonitor windows = instrumentation.addMonitor(MainActivity.class.getName(), null, false);
+        instrumentation.startActivitySync(new Intent(context, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
         BenchmarkRunner runner = BenchmarkRunner.get(context); waitIdle(instrumentation, runner, 60000);
-        AtomicReference<BenchmarkRunner.State> observed = new AtomicReference<>();
-        BenchmarkRunner.Listener observer = state -> { observed.set(state); activity.onState(state); };
         try {
-            instrumentation.runOnMainSync(() -> { runner.attach(observer); click(activity.getWindow().getDecorView(), "开始测试"); check(runner.isBusy(), "one click starts fixed suite"); });
+            AtomicBoolean focused = new AtomicBoolean(); long foregroundDeadline = SystemClock.elapsedRealtime() + 10000;
+            do {
+                instrumentation.runOnMainSync(() -> focused.set(activity(windows).hasWindowFocus()));
+                if (focused.get()) break;
+                check(SystemClock.elapsedRealtime() < foregroundDeadline, "unlock device and bring MainActivity to foreground"); SystemClock.sleep(50);
+            } while (true);
+            instrumentation.waitForIdleSync();
+            instrumentation.runOnMainSync(() -> { click(activity(windows).getWindow().getDecorView(), "开始测试"); check(runner.isBusy(), "one click starts fixed suite"); });
             long deadline = SystemClock.elapsedRealtime() + 30 * 60 * 1000; String last = "";
-            while (observed.get() == null || observed.get().busy) {
-                BenchmarkRunner.State state = observed.get(); if (state != null && !last.equals(state.message)) { last = state.message; progress.stage(last); }
+            BenchmarkRunner.State state;
+            while ((state = state(instrumentation, runner)).busy) {
+                check(state.exportJson.length() == 0, "running progress has no full-session serialization");
+                if (!last.equals(state.message)) { last = state.message; progress.stage(last); }
                 check(SystemClock.elapsedRealtime() < deadline, "production session deadline"); SystemClock.sleep(500);
             }
-            JSONObject session = new JSONObject(observed.get().exportJson);
+            JSONObject session = new JSONObject(state.exportJson);
             check(BenchmarkSuite.SESSION_VERSION.equals(session.getString("suite_version")), "exports current session, not last twenty history rows");
             JSONArray results = session.getJSONArray("results"); check(results.length() == BenchmarkSuite.DEFAULT.length, "all fixed stages attempted");
             check(session.has("temperature"), "session telemetry saved"); HashSet<Integer> gpuPids = new HashSet<>();
@@ -64,7 +72,18 @@ final class ProductionFlowChecks {
             try { JSONObject saved = store.latest(1).getJSONObject(0); check(saved.getString("session_id").equals(session.getString("session_id")), "whole session persisted"); }
             finally { store.close(); }
             return session.optString("status") + ": " + results.length() + " fixed stages; " + gpuPids.size() + " completed GPU workers; wall_ms=" + session.getLong("wall_ms");
-        } finally { instrumentation.runOnMainSync(() -> { if (runner.isBusy()) runner.cancel(); runner.detach(observer); runner.attach(activity); }); }
+        } finally {
+            instrumentation.runOnMainSync(() -> { if (runner.isBusy()) runner.cancel(); });
+            instrumentation.removeMonitor(windows);
+        }
+    }
+    private static MainActivity activity(Instrumentation.ActivityMonitor windows) {
+        check(windows.getLastActivity() instanceof MainActivity, "current Activity across recreation");
+        return (MainActivity)windows.getLastActivity();
+    }
+    private static BenchmarkRunner.State state(Instrumentation test, BenchmarkRunner runner) {
+        AtomicReference<BenchmarkRunner.State> value = new AtomicReference<>();
+        test.runOnMainSync(() -> value.set(runner.currentState())); return value.get();
     }
     private static void waitIdle(Instrumentation instrumentation, BenchmarkRunner runner, long timeout) {
         long deadline = SystemClock.elapsedRealtime() + timeout; AtomicBoolean busy = new AtomicBoolean(true);

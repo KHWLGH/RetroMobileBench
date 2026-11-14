@@ -15,6 +15,8 @@ public final class MediaService extends Service {
             if (message.what == 3) { Process.killProcess(Process.myPid()); return; }
             if (message.what != 1 || started || message.replyTo == null) return;
             started = true; final Messenger reply = message.replyTo; final Bundle args = message.getData();
+            Message ready = Message.obtain(null, 4); ready.getData().putInt("pid", Process.myPid());
+            try { reply.send(ready); } catch (RemoteException e) { Process.killProcess(Process.myPid()); return; }
             new Thread(() -> {
                 JSONObject result;
                 try {
@@ -25,7 +27,7 @@ public final class MediaService extends Service {
                         MediaNative.load(); NativeBridge.resetMediaCancellation();
                         result = new JSONObject(NativeBridge.runVideoSoftware(path.getPath(), args.getInt("threads"), 2500,
                                 clip.getInt("width"), clip.getInt("height"), clip.getString("first_yuv_sha256")));
-                    } else if (Build.VERSION.SDK_INT >= 16) result = MediaCodecApi16.run(clip, path.getPath(), "playback".equals(mode) ? surface : null);
+                    } else if (Build.VERSION.SDK_INT >= 16) result = MediaCodecApi16.run(clip, path.getPath(), "playback".equals(mode) ? surface : null, args.getInt("candidate"), reply);
                     else if ("playback".equals(mode)) result = LegacyPlaybackActivity.run(MediaService.this, clip, path.getPath());
                     else result = MediaClient.failure("unsupported", "API 8–15 无公开的命名解码吞吐接口；硬件类型未确认");
                 } catch (Exception | LinkageError e) { result = MediaClient.failure("failed", e.toString()); }
