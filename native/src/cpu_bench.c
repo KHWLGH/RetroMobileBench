@@ -14,18 +14,19 @@
 #endif
 
 #define DATA_BYTES (1024U * 1024U)
-#define MAX_THREADS 4
+#include "worker_limits.h"
+#define MAX_THREADS RMB_MAX_WORKERS
 #ifdef RMB_CODEC_ZSTD
 #include <zstd.h>
 #include <zstd_errors.h>
 #if ZSTD_VERSION_NUMBER != 10507
-#error "cpu-zstd-v1 requires the pinned zstd 1.5.7 source"
+#error "cpu-zstd-v2 requires the pinned zstd 1.5.7 source"
 #endif
 #define rmb_cpu_reset_cancel rmb_zstd_reset_cancel
 #define rmb_cpu_cancel rmb_zstd_cancel
 #define rmb_cpu_run rmb_zstd_run
 #define LEVEL 3
-#define SUITE_VERSION "cpu-zstd-v1"
+#define SUITE_VERSION "cpu-zstd-v2"
 #define codec_bound ZSTD_compressBound
 #define codec_version ZSTD_versionString
 static int codec_compress(unsigned char *out, uLong *length, const unsigned char *in, uLong size, int level) {
@@ -42,7 +43,7 @@ static int codec_decompress(unsigned char *out, uLong *length, const unsigned ch
 }
 #else
 #define LEVEL 6
-#define SUITE_VERSION "cpu-zlib-v1"
+#define SUITE_VERSION "cpu-zlib-v2"
 #define codec_bound compressBound
 #define codec_version zlibVersion
 #define codec_compress compress2
@@ -147,9 +148,13 @@ static int measure(const unsigned char *input, const unsigned char *packed, uLon
     if (error) return error;
     error = pthread_cond_init(&g.condition, NULL);
     if (error) { pthread_mutex_destroy(&g.mutex); return error; }
-    pthread_t handles[MAX_THREADS];
-    worker workers[MAX_THREADS];
-    memset(workers, 0, sizeof workers);
+    pthread_t *handles = calloc((size_t)threads, sizeof(*handles));
+    worker *workers = calloc((size_t)threads, sizeof(*workers));
+    if (!handles || !workers) {
+        free(handles); free(workers);
+        pthread_cond_destroy(&g.condition); pthread_mutex_destroy(&g.mutex);
+        return ENOMEM;
+    }
     int created = 0;
     for (int i = 0; i < threads; i++) {
         worker *w = &workers[i];
@@ -195,6 +200,7 @@ static int measure(const unsigned char *input, const unsigned char *packed, uLon
         free(workers[i].output);
         free(workers[i].verify);
     }
+    free(workers); free(handles);
     pthread_cond_destroy(&g.condition);
     pthread_mutex_destroy(&g.mutex);
     *elapsed = ended - g.began;
@@ -228,7 +234,7 @@ void rmb_cpu_run(int parallel_threads, int duration_ms, char *json, size_t capac
     checksum = crc32(0L, input, DATA_BYTES);
     error = codec_compress(packed, &packed_size, input, DATA_BYTES, LEVEL);
     if (error != Z_OK) goto finish;
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < (parallel_threads == 1 ? 2 : 4); i++) {
         stage = stages[i];
         if (is_cancelled()) break;
         error = measure(input, packed, packed_size, i < 2 ? 1 : parallel_threads,
@@ -236,7 +242,7 @@ void rmb_cpu_run(int parallel_threads, int duration_ms, char *json, size_t capac
         if (error || is_cancelled()) break;
         completed++;
     }
-    if (completed == 4) stage = "done";
+    if (completed == (parallel_threads == 1 ? 2 : 4)) stage = "done";
 finish:
     free(packed);
     free(input);

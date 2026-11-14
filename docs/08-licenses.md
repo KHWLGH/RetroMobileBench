@@ -1,6 +1,6 @@
 # 08 许可证、署名与命名
 
-> 不是法律意见。信息截至 2026-11-12，发布前要重新核对每个组件的许可证原文。
+> 2026-11-14 更新。固定版本与本地适配见 [third_party](../third_party/README.md)，媒体对应源码/替换说明见 [media-distribution](media-distribution.md)。
 
 ## 1. 组件许可证
 
@@ -17,15 +17,20 @@
 | tinymembench | MIT | 附版权声明 |
 | STREAM（改版） | STREAM 自有许可 | 改版成绩要标注（见 §2） |
 | SQLite | 公有领域 | 无 |
+| Mbed TLS 2.28.10 | Apache-2.0 | 附版权/许可，最小加密配置，不运行TLS |
+| libjpeg-turbo 2.1.5.1 | IJG/BSD/zlib | 保留实际组件声明及IJG署名 |
+| libpng 1.6.43 | libpng-2.0 | 保留版权/许可 |
+| FFmpeg 4.4.6（禁GPL/nonfree） | LGPL-2.1-or-later | 独立共享库；提供匹配对应源码、构建/修改材料与替换说明 |
+| Sintel衍生短片/照片 | CC BY 3.0 | Blender Foundation署名、来源/许可链接，说明裁剪缩放重编码去音轨 |
 | pytorch/cpuinfo | BSD-2-Clause | 附版权声明 |
 | Poco 1.5.3 Foundation | Boost Software License 1.0 | 二进制发布不强制附声明，建议附上 |
 | libpng | libpng 许可证 | 源码里保留版权声明；二进制发布不强制，建议附上 |
 | libIJG（GFXBench KCL 自带的 JPEG 库） | IJG 许可证 | 编进去的话，只发二进制时文档里必须写明"this software is based in part on the work of the Independent JPEG Group" |
 | libogg / libtheora / libvorbis（KCL 自带，`glb_ogg_decoder.cpp` 用到） | BSD 风格 | 附版权声明 |
 
-全部是宽松许可证，App 本身用什么许可证（开源或闭源）都可以。
+FFmpeg引入LGPL分发要求，不能继续把全部依赖称为宽松许可，也不能仅凭动态链接认为义务已履行。每份发布APK旁同时提供`:app:correspondingSource`生成的匹配源码ZIP；保留构建与库替换说明。
 
-当前主 App 已引入 **zlib 1.3.1、zstd 1.5.7、SQLite 3.53.1、CoreMark、SciMark C 2.0、tinymembench C 内核、STREAM 变体及 GFXBench ES2**。固定提交/归档 SHA-256 和本地修改见 [third_party/README.md](../third_party/README.md)。pytorch/cpuinfo 尚未引入；Poco、IJG 未编入当前 GPU 目标。
+当前正式套件使用 **zlib 1.3.1、SQLite 3.53.1、CoreMark、SciMark C 2.0、tinymembench C 内核、STREAM Triad变体、GFXBench ES2、MbedTLS、libjpeg-turbo、libpng和FFmpeg**；Zstd/完整STREAM四内核仅保留必要诊断和旧记录解释。固定提交/归档 SHA-256 和本地修改见 [third_party/README.md](../third_party/README.md)。pytorch/cpuinfo 尚未引入；Poco、IJG 未编入当前 GPU 目标。
 
 APK 中 `licenses.txt` 提供版本、项目来源和署名；Gradle 从实际依赖生成 `benchmark-notices.txt`，收录 CoreMark Apache/商标协议、STREAM、tinymembench、GFXBench、libpng、GPU zlib、tinyxml/tinyxml2、libetc1 原始许可；`xiph-notices.txt` 提供 libogg/libtheora BSD 声明。界面“开源许可”合并显示三份文件。GFXBench 数据包清单同时附 CC BY 4.0 链接、版权和 ETC1 子集/删图/精度回退修改说明。
 

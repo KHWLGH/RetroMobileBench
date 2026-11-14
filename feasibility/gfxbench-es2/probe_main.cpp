@@ -140,10 +140,11 @@ std::string rmbRunGfxTest(const std::string &configPath, const std::string &data
     desc.env().setWidth(width);
     desc.env().setHeight(height);
     if (playTimeMs > 0) desc.setRawConfig("play_time", (double) playTimeMs);
-    // Enforce bounded, offscreen runs even when a user-supplied pack has altered config.
+    const bool offscreen = desc.testId().size() >= 4 && desc.testId().substr(desc.testId().size() - 4) == "_off";
+    // Fixed bounded protocol; onscreen draws directly to the window EGLSurface.
     desc.setRawConfig("endless", false);
     desc.setRawConfig("battery", false);
-    desc.setRawConfig("screenmode", 1.0);
+    desc.setRawConfig("screenmode", offscreen ? 1.0 : 0.0);
     desc.setRawConfig("offscreen_width", 1920.0);
     desc.setRawConfig("offscreen_height", 1080.0);
     // ETC1 is the one compressed format every ES2 device has (docs/04 §4.6).
@@ -165,7 +166,7 @@ std::string rmbRunGfxTest(const std::string &configPath, const std::string &data
                 || error.find("0x3009") != std::string::npos || error.find("eglChooseConfig") != std::string::npos;
         return std::string(unsupported ? "SKIP: " : "ERROR: ") + error;
     }
-    std::string capability = checkOffscreenSupport();
+    std::string capability = offscreen ? checkOffscreenSupport() : "";
     if (!capability.empty()) return capability;
     LOGI("%s: ES2 pbuffer %dx%d on %s / %s", desc.testId().c_str(), width, height,
          (const char *) glGetString(GL_VENDOR), (const char *) glGetString(GL_RENDERER));

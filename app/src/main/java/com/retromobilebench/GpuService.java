@@ -24,6 +24,8 @@ public final class GpuService extends Service {
             final String test = request.getData().getString("test");
             final String root = request.getData().getString("root");
             final int duration = request.getData().getInt("duration");
+            final android.view.Surface surface = request.getData().getParcelable("surface");
+            final int width = request.getData().getInt("width", 800), height = request.getData().getInt("height", 480);
             new Thread(() -> {
                 String raw;
                 try {
@@ -36,8 +38,17 @@ public final class GpuService extends Service {
                     if (NativeLoader.load() == null) throw new IllegalStateException(String.valueOf(NativeLoader.error()));
                     File output = new File(getCacheDir(), "gpu-output");
                     if (!output.isDirectory() && !output.mkdir()) throw new IllegalStateException("GPU output directory");
-                    raw = GfxProbe.runTest(new File(pack, "config/" + test + ".json").getPath(),
-                            new File(pack, "data/gfx").getPath() + "/", output.getPath() + "/", 800, 480, duration);
+                    if (!test.endsWith("_off") && android.os.Build.VERSION.SDK_INT < 11) {
+                        raw = LegacyGpuActivity.run(GpuService.this, test, new File(pack, "config/" + test + ".json").getPath(),
+                                new File(pack, "data/gfx").getPath() + "/", output.getPath() + "/", duration);
+                    } else {
+                        JavaEglContext.window = surface;
+                        if (!test.endsWith("_off") && (surface == null || !surface.isValid())) throw new IllegalStateException("窗口 Surface 丢失");
+                        raw = GfxProbe.runTest(new File(pack, "config/" + test + ".json").getPath(),
+                                new File(pack, "data/gfx").getPath() + "/", output.getPath() + "/", width, height, duration);
+                    }
+                    if (!test.endsWith("_off") && JavaEglContext.windowError.length() != 0 && raw != null
+                            && !raw.startsWith("CANCELLED:") && !raw.startsWith("INTERRUPTED:")) raw = "ERROR: " + JavaEglContext.windowError;
                     if (raw == null || raw.length() > 100000) throw new IllegalStateException("GPU result size");
                 } catch (Exception | LinkageError failure) {
                     raw = "ERROR: " + failure;
@@ -45,6 +56,7 @@ public final class GpuService extends Service {
                 Message result = Message.obtain(null, RESULT);
                 result.getData().putString("raw", raw);
                 result.getData().putInt("pid", Process.myPid());
+                result.getData().putLong("window_swaps", JavaEglContext.successfulWindowSwaps);
                 try { reply.send(result); } catch (RemoteException ignored) { terminate(); }
             }, "rmb-gpu").start();
         }

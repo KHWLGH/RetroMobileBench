@@ -17,19 +17,28 @@ final class GpuBackendChecks {
         progress.stage("GPU pack validation");
         packValidation(context);
         GpuClient.resetCancellation();
-        File pack = GpuDataPack.ensure(context, "gl_alu_off", () -> false);
-        check(pack != null, "built-in low-level pack installed");
+        File pack = GpuDataPack.ensure(context, "gl_egypt_off", () -> false);
+        check(pack != null, "built-in fixed scene pack installed");
+        try (FileOutputStream out = new FileOutputStream(new File(pack, "config/gl_egypt_off.json"))) { out.write(new byte[]{1, 2, 3}); }
+        GpuDataPack.beginSession();
+        File repaired = GpuDataPack.ensure(context, "gl_egypt_off", () -> false);
+        check(repaired != null && !repaired.equals(pack), "damaged installed resource restored automatically");
         int lastPid = 0;
-        for (String test : GpuClient.TESTS) {
+        for (String test : new String[]{"gl_egypt_off", "gl_egypt", "gl_trex_off", "gl_trex", "gl_fill_off"}) {
             progress.stage(test);
             File available = GpuDataPack.ensure(context, test, () -> false);
             if (available == null) {
                 check(!full, "full pack missing " + test);
                 continue;
             }
-            JSONObject result = new JSONObject(GpuClient.run(context, test, 5000));
+            JSONObject result = new JSONObject(GpuClient.run(context, test, "gl_fill_off".equals(test) ? 0 : 5000));
             check("completed".equals(result.getString("status")), "GPU " + test + ": " + result);
             check(result.getDouble("score") > 0 && result.getInt("completed_metrics") == 1, "GPU score");
+            if ("gl_fill_off".equals(test)) check(result.getInt("diagnostic_duration_ms") == 0 && "MTexels/s".equals(result.getString("unit")), "full Fill timing and unit");
+            if (!test.endsWith("_off")) {
+                check(result.getLong("successful_window_swaps") > 0, "actual window buffers swapped");
+                if (android.os.Build.VERSION.SDK_INT < 11) check("worker_activity".equals(result.optString("window_owner")), "old GPU owns a local window");
+            }
             int pid = result.getInt("worker_pid");
             check(pid != Process.myPid() && pid != lastPid, "each GPU test gets a separate process");
             lastPid = pid;
@@ -45,21 +54,21 @@ final class GpuBackendChecks {
             check("failed".equals(GpuClient.parse(wrong.toString(), test).getString("status")), "wrong test identity rejected");
             wrong = new JSONObject(result.getJSONObject("raw_result").toString());
             wrong.getJSONArray("results").getJSONObject(0).getJSONObject("gfx_result").put("surface_width", 800);
-            check("failed".equals(GpuClient.parse(wrong.toString(), test).getString("status")), "wrong render resolution rejected");
+            if (test.endsWith("_off")) check("failed".equals(GpuClient.parse(wrong.toString(), test).getString("status")), "wrong offscreen render resolution rejected");
         }
         progress.stage("GPU cancellation/timeout/restart");
         GpuClient.cancel();
-        check("cancelled".equals(new JSONObject(GpuClient.run(context, "gl_alu_off", 5000)).getString("status")), "GPU pre-cancel");
+        check("cancelled".equals(new JSONObject(GpuClient.run(context, "gl_egypt_off", 5000)).getString("status")), "GPU pre-cancel");
         GpuClient.resetCancellation();
         AtomicReference<String> raw = new AtomicReference<>();
-        Thread worker = new Thread(() -> raw.set(GpuClient.run(context, "gl_alu_off", 10000)));
+        Thread worker = new Thread(() -> raw.set(GpuClient.run(context, "gl_egypt_off", 10000)));
         worker.start(); SystemClock.sleep(500); GpuClient.cancel(); worker.join(15000);
         check(!worker.isAlive() && "cancelled".equals(new JSONObject(raw.get()).getString("status")), "GPU active cancel");
         GpuClient.resetCancellation();
-        pack = GpuDataPack.ensure(context, "gl_alu_off", () -> false);
-        JSONObject timeout = GpuClient.invoke(context, pack, "gl_alu_off", 10000, 400);
-        check("failed".equals(timeout.getString("status")) && timeout.getString("error_stage").contains("超时"), "GPU timeout");
-        check("completed".equals(new JSONObject(GpuClient.run(context, "gl_alu_off", 5000)).getString("status")), "GPU restart after kill");
+        pack = GpuDataPack.ensure(context, "gl_egypt_off", () -> false);
+        JSONObject timeout = GpuClient.invoke(context, pack, "gl_egypt_off", 10000, 400);
+        check("timeout".equals(timeout.getString("status")) && timeout.getString("error_stage").contains("超时"), "GPU timeout");
+        check("completed".equals(new JSONObject(GpuClient.run(context, "gl_egypt_off", 5000)).getString("status")), "GPU restart after kill");
         check("failed".equals(GpuClient.parse("ERROR: init failed", "gl_alu_off").getString("status")), "GPU native failure");
     }
 

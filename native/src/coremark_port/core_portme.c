@@ -14,7 +14,7 @@ volatile ee_s32 seed4_volatile, seed5_volatile;
 ee_u32 default_num_contexts = 1;
 static int cancelled, port_error, overflow;
 static double started, elapsed;
-static char output[4096];
+static char output[16384];
 static size_t used;
 int rmb_coremark_entry(void);
 
@@ -94,10 +94,11 @@ static int formal_run(int threads, int validation, int forced_iterations, int *i
 void rmb_coremark_run(int threads, int iterations, char *json, size_t capacity) {
     int error = 0, completed = 0, counts[4] = {0};
     double seconds[4] = {0}, rates[2] = {0};
-    char logs[4][4096] = {{0}};
+    char (*logs)[16384] = calloc(4, sizeof(*logs));
+    if (!logs) { snprintf(json, capacity, "{\"status\":\"failed\",\"error_stage\":\"allocation\",\"completed_metrics\":0}"); return; }
     const char *stage = "arguments";
-    if (threads < 1 || threads > 4 || iterations < 0 || iterations > 1000000) { error = EINVAL; goto finish; }
-    for (int phase = 0; phase < 4; phase++) {
+    if (threads < 1 || threads > RMB_MAX_WORKERS || iterations < 0 || iterations > 1000000) { error = EINVAL; goto finish; }
+    for (int phase = 0; phase < (threads == 1 ? 2 : 4); phase++) {
         stage = phase == 0 ? "single_performance" : phase == 1 ? "single_validation"
                 : phase == 2 ? "parallel_performance" : "parallel_validation";
         error = formal_run(phase < 2 ? 1 : threads, phase & 1, iterations, &counts[phase]);
@@ -111,12 +112,14 @@ void rmb_coremark_run(int threads, int iterations, char *json, size_t capacity) 
     }
     if (!error) stage = "";
 finish:;
-    char escaped[4][8192], compiler[2048], flags[4096];
+    char (*escaped)[32768] = calloc(4, sizeof(*escaped));
+    char compiler[2048], flags[4096];
+    if (!escaped) { free(logs); snprintf(json, capacity, "{\"status\":\"failed\",\"error_stage\":\"allocation\",\"completed_metrics\":0}"); return; }
     for (int i = 0; i < 4; i++) rmb_json_string(logs[i], escaped[i], sizeof(escaped[i]));
     rmb_json_string(COMPILER_VERSION, compiler, sizeof(compiler));
     rmb_json_string(COMPILER_FLAGS, flags, sizeof(flags));
     int n = snprintf(json, capacity,
-        "{\"test_version\":\"cpu-coremark-v1\",\"status\":\"%s\",\"error_stage\":\"%s\",\"error_code\":%d,"
+        "{\"test_version\":\"cpu-coremark-v2\",\"status\":\"%s\",\"error_stage\":\"%s\",\"error_code\":%d,"
         "\"completed_metrics\":%d,\"source_revision\":\"1f483d5b8316753a742cbf5590caf5bd0a4e4777\","
         "\"compiler_version\":\"%s\",\"compiler_flags\":\"%s\",\"memory_method\":\"stack\","
         "\"buffer_bytes\":2000,\"minimum_seconds\":10,\"parallel_threads\":%d,\"diagnostic_iterations\":%d,"
@@ -127,6 +130,7 @@ finish:;
         error == ECANCELED ? "cancelled" : error ? "failed" : "completed", stage, error, completed,
         compiler, flags, threads, iterations, rates[0], rates[1], counts[0], counts[1], counts[2], counts[3],
         seconds[0], seconds[1], seconds[2], seconds[3], escaped[0], escaped[1], escaped[2], escaped[3]);
+    free(escaped); free(logs);
     if (n < 0 || (size_t)n >= capacity)
         snprintf(json, capacity, "{\"status\":\"failed\",\"error_stage\":\"json_capacity\",\"completed_metrics\":0}");
 }

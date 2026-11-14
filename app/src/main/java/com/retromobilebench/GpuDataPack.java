@@ -16,18 +16,44 @@ final class GpuDataPack {
     static final long MAX_BYTES = 256L * 1024 * 1024;
     private static final int MAX_FILES = 3000;
     private GpuDataPack() { }
+    private static File verifiedPack;
+    static void beginSession() { verifiedPack = null; }
+    private static void verifyInstalled(File pack, Cancellation cancellation) throws Exception {
+        if (pack.equals(verifiedPack)) return;
+        JSONArray files = manifest(pack).getJSONArray("files"); byte[] buffer = new byte[32768];
+        for (int i = 0; i < files.length(); i++) {
+            if (cancellation.cancelled()) throw new InterruptedIOException("资源校验取消或超时");
+            JSONObject spec = files.getJSONObject(i); File file = safePath(pack, spec.getString("path"));
+            if (file.length() != spec.getLong("size")) throw new IOException("已安装资源尺寸不符：" + spec.getString("path"));
+            MessageDigest hash = MessageDigest.getInstance("SHA-256");
+            try (InputStream in = new FileInputStream(file)) { int n; while ((n = in.read(buffer)) != -1) {
+                if (cancellation.cancelled()) throw new InterruptedIOException("资源校验取消或超时"); hash.update(buffer, 0, n);
+            } }
+            if (!hex(hash.digest()).equals(spec.getString("sha256"))) throw new IOException("已安装资源哈希不符：" + spec.getString("path"));
+        }
+        verifiedPack = pack;
+    }
 
     static File ensure(Context context, String test, Cancellation cancellation) throws Exception {
         File parent = new File(context.getFilesDir(), "gpu-packs");
+        String bundledDigest;
+        try (ZipInputStream source = new ZipInputStream(context.getAssets().open("gpu-data.zip"))) {
+            ZipEntry first = source.getNextEntry();
+            if (first == null || !"manifest.json".equals(first.getName())) throw new IOException("内置 GPU 清单缺失");
+            bundledDigest = hex(MessageDigest.getInstance("SHA-256").digest(readBounded(source, 2 * 1024 * 1024)));
+        }
         File[] packs = parent.listFiles();
         File best = null;
         if (packs != null) for (File pack : packs) {
             if (!pack.getName().startsWith("pack-")) continue;
             try {
                 JSONObject manifest = manifest(pack);
-                if (contains(manifest.getJSONArray("tests"), test)
-                        && (best == null || pack.lastModified() > best.lastModified())) best = pack;
-            } catch (Exception ignored) { }
+                if (contains(manifest.getJSONArray("tests"), test) && bundledDigest.equals(digest(pack))) {
+                    verifyInstalled(pack, cancellation);
+                    if (best == null || pack.lastModified() > best.lastModified()) best = pack;
+                }
+            } catch (InterruptedIOException e) { throw e; }
+            catch (Exception ignored) { /* Damaged or older pack will be replaced from the bundled corpus. */ }
         }
         if (best != null) return best;
         // Avoid repeatedly installing the lite pack when a scene is unavailable.
@@ -146,7 +172,7 @@ final class GpuDataPack {
                 || !"ETC1".equals(manifest.getString("texture_type")) || manifest.getString("license").length() == 0)
             throw new IOException("不支持的数据包版本/来源/纹理格式");
         JSONArray files = manifest.getJSONArray("files"), tests = manifest.getJSONArray("tests");
-        if (files.length() < 1 || files.length() > MAX_FILES || tests.length() < 1 || tests.length() > 6)
+        if (files.length() < 1 || files.length() > MAX_FILES || tests.length() < 1 || tests.length() > 8)
             throw new IOException("数据包条目数量无效");
         for (int i = 0; i < tests.length(); i++) if (!GpuClient.isTest(tests.getString(i))) throw new IOException("未知 GPU 测试");
     }

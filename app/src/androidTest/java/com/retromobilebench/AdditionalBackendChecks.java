@@ -32,6 +32,32 @@ final class AdditionalBackendChecks {
             check(seconds >= .075 && operations > 0 && Math.abs(rate - expected) / rate < .00001, "memory units");
         }
         summary(BenchmarkSuite.MEMORY, sample);
+        for (int[] invalid : new int[][]{{0, 50}, {65, 50}, {1, 49}, {1, 10001}})
+            check("failed".equals(new JSONObject(NativeBridge.runMemoryV2(invalid[0], invalid[1])).getString("status")), "Triad invalid arguments");
+        for (int threads : new int[]{1, 2, 3, 4, 8}) {
+            sample = new JSONObject(NativeBridge.runMemoryV2(threads, 75));
+            check("completed".equals(sample.getString("status")), "Triad validation " + sample);
+            check(sample.getInt("completed_metrics") == (threads == 1 ? 4 : 5), "Triad single core omits duplicate");
+            check(sample.getInt("triad_total_bytes") == 25165824 && sample.getInt("triad_array_bytes") == 8388608, "fixed 24 MiB across thread counts");
+            check(sample.getInt("triad_element_bytes") == 8 && sample.getInt("triad_bytes_per_element") == 24 && sample.getInt("triad_scalar") == 3, "Triad traffic and scalar");
+            for (int i = 0; i < (threads == 1 ? 1 : 2); i++) {
+                double seconds = sample.getJSONArray("triad_elapsed_seconds").getDouble(i);
+                long elements = sample.getJSONArray("triad_elements").getLong(i);
+                double rate = sample.getDouble(i == 0 ? "single_triad_mbps" : "parallel_triad_mbps");
+                check(sample.getJSONArray("triad_created_workers").getInt(i) == (i == 0 ? 1 : threads), "all requested workers created");
+                check(seconds >= .075 && elements > 0 && Math.abs(rate - elements * 24.0 / seconds / 1e6) / rate < .00001, "Triad MB/s from common wall time");
+            }
+            summary(BenchmarkSuite.MEMORY, sample);
+        }
+        NativeBridge.cancelMemory();
+        check("cancelled".equals(new JSONObject(NativeBridge.runMemoryV2(8, 75)).getString("status")), "Triad precancel");
+        NativeBridge.resetMemoryCancellation();
+        AtomicReference<String> triadRaw = new AtomicReference<>();
+        Thread triad = new Thread(() -> triadRaw.set(NativeBridge.runMemoryV2(8, 1500)));
+        triad.start(); SystemClock.sleep(6500); NativeBridge.cancelMemory(); triad.join(10000);
+        check(!triad.isAlive() && "cancelled".equals(new JSONObject(triadRaw.get()).getString("status")), "Triad cancellation joins workers");
+        NativeBridge.resetMemoryCancellation();
+        check("completed".equals(new JSONObject(NativeBridge.runMemoryV2(8, 50)).getString("status")), "Triad restart after cancellation");
         for (int threads : new int[]{1, 4}) {
             sample = new JSONObject(NativeBridge.runStream(threads, 75));
             check("completed".equals(sample.getString("status")), "stream validation " + sample);
@@ -100,7 +126,7 @@ final class AdditionalBackendChecks {
         worker.start(); SystemClock.sleep(50); NativeBridge.cancelCoremark(); worker.join(60000);
         check(!worker.isAlive() && "cancelled".equals(new JSONObject(result.get()).getString("status")), "coremark safe boundary cancel");
         NativeBridge.resetCoremarkCancellation();
-        sample = new JSONObject(NativeBridge.runCoremark(4, 0));
+        sample = new JSONObject(NativeBridge.runCoremark(8, 0));
         check("completed".equals(sample.getString("status")), "formal CoreMark " + sample);
         for (int i = 0; i < 4; i++) check(sample.getJSONArray("phase_seconds").getDouble(i) >= 10, "CoreMark minimum time");
         for (String key : new String[]{"single_output", "single_validation_output", "parallel_output", "parallel_validation_output"})
@@ -112,9 +138,9 @@ final class AdditionalBackendChecks {
 
     private static void zstd() throws Exception {
         NativeBridge.resetZstdCancellation();
-        check("failed".equals(new JSONObject(NativeBridge.runZstd(5, 50)).getString("status")), "zstd arguments");
+        check("failed".equals(new JSONObject(NativeBridge.runZstd(65, 50)).getString("status")), "zstd arguments");
         JSONObject sample = null;
-        for (int threads : new int[]{1, 4}) {
+        for (int threads : new int[]{2, 8}) {
             sample = new JSONObject(NativeBridge.runZstd(threads, 75));
             check("completed".equals(sample.getString("status")), "zstd completes: " + sample);
             check("1.5.7".equals(sample.getString("codec_version")), "zstd pinned version");
@@ -201,19 +227,19 @@ final class AdditionalBackendChecks {
 
     private static void summary(BenchmarkSuite suite, JSONObject sample) throws Exception {
         JSONObject report = new JSONObject().put("started_ms", System.currentTimeMillis())
-                .put("suite_version", suite.version).put("status", "completed").put("repetitions", 3);
+                .put("suite_version", sample.getString("test_version")).put("status", "completed").put("repetitions", 3);
         JSONArray samples = new JSONArray();
         report.put("samples", samples);
         for (double value : new double[]{2, 20, 7}) {
             JSONObject copy = new JSONObject(sample.toString());
-            for (String key : suite.metrics) copy.put(key, value);
+            for (String key : BenchmarkReport.metricKeys(suite, sample)) copy.put(key, value);
             samples.put(copy);
         }
         BenchmarkReport.summarize(report);
-        for (String key : suite.metrics) check(report.getJSONObject("median").getDouble(key) == 7, "median " + key);
+        for (String key : BenchmarkReport.metricKeys(suite, sample)) check(report.getJSONObject("median").getDouble(key) == 7, "median " + key);
         check(BenchmarkReport.format(report).contains(suite.label), "suite formatting");
         JSONObject last = samples.getJSONObject(2);
-        for (String key : suite.parameters) {
+        for (String key : BenchmarkReport.parameterKeys(suite, sample)) {
             Object original = last.get(key);
             last.put(key, "changed");
             BenchmarkReport.summarize(report);

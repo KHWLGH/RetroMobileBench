@@ -14,7 +14,8 @@ plugins {
 
 // Changing native sources or toolchain creates a separate score comparison group.
 val nativeInputs = files(rootProject.file("app/build.gradle.kts"),
-    rootProject.fileTree("native") { include("**/*.c", "**/*.h", "**/CMakeLists.txt") },
+    rootProject.fileTree("app/src/main/java") { include("**/*.java") },
+    rootProject.fileTree("native") { include("**/*.c", "**/*.h", "**/*.cmake", "**/CMakeLists.txt") },
     rootProject.fileTree("feasibility/gfxbench-es2") { include("**/*.cpp", "**/*.h", "**/CMakeLists.txt") },
     rootProject.fileTree("third_party") {
         include("**/*.c", "**/*.cpp", "**/*.h", "**/*.hpp")
@@ -131,10 +132,22 @@ abstract class LegacyNativeBuild : DefaultTask() {
                     "-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=${outputDirectory.get().asFile.resolve(abi).invariantSeparatorsPath}")
             }
             execOperations.exec { commandLine(cmakeBin.resolve("cmake.exe"), "--build", build, "--parallel", "8") }
+            listOf("avutil", "avcodec", "avformat").forEach { library ->
+                root.resolve("app/build/ffmpeg/$abi/install/lib/lib$library.so")
+                    .copyTo(outputDirectory.get().asFile.resolve("$abi/lib$library.so"), overwrite = true)
+            }
         }
     }
 }
+val ffmpegBuild = tasks.register<Exec>("buildFfmpeg") {
+    inputs.file(rootProject.file("scripts/build-ffmpeg.sh"))
+    inputs.dir(rootProject.file("third_party/ffmpeg"))
+    outputs.dir(layout.buildDirectory.dir("ffmpeg"))
+    workingDir(rootProject.projectDir)
+    commandLine(providers.gradleProperty("gitBash").orElse("C:/Program Files/Git/bin/bash.exe").get(), "scripts/build-ffmpeg.sh")
+}
 val legacyNative = tasks.register<LegacyNativeBuild>("buildLegacyNative") {
+    dependsOn(ffmpegBuild)
     mustRunAfter(prepareLegacyNdk)
     ndkDirectory.set(legacyNdkDirectory)
     sdkDirectory.set(androidComponents.sdkComponents.sdkDirectory)
@@ -223,6 +236,12 @@ val benchmarkNotices = tasks.register<BenchmarkNotices>("generateBenchmarkNotice
     mustRunAfter(prepareLegacyNdk)
     noticeFiles.from(
         rootProject.file("third_party/coremark/LICENSE.md"),
+        rootProject.file("third_party/mbedtls/LICENSE"),
+        rootProject.file("third_party/libjpeg-turbo/LICENSE.md"),
+        rootProject.file("third_party/libpng/LICENSE"),
+        rootProject.file("third_party/ffmpeg/COPYING.LGPLv2.1"),
+        rootProject.file("docs/media-distribution.md"),
+        rootProject.file("app/src/main/assets/media/manifest.json"),
         legacyNdkDirectory.file("build/tools/toolchain-licenses/COPYING3"),
         legacyNdkDirectory.file("build/tools/toolchain-licenses/COPYING.RUNTIME"),
         rootProject.file("third_party/stream/LICENSE.txt"),
@@ -240,8 +259,7 @@ androidComponents.onVariants { variant ->
     variant.sources.assets?.addGeneratedSourceDirectory(benchmarkNotices, BenchmarkNotices::outputDirectory)
 }
 
-// Reproducible ETC1 pack; the normal APK contains low-level data only.
-// -PgpuData=full also includes T-Rex/Egypt after their upstream files are checked out.
+// Reproducible fixed ETC1 scene pack in the default APK. Diagnostic data is developer-only.
 abstract class GpuPackTask : DefaultTask() {
     @get:Internal abstract val gfxDirectory: DirectoryProperty
     @get:InputFiles
@@ -252,8 +270,8 @@ abstract class GpuPackTask : DefaultTask() {
     @TaskAction fun generate() {
         val source = gfxDirectory.get().asFile
         val selected = linkedMapOf<String, java.io.File>()
-        val tests = listOf("alu", "fill", "driver", "blending") + if (fullPack.get()) listOf("trex", "egypt") else emptyList()
-        tests.forEach { test -> selected["config/gl_${test}_off.json"] = source.resolve("gfxbench40/resources/gfxbench_gl/config/gl_${test}_off.json") }
+        val tests = if (fullPack.get()) listOf("gl_egypt_off", "gl_egypt", "gl_trex_off", "gl_trex", "gl_fill_off") else listOf("gl_alu_off", "gl_fill_off", "gl_driver_off", "gl_blending_off")
+        tests.forEach { test -> selected["config/$test.json"] = source.resolve("gfxbench40/resources/gfxbench_gl/config/$test.json") }
         val directories = listOf("common", "fill") + if (fullPack.get()) listOf("trex", "egypt") else emptyList()
         directories.forEach { name ->
             val root = source.resolve("gfxbench-data40/data/gfx/$name")
@@ -284,7 +302,7 @@ abstract class GpuPackTask : DefaultTask() {
         }
         val manifest = groovy.json.JsonOutput.toJson(mapOf("format" to 2,
             "source" to "89aa956f43836798d1eaaab8ec32d3dc8b02eead", "texture_type" to "ETC1",
-            "tests" to tests.map { "gl_${it}_off" }, "files" to manifestFiles,
+            "tests" to tests, "files" to manifestFiles,
             "license" to "CC BY 4.0 https://creativecommons.org/licenses/by/4.0/ Copyright 2005-2025 Kishonti Ltd; ETC1 subset, reference images removed, ui.fs precision fallback"))
         val destination = outputDirectory.get().asFile.resolve("gpu-data.zip")
         destination.parentFile.mkdirs()
@@ -304,20 +322,21 @@ abstract class GpuPackTask : DefaultTask() {
 val gpuPack = tasks.register<GpuPackTask>("generateGpuPack") {
     gfxDirectory.set(rootProject.layout.projectDirectory.dir("third_party/gfxbench"))
     sourceFiles.from(rootProject.fileTree("third_party/gfxbench") {
-        include("gfxbench40/resources/gfxbench_gl/config/*_off.json")
+        include("gfxbench40/resources/gfxbench_gl/config/gl_*.json")
         include("gfxbench40/resources/data/gfx/shaders_40/lowlevel/**")
         include("gfxbench40/resources/data/gfx/shaders_40/shaders.20/**")
         include("gfxbench-data40/data/gfx/common/**", "gfxbench-data40/data/gfx/fill/**")
-        if (providers.gradleProperty("gpuData").orNull == "full")
-            include("gfxbench-data40/data/gfx/trex/**", "gfxbench-data40/data/gfx/egypt/**")
+        include("gfxbench-data40/data/gfx/trex/**", "gfxbench-data40/data/gfx/egypt/**")
     })
-    fullPack.set(providers.gradleProperty("gpuData").map { it == "full" }.orElse(false))
+    fullPack.set(providers.gradleProperty("gpuData").map { it != "diagnostic" }.orElse(true))
     outputDirectory.set(layout.buildDirectory.dir("generated/gpuPack"))
 }
 androidComponents.onVariants { variant ->
     variant.sources.assets?.addGeneratedSourceDirectory(gpuPack, GpuPackTask::outputDirectory)
 }
 
+apply(from = "corresponding-source.gradle.kts")
+
 dependencies {
-    // Intentionally empty: no AndroidX (minSdk 21+), no Kotlin stdlib (docs/02-platform-constraints.md).
+    // Framework-only UI and tests preserve the API 8 baseline.
 }

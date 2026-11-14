@@ -1,111 +1,53 @@
 # RetroMobileBench
 
-给旧安卓手机用的离线跑分软件。第一版只做 Android 4.x，最低兼容 Android 4.1（API 16）。
+给旧安卓设备使用的离线一键跑分工具。当前构建基线为 Android 2.2 / API 8（ARMv7），x86 为 API 9；重点面向早期多核 Android 手机和平板。
 
-> 状态（2026-11-12）：**CPU / 内存 / 存储 / 数据库后端和 GPU 独立进程已接入 App**。包括 CoreMark 双种子正式校验、SciMark 五项、zlib/zstd、tinymembench C 复制/填充和依赖延迟、STREAM 变体、固定 SQLite 事务，以及 GFXBench 六项 ES2 离屏入口。支持单轮/三轮、一键顺序运行、取消、混合历史、JSON 复制和校验导入场景包。保留 minSdk 16、NDK r23c、NEON / 无 NEON / x86。验证记录与限制见 [docs/11-backend.md](docs/11-backend.md)。**仍需 ARM/Tegra 2 真机与性能基线验证；暂不生成综合分数。**
+本轮已接入 [固定套件计划](docs/12-test-suite-plan.md)，构建和模拟器流程验证通过，真机发布验收仍待完成。界面只有开始、取消和历史/设备/许可/JSON 导出；不要求选择分类、线程、分辨率或资源包。自动执行固定14阶段：CoreMark等8个阶段各三轮取中位数，视频和各GPU模式一次，输出整次会话；不生成未经校准的总分。实现和验证状态见 [实施记录](docs/13-suite-implementation.md)。构建成功不能替代真机硬解、内存峰值和温升验证。
 
-## 目标
-
-- 让 2012–2014 年的 Android 4.x 手机和平板跑出可以横向比较的 CPU、内存、存储、GPU 成绩。
-- 测试代码尽量复用宽松许可证的开源项目，避免自己造轮子，也避免 GPL 限制 App 本身的许可证。
-- GPU 测试移植已开源的 GFXBench 4.0 中 OpenGL ES 2.0 的部分。
-
-## 第一版范围
-
-| 做 | 不做 |
+| 固定顺序 | 内容 |
 |---|---|
-| Android 4.1–4.4（API 16–19），后续版本能装就行，不专门适配 | 联网榜单、账号、成绩上传 |
-| CPU：CoreMark、SciMark 2、zstd/zlib 压缩 | Vulkan、OpenGL ES 3.x 测试 |
-| 内存：tinymembench、多线程带宽 | 续航测试、长时间稳定性测试 |
-| 存储：按 AndroBench 方法自写，加 SQLite 事务测试 | Google Play 上架（见下方"发布方式"） |
-| GPU：GFXBench ES2 测试（T-Rex、Egypt 和 4 个底层测试） | |
-| 设备信息采集、本地成绩记录、导出成文字或图片 | |
-| 支持没有 NEON 的 ARMv7 CPU（Tegra 2）和 x86（Intel Atom） | |
+| CPU | CoreMark 单线程 + N 线程、SciMark small 五内核、zlib 单线程 + N 个独立流 |
+| 加密 | Mbed TLS AES-128-GCM 加密/解密认证、SHA-256，单线程 + N 线程 |
+| 图片 | 固定 libjpeg-turbo / libpng，480p、720p、1080p JPEG/PNG 软件解码及像素校验 |
+| 视频 | H.264 SD、HD Baseline、HD High、Full HD High，以及 H.263、MPEG-4、VP8；固定 FFmpeg 软解、系统解码、短片实时播放 |
+| 内存 | 复制、填充、依赖随机访问延迟；固定总工作集24MiB的单线程 + N线程STREAM Triad变体 |
+| 存储 | 内部存储顺序/随机读写，固定 SQLite 事务 |
+| GPU | Egypt HD 离屏、屏上，再 T-Rex 离屏、屏上、Fill离屏；离屏1080p，屏上实际窗口尺寸 |
 
-## 已确定的决策
+五项GPU配置时长合计398秒（6分38秒），不含准备和加载。CoreMark、SciMark、zlib、加密、图片、内存、文件存储和SQLite各三轮，轮间1秒；视频矩阵及每个GPU模式一次。整套预计约12–15分钟；API16 x86模拟器本轮完整流程为752579ms（约12分33秒），视频partial，其余13阶段completed。真机时长以设备实测为准。Zstd、完整STREAM四内核、ALU/Driver/Blending退出产品流程，历史记录仍可查看。网络、编码、音频、4K 和新视频格式不属于本轮。
 
-| # | 决策 | 日期 |
-|---|---|---|
-| 1 | 最低系统版本 Android 4.1（API 16） | 2026-11-12 |
-| 2 | 测试项目尽量复用开源项目 | 2026-11-12 |
-| 3 | GPU 测试移植 GFXBench（只取 ES2 部分） | 2026-11-12 |
-| 4 | 本版本不做联网榜单 | 2026-11-12 |
-| 5 | 支持 Tegra 2（无 NEON），原生库多编一套 | 2026-11-12 |
-| 6 | GFXBench 场景数据两种方式都支持：打进完整版 APK，或从 SD 卡导入数据包 | 2026-11-12 |
+线程数综合 present CPU、CPU 目录、在线状态和运行时报告；缺少实际拓扑时才回退到 configured CPU。单核不重复测并行 1 线程。当前资源容量为 64 个工作线程，超出时明确拒绝，不能静默截断后声称测了全部核心。线程数不是物理核心同时执行的证明。
 
-## 技术栈速览
+电池温度只作为约两秒一次的升温统计，不设高温拦截或冷却等待，也不能称 CPU/GPU 结温。低电量与真实内存/空间不足仍有明确提示。GPU 和系统媒体在可回收的独立进程中运行。
 
-| 项 | 选择 | 原因 |
-|---|---|---|
-| 语言 | Java（UI 和流程）+ C/C++（全部测试） | Dalvik 时代用 Java 写测试，测的是 JIT 而不是 CPU |
-| UI | 原生 View + Holo 主题 | AndroidX 现在默认最低 API 24（2024 年 4 月起就已至少 21），Compose 至少 21 |
-| NDK | **r23c**（23.2.8568313） | 最后一个支持 API 16–18 和无 NEON 设备的版本 |
-| ABI | `armeabi-v7a`（NEON）、`armeabi-v7a`（无 NEON，单独一套）、`x86` | 见 [docs/02](docs/02-platform-constraints.md) |
-| C++ 运行时 | `c++_static`，所有原生代码链接成一个 `.so` | Android 4.3 以前不会去 App 的 lib 目录加载依赖库 |
-| 图形 | OpenGL ES 2.0 | Android 4.1/4.2 只有 ES2 |
+## 构建
 
-## 文档目录
+使用 Java Framework View、C/C++、NDK r10e / GCC 4.9 / gnustl_static；现代 NDK r23c 只参与打包检查。目标 SDK 23，保留 v1 签名。没有 AndroidX 或新的测试框架。
 
-| 文档 | 内容 |
-|---|---|
-| [docs/01-architecture.md](docs/01-architecture.md) | 整体架构、模块划分、原生库组织、运行流程、计分 |
-| [docs/02-platform-constraints.md](docs/02-platform-constraints.md) | Android 4.1 / API 16 的各项硬约束和应对方法 |
-| [docs/03-benchmarks.md](docs/03-benchmarks.md) | 每个测试项选什么开源项目、怎么改、许可证 |
-| [docs/04-gfxbench-port.md](docs/04-gfxbench-port.md) | GFXBench ES2 移植方案（最大的风险项） |
-| [docs/05-build-and-toolchain.md](docs/05-build-and-toolchain.md) | 工具链版本、构建配置、构建变体 |
-| [docs/06-data-packs.md](docs/06-data-packs.md) | GFXBench 场景数据：打包与导入 |
-| [docs/07-measurement.md](docs/07-measurement.md) | 测量方法与老机器上的各种坑 |
-| [docs/08-licenses.md](docs/08-licenses.md) | 第三方许可证、署名和命名规则 |
-| [docs/09-roadmap.md](docs/09-roadmap.md) | 里程碑、验证方法、风险清单 |
-| [docs/10-feasibility.md](docs/10-feasibility.md) | 可行性验证记录：做了什么、结果、怎么在真机上复现 |
-| [docs/11-backend.md](docs/11-backend.md) | 全部本地后端协议、GPU 隔离/数据包、API 16 集成测试与后续工作 |
-| [docs/references.md](docs/references.md) | 参考资料链接 |
-
-## 发布方式
-
-不上 Google Play，直接发 APK：
-
-- 目标设备基本用不了 Play 商店：Google Play 服务 2021 年 8 月起不再为 Jelly Bean 更新。
-- Google Play 要求上架应用的 targetSdk 接近最新版本（2025 年起至少 35），而本项目 targetSdk 定为 23。
-
-targetSdk 定为 **23** 的原因：
-
-- Android 14 起系统拒绝安装 targetSdk 低于 23 的 App。定为 23，新手机也能装，方便开发调试。
-- 在 Android 4.x 设备上，targetSdk 23 和任何 ≥ 19 的值效果相同（4.x 系统只认识到 API 19 为止的行为变更）。再往上调只会在新手机上打开新行为（24 起限制 `file://` 分享，29/30 起分区存储），反而让 SD 卡数据包导入和成绩分享更麻烦。
-- 当前版本使用内部私有目录和文件选择器的临时 URI 授权，没有声明存储权限；未来若直接读写外置存储，再单独处理 Android 6.0+ 的授权。
-
-## 获取源码与构建
-
-原生依赖通过固定提交的 git 子模块维护。首次克隆后，先按 [third_party/README.md](third_party/README.md) 初始化依赖；其中 GFXBench 使用无检出克隆和稀疏目录，避免无意下载全部大型素材。然后构建：
+1. 按 [固定依赖说明](third_party/README.md) 初始化子模块和两套 GPU 场景的 ETC1 数据。
+2. 安装 Android Studio 所用 SDK、CMake 3.18.1、NDK r23c；将 r10e 安装到 `.tools/android-ndk-r10e`。需要 Git Bash；可用 `-PgitBash=<path>` 指定路径。
+3. 构建默认完整离线 APK：
 
 ```powershell
 .\gradlew.bat :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug
+.\scripts\check-legacy-native.ps1
+.\scripts\check-neon.ps1 -Path app/build/generated/legacyJniLibs/armeabi-v7a/librmb_noneon.so -ExpectNeon $false
 ```
 
-需要 [docs/05](docs/05-build-and-toolchain.md) 中的工具链；依赖初始化完成后，原生构建不再下载源码。GFXBench 建议部分克隆以减少数据下载；全部依赖版本、提交和许可证见 [third_party/README.md](third_party/README.md)。
+FFmpeg 在 Gradle `buildFfmpeg` 中由同一 r10e 工具链构建，只开启四种视频解码器和必要解封装，不含网络、编码和 GPL/nonfree 组件。媒体库采用固定标量路径，在有/无 NEON 的 ARMv7 上使用相同协议；主测试库仍保留 NEON、无 NEON 和 x86 构建。
 
-默认 APK 自带四项底层 GPU 数据。T-Rex/Egypt 需要导入完整包，或构建 `-PgpuData=full` 的 APK：
+默认 APK 包含完整固定场景和媒体资源。产品没有 lite/full 选择或导入入口。首次运行自动校验并准备；包体和解包空间的代价需在发布前实测。固定媒体素材已纳入源码；`scripts/generate-media.ps1` 是生成配方，重新生成后必须审查哈希并升级语料协议。
+
+## 验证与分发
 
 ```powershell
-.\gradlew.bat :app:generateGpuPack -PgpuData=full
-# 产物 app/build/generated/gpuPack/gpu-data.zip，可在 App 中导入
-.\gradlew.bat :app:assembleDebug -PgpuData=full
+adb shell am instrument -w -e fixedOnly true com.retromobilebench.test/com.retromobilebench.BackendInstrumentation
+adb shell am instrument -w -e production true com.retromobilebench.test/com.retromobilebench.BackendInstrumentation
+.\gradlew.bat :app:correspondingSource
 ```
 
-需先检出两套场景数据，详见 [third_party/README.md](third_party/README.md)。默认和 full 使用相同 applicationId；安装会更新同一个应用。
+`fixedOnly` 检查多核策略、加密已知向量/坏标签、图片参考像素、会话恢复和完整视频矩阵；`production` 从真实开始按钮运行完整固定套件，核对自动三轮/单次策略，包括五项完整GPU时长。模拟器用于流程和异常验证；真机才用于硬解、速度、峰值内存和温升结论。
 
-## 目录结构
+直接分发 APK，不上 Google Play。每份发布 APK 必须同时提供匹配的对应源码 ZIP、构建脚本与 LGPL 说明，不能仅链接上游仓库。FFmpeg 保持独立动态库并可替换，详见 [媒体分发说明](docs/media-distribution.md)。开源许可和素材署名也在 App 内可查看。
 
-| 路径 | 内容 |
-|---|---|
-| `app/` | Android App（Java / Holo）：全部套件调度、GPU 独立进程、数据导入、设备探针、历史及许可；`androidTest` 为无第三方测试框架的集成测试 |
-| `native/` | 三套原生库：CPU、内存、存储、SQLite、GPU 和 JNI |
-| `third_party/` | 固定提交/哈希的 CPU、内存、SQLite 和 GFXBench 源码 |
-| `feasibility/gfxbench-es2/` | GFXBench ES2 移植的独立 CMake 工程和宿主代码（已被主 App 的 CMake 复用） |
-| `scripts/` | 构建、运行、检查脚本（PowerShell） |
-| `docs/` | 设计文档 |
-| `feasibility/out/` | 编译产物、导出的测试数据、成绩（不提交） |
-
-## 调研资料
-
-调研时浅克隆的 GFXBench 源码（`blob:none` 部分克隆，场景数据按需取）和下载的 GFXBench 历史成绩 CSV（约 90 MB）放在 `%TEMP%\rmb-research`。`scripts/feasibility-gfxbench-*.ps1` 默认就用这份克隆，删掉的话要重新克隆（见 [docs/05](docs/05-build-and-toolchain.md) §7）。
+设计范围以 [12 固定套件计划](docs/12-test-suite-plan.md) 为准，实际验证以 [13 实施记录](docs/13-suite-implementation.md) 为准。01–11 文档保留早期方案和历史验证，其中旧的 API 16/r23c 编译、六项离屏、导入包、用户选择单/三轮和温度门槛描述已经被本轮替代。

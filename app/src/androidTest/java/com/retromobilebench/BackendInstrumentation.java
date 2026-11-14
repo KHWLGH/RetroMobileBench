@@ -16,12 +16,14 @@ import java.util.concurrent.atomic.AtomicReference;
 
 /** Real JNI + SQLite regression checks using only the API 16 framework. */
 public final class BackendInstrumentation extends Instrumentation {
-    private boolean gpuOnly, fullGpu, production;
+    private boolean gpuOnly, fullGpu, production, fixedOnly, lifecycleOnly;
     @Override
     public void onCreate(Bundle arguments) {
         super.onCreate(arguments);
         gpuOnly = arguments != null && "true".equals(arguments.getString("gpuOnly"));
         fullGpu = arguments != null && "true".equals(arguments.getString("fullGpu"));
+        lifecycleOnly = arguments != null && "true".equals(arguments.getString("lifecycleOnly"));
+        fixedOnly = arguments != null && "true".equals(arguments.getString("fixedOnly"));
         production = arguments != null && "true".equals(arguments.getString("production"));
         start();
     }
@@ -38,7 +40,34 @@ public final class BackendInstrumentation extends Instrumentation {
                 return;
             }
             check(NativeLoader.load() != null, "native library loads");
+            if (lifecycleOnly) {
+                result.putString("stream", "\nPASS: " + LifecycleChecks.run(this, this::progress) + "\n");
+                finish(Activity.RESULT_OK, result); return;
+            }
+            if (fixedOnly) {
+                startActivitySync(new android.content.Intent(context, MainActivity.class).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK));
+                FixedSuiteChecks.run(context);
+                PersistenceFailureChecks.run(this);
+                JSONObject video = new JSONObject(MediaCorpus.video(context, 2));
+                check(video.getJSONArray("results").length() == 7, "all fixed video profiles attempted: " + video);
+                for (int i = 0; i < 7; i++) check("completed".equals(video.getJSONArray("results").getJSONObject(i).getJSONObject("software").optString("status")), "software produces validated frames: " + video.getJSONArray("results").getJSONObject(i));
+                StringBuilder summary = new StringBuilder("\nPASS: fixed suite topology, crypto KAT/8 workers, JPEG/PNG golden pixels, session recovery and seven video software/system/playback paths\n");
+                for (int i = 0; i < 7; i++) {
+                    JSONObject clip = video.getJSONArray("results").getJSONObject(i); summary.append(clip.getString("id"));
+                    for (String path : new String[]{"software", "system", "playback"}) {
+                        JSONObject value = clip.getJSONObject(path);
+                        check(!"interrupted".equals(value.optString("status")), "foreground media Surface must reach decoder: " + clip);
+                        if (android.os.Build.VERSION.SDK_INT < 16 && "playback".equals(path))
+                            check(value.optBoolean("surface_created_in_worker"), "old playback owns a real window in its process: " + value);
+                        summary.append(" | ").append(path).append(": ").append(value.optString("status")).append(" ").append(value.optString("error_stage"));
+                    }
+                    summary.append('\n');
+                }
+                result.putString("stream", summary.toString());
+                finish(Activity.RESULT_OK, result); return;
+            }
             if (gpuOnly) {
+                startActivitySync(new android.content.Intent(context, MainActivity.class).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK));
                 GpuBackendChecks.run(context, fullGpu, this::progress);
                 result.putString("stream", "\nPASS: GPU isolated processes, data validation, cancellation, timeout and restart\n");
                 finish(Activity.RESULT_OK, result);
@@ -58,9 +87,13 @@ public final class BackendInstrumentation extends Instrumentation {
             testPersistence(context, measurement, cpu);
             progress("CoreMark/SciMark/memory/zstd/SQLite");
             AdditionalBackendChecks.run(context);
-            progress("GPU" + (fullGpu ? " full six tests" : " available tests"));
+            progress("new fixed suite regression checks");
+            FixedSuiteChecks.run(context);
+                PersistenceFailureChecks.run(this);
+            startActivitySync(new android.content.Intent(context, MainActivity.class).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK));
+            progress("GPU scene processes");
             GpuBackendChecks.run(context, fullGpu, this::progress);
-            result.putString("stream", "\nPASS: CoreMark formal double-seed validation, SciMark, memory/STREAM, zstd/SQLite + storage/CPU JNI, 1/2/4 threads, cancellation/cleanup, "
+            result.putString("stream", "\nPASS: CoreMark formal double-seed validation, SciMark, memory/STREAM, zstd/SQLite + storage/CPU JNI, 1/2/4/8 workers, cancellation/cleanup, "
                     + "medians, preflight, mixed history and interrupted-run recovery, GPU isolated processes/data validation/restart\nCPU fixture: " + cpu + "\n");
             finish(Activity.RESULT_OK, result);
         } catch (Throwable e) {
@@ -155,22 +188,22 @@ public final class BackendInstrumentation extends Instrumentation {
 
     private static JSONObject testCpu() throws Exception {
         NativeBridge.resetCpuCancellation();
-        for (int[] parameters : new int[][]{{0, 50}, {5, 50}, {1, 49}, {1, 10001}}) {
+        for (int[] parameters : new int[][]{{0, 50}, {65, 50}, {1, 49}, {1, 10001}}) {
             JSONObject invalid = new JSONObject(NativeBridge.runCpu(parameters[0], parameters[1]));
             check("failed".equals(invalid.getString("status")), "CPU invalid parameters rejected");
             check(invalid.getInt("completed_metrics") == 0, "invalid CPU has no metrics");
         }
         JSONObject reference = null;
-        for (int threads : new int[]{1, 2, 4}) {
+        for (int threads : new int[]{1, 2, 4, 8}) {
             JSONObject sample = new JSONObject(NativeBridge.runCpu(threads, 75));
             check("completed".equals(sample.getString("status")), "CPU completes: " + sample);
-            check(sample.getInt("completed_metrics") == 4, "four CPU metrics");
+            check(sample.getInt("completed_metrics") == (threads == 1 ? 2 : 4), "single core omits duplicate parallel phase");
             check("1.3.1".equals(sample.getString("codec_version")), "bundled zlib version");
             check(sample.getInt("parallel_threads") == threads, "CPU thread count recorded");
             check(sample.getInt("input_bytes") == 1024 * 1024, "fixed corpus size");
             check(sample.getInt("compressed_bytes") > 0
                     && sample.getInt("compressed_bytes") < sample.getInt("input_bytes"), "compressed length");
-            for (int i = 0; i < BenchmarkSuite.CPU.metrics.length; i++) {
+            for (int i = 0; i < sample.getInt("completed_metrics"); i++) {
                 double duration = sample.getJSONArray("elapsed_seconds").getDouble(i);
                 long iterations = sample.getJSONArray("iterations").getLong(i);
                 double rate = sample.getDouble(BenchmarkSuite.CPU.metrics[i]);
@@ -215,7 +248,7 @@ public final class BackendInstrumentation extends Instrumentation {
     }
 
     private static void testCpuSummary(JSONObject sample) throws Exception {
-        JSONObject report = report("completed").put("suite_version", "cpu-zlib-v1").put("repetitions", 3);
+        JSONObject report = report("completed").put("suite_version", BenchmarkSuite.CPU.version).put("repetitions", 3);
         JSONArray samples = report.getJSONArray("samples");
         for (double value : new double[]{100, 1, 9}) {
             JSONObject copy = new JSONObject(sample.toString());
@@ -234,10 +267,10 @@ public final class BackendInstrumentation extends Instrumentation {
             check(!report.has("median"), "mismatched CPU parameter rejected: " + key);
             changed.put(key, original);
         }
-        changed.put("test_version", "cpu-zlib-v2");
+        changed.put("test_version", "cpu-zlib-future");
         BenchmarkReport.summarize(report);
         check(!report.has("median"), "unknown CPU version rejected");
-        changed.put("test_version", "cpu-zlib-v1").put("status", "cancelled");
+        changed.put("test_version", BenchmarkSuite.CPU.version).put("status", "cancelled");
         BenchmarkReport.summarize(report);
         check(!report.has("median"), "cancelled CPU round not aggregated");
         report.put("suite_version", "future-suite");
@@ -253,7 +286,7 @@ public final class BackendInstrumentation extends Instrumentation {
         device.put("plugged", true);
         check(BenchmarkRunner.preflight(device, 32) == null, "charging accepted");
         device.put("battery_temperature_tenths_c", 450);
-        check(BenchmarkRunner.preflight(device, 32) != null, "hot battery blocked");
+        check(BenchmarkRunner.preflight(device, 32) == null, "hot battery is telemetry only");
         device.put("battery_temperature_tenths_c", 250).put("available_storage_bytes", 19L * 1024 * 1024);
         check(BenchmarkRunner.preflight(device, 4) != null, "storage reserve enforced");
         check(BenchmarkRunner.cpuPreflight(device) == null, "CPU does not require storage test space");
@@ -263,11 +296,14 @@ public final class BackendInstrumentation extends Instrumentation {
         check(BenchmarkRunner.cpuPreflight(device) != null, "CPU memory reserve enforced");
         device.put("available_memory_bytes", 32L * 1024 * 1024).put("available_processors", 32);
         check(BenchmarkRunner.cpuPreflight(device) == null, "CPU memory threshold accepted");
-        check(BenchmarkSuite.CPU.parameter(device) == 4, "CPU thread cap");
+        check(BenchmarkSuite.CPU.parameter(device) == 32, "CPU is not capped to four or eight");
+        device.put("cpu_present", "0-7").put("available_processors", 1).put("cpu_online", "0");
+        check(BenchmarkSuite.CPU.parameter(device) == 8, "hotplugged cores are included");
+        device.remove("cpu_present"); device.remove("cpu_online");
         device.put("available_processors", 0);
         check(BenchmarkSuite.CPU.parameter(device) == 1, "CPU thread minimum");
         device.put("battery_temperature_tenths_c", 450);
-        check(BenchmarkRunner.cpuPreflight(device) != null, "CPU hot battery blocked");
+        check(BenchmarkRunner.cpuPreflight(device) == null, "CPU hot battery does not block");
         device.put("battery_temperature_tenths_c", 250).put("plugged", false);
         check(BenchmarkRunner.cpuPreflight(device) != null, "CPU low battery blocked");
     }
@@ -295,7 +331,7 @@ public final class BackendInstrumentation extends Instrumentation {
             JSONArray history = store.latest(20);
             check(history.length() == 2, "both records retained");
             check("completed".equals(history.getJSONObject(0).getString("status")), "completed untouched");
-            JSONObject cpuReport = report("running").put("suite_version", "cpu-zlib-v1");
+            JSONObject cpuReport = report("running").put("suite_version", BenchmarkSuite.CPU.version);
             long cpuId = store.begin(cpuReport);
             cpuReport.put("status", "completed");
             cpuReport.getJSONArray("samples").put(cpu);

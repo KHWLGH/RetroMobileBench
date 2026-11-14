@@ -14,8 +14,12 @@
             android:process=":gpu"
             android:exported="false"
             android:stopWithTask="true" />
+        <service android:name=".MediaService" android:process=":media" android:exported="false" android:stopWithTask="true" />
+        <activity android:name=".LegacyGpuActivity" android:process=":gpu" android:exported="false" android:screenOrientation="landscape" />
+        <activity android:name=".LegacyPlaybackActivity" android:process=":media" android:exported="false" android:screenOrientation="landscape" />
         <activity
             android:name=".MainActivity"
+            android:screenOrientation="landscape"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

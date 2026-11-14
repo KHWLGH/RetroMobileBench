@@ -12,7 +12,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 /** Local history, not a database benchmark. All methods run on the single worker. */
-final class ResultStore extends SQLiteOpenHelper {
+class ResultStore extends SQLiteOpenHelper {
     ResultStore(Context context) {
         this(context, "benchmark-results.db");
     }
@@ -65,6 +65,11 @@ final class ResultStore extends SQLiteOpenHelper {
                     report.put("status", "interrupted");
                     report.put("ended_ms", System.currentTimeMillis());
                     report.put("message", "进程退出，测试中断；已完成的轮次已保留");
+                    JSONObject active = report.optJSONObject("active_report");
+                    if (active != null) {
+                        active.put("status", "interrupted").put("ended_ms", System.currentTimeMillis());
+                        active.remove("median");
+                    }
                     save(cursor.getLong(0), report);
                 }
             } finally {

@@ -10,13 +10,17 @@
 | GFXBench | https://github.com/Kishonti-Opensource/gfxbench | `89aa956f43836798d1eaaab8ec32d3dc8b02eead` | 代码 BSD-3 / 素材 CC BY 4.0 |
 | SQLite | https://www.sqlite.org/2026/sqlite-amalgamation-3530100.zip | 3.53.1 | 公有领域 |
 | SciMark | https://math.nist.gov/scimark2/scimark2c.zip | SciMark 2.0 C | NIST 公有领域 |
+| Mbed TLS | https://github.com/Mbed-TLS/mbedtls | 2.28.10 / `2fc8413bfcb51354c8e679141b17b3f1a5942561` | Apache-2.0 |
+| libjpeg-turbo | https://github.com/libjpeg-turbo/libjpeg-turbo | 2.1.5.1 / `8ecba3647edb6dd940463fedf38ca33a8e2a73d1` | IJG / BSD / zlib |
+| libpng | https://github.com/pnggroup/libpng | 1.6.43 / `ed217e3e601d8e462f7fd1e04bed43ac42212429` | libpng-2.0 |
+| FFmpeg | https://github.com/FFmpeg/FFmpeg | 4.4.6 / `44b04492bfc83215e136f2a68783bff71d328692` | 禁GPL/nonfree配置下LGPL-2.1-or-later |
 
 SQLite 压缩包 SHA-256：`36ad6e7f38540a3b21a2ac36340833f0a9e426bc1c752751c3ba669466827eae`。
 SciMark 压缩包 SHA-256：`53d6bffc6468f20a55bc3184ec293bb73bcb2b01cce4965869845ed2210b81ff`。
 这两份解包源码直接纳入仓库；其余使用固定提交的子模块，不要 `--remote`。
 
 ```powershell
-git submodule update --init third_party/zlib third_party/zstd third_party/coremark third_party/tinymembench third_party/stream
+git submodule update --init third_party/zlib third_party/zstd third_party/coremark third_party/tinymembench third_party/stream third_party/mbedtls third_party/libjpeg-turbo third_party/libpng third_party/ffmpeg
 # GFXBench 尚未初始化且目录不存在时：先不检出，避免下载所有场景格式。
 git clone --filter=blob:none --no-checkout https://github.com/Kishonti-Opensource/gfxbench.git third_party/gfxbench
 git -C third_party/gfxbench sparse-checkout init --cone
@@ -24,7 +28,7 @@ git -C third_party/gfxbench sparse-checkout set frameworks gfxbench40 3rdparty/z
 git -C third_party/gfxbench checkout --detach 89aa956f43836798d1eaaab8ec32d3dc8b02eead
 git submodule absorbgitdirs third_party/gfxbench
 # 已初始化的仓库不重复 clone；沿用 sparse 设置并 git submodule update。
-# 完整场景 / full APK 还需要：
+# 默认完整离线APK必须检出两个场景：
 git -C third_party/gfxbench sparse-checkout add gfxbench-data40/data/gfx/trex gfxbench-data40/data/gfx/egypt
 ```
 
@@ -37,6 +41,9 @@ git -C third_party/gfxbench sparse-checkout add gfxbench-data40/data/gfx/trex gf
 - tinymembench 只编 util.c 的 C 内核；不使用上游汇编、分配函数或计时函数。随机依赖延迟是本项目实现。
 - STREAM 参考内核抽取到 `native/src/stream_kernels.c`，改成 pthread 和固定工作集；标注变体，不称标准 STREAM 成绩。
 - GFXBench 上游不改；ES2 源码清单和 EGL 宿主在 `feasibility/gfxbench-es2`，现在同时用于 App。每个原生变体拥有自己的全部静态库；无 NEON 参数覆盖所有源码。生成数据时给 ui.fs 添加片元精度回退，素材仅留 ETC1 并删除参考图。
-- 每个原生变体只产出一个供 App 加载的共享库，C++ runtime 静态链接；不引入较新的 Android API。
+- 主测试库仍为每变体一个librmb，gnustl_static；媒体每ABI另有librmbmedia及独立avutil/avcodec/avformat共享库。旧链接器按Java显式依赖顺序加载；媒体ARM全部标量、关闭汇编/SIMD，用r10e GCC4.9编译API8 ARM/API9 x86。
+- MbedTLS只编AES/GCM/SHA最小配置；JPEG accurate整数DCT/RGBA，PNG保留透明通道。原始上游源码不改，配置在native/media.cmake和crypto_config.h。
+- FFmpeg配置在scripts/build-ffmpeg.sh，仅四个软件视频解码器与必要解封装，无编码、网络或GPL/nonfree。对应源码ZIP和库替换说明见 [媒体分发](../docs/media-distribution.md)。
+- Zstd与完整STREAM四内核保留诊断/旧记录用途；正式内存阶段恢复Triad（`native/src/triad_bench.c`），1/N线程共享固定24MiB总量，64字节边界分区、共同起点/截止、计时外全量校验。是固定工作集变体，不声称标准STREAM或纯DRAM峰值。GPU默认资源恢复Fill离屏，ALU/Driver/Blending仍不进入固定流程。
 
-许可证来源为各子模块原文件。Gradle 将其打包成 `benchmark-notices.txt`；项目补充说明在 `licenses.txt` / `xiph-notices.txt`，App 的“开源许可”统一展示。升级任何依赖都需重新验证 API 16、无 NEON 指令和动态依赖，并升级受影响的测试协议。
+许可证来源为各子模块原文件。Gradle 将其打包成 `benchmark-notices.txt`；项目补充说明在 `licenses.txt` / `xiph-notices.txt`，App 的“开源许可”统一展示。升级任何依赖都需重新验证 API 8 ARM/API 9 x86、无 NEON 指令和动态依赖，并升级受影响的测试协议。

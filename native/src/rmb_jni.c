@@ -1,5 +1,10 @@
 #include <jni.h>
 #include <stdlib.h>
+#include <unistd.h>
+
+JNIEXPORT jint JNICALL Java_com_retromobilebench_NativeBridge_configuredProcessors(JNIEnv *env, jclass clazz) {
+    (void)env; (void)clazz; long n = sysconf(_SC_NPROCESSORS_CONF); return n > 0 ? (jint)n : 0;
+}
 
 #include "probe.h"
 #include "storage_bench.h"
@@ -20,6 +25,11 @@ Java_com_retromobilebench_NativeBridge_cancelMemory(JNIEnv *env, jclass clazz) {
 JNIEXPORT jstring JNICALL
 Java_com_retromobilebench_NativeBridge_runMemory(JNIEnv *env, jclass clazz, jint duration) {
     (void)clazz; char json[2048]; rmb_memory_run(duration, json, sizeof(json));
+    return (*env)->NewStringUTF(env, json);
+}
+JNIEXPORT jstring JNICALL
+Java_com_retromobilebench_NativeBridge_runMemoryV2(JNIEnv *env, jclass clazz, jint threads, jint duration) {
+    (void)clazz; char json[4096]; rmb_memory_run_v2(threads, duration, json, sizeof(json));
     return (*env)->NewStringUTF(env, json);
 }
 JNIEXPORT jstring JNICALL
@@ -53,9 +63,9 @@ Java_com_retromobilebench_NativeBridge_cancelCoremark(JNIEnv *env, jclass clazz)
 JNIEXPORT jstring JNICALL
 Java_com_retromobilebench_NativeBridge_runCoremark(JNIEnv *env, jclass clazz, jint threads, jint iterations) {
     (void)clazz;
-    char *json = malloc(65536);
+    char *json = malloc(262144);
     if (!json) return (*env)->NewStringUTF(env, "{\"status\":\"failed\",\"error_stage\":\"allocation\"}");
-    rmb_coremark_run(threads, iterations, json, 65536);
+    rmb_coremark_run(threads, iterations, json, 262144);
     jstring result = (*env)->NewStringUTF(env, json);
     free(json);
     return result;

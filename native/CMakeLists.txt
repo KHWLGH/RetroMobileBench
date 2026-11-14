@@ -73,6 +73,7 @@ set(RMB_SOURCES
     src/memory_bench.c
     src/stream_bench.c
     src/stream_kernels.c
+    src/triad_bench.c
     ${TINYMEM_DIR}/util.c
     src/scimark_bench.c
     ${SCIMARK_SOURCES}
@@ -81,6 +82,8 @@ set(RMB_SOURCES
     ${ZSTD_SOURCES}
     ${SQLITE_DIR}/sqlite3.c
 )
+
+include(media.cmake)
 
 function(rmb_add_library name variant)
     add_library(${name} SHARED ${RMB_SOURCES})

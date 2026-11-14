@@ -10,7 +10,8 @@
 #define HAS_PRINTF 0
 #define SEED_METHOD SEED_VOLATILE
 #define MEM_METHOD MEM_STACK
-#define MULTITHREAD 4
+#include "../worker_limits.h"
+#define MULTITHREAD RMB_MAX_WORKERS
 #define MAIN_HAS_NOARGC 1
 #define MAIN_HAS_NORETURN 0
 #define PERFORMANCE_RUN 1

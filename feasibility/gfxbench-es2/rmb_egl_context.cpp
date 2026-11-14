@@ -9,14 +9,14 @@
 namespace {
 JavaVM *vm;
 jclass eglClass;
-jmethodID createMethod, validMethod, errorMethod, currentMethod, detachMethod, releaseMethod;
+jmethodID createMethod, validMethod, errorMethod, currentMethod, detachMethod, releaseMethod, swapMethod;
 
 pthread_key_t attachedThread;
 pthread_once_t threadKeyOnce = PTHREAD_ONCE_INIT;
 void detachWorker(void *) { if (vm) vm->DetachCurrentThread(); }
 void createThreadKey() { pthread_key_create(&attachedThread, detachWorker); }
 
-// Context transitions are infrequent; no Java calls occur in the frame loop.
+// EGL transitions and window swaps use the API 8 Java EGL10 bridge.
 class Env {
 public:
     JNIEnv *value;
@@ -54,8 +54,9 @@ extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *machine, void *) {
     currentMethod = env.value->GetMethodID(eglClass, "makeCurrent", "()Z");
     detachMethod = env.value->GetMethodID(eglClass, "detach", "()Z");
     releaseMethod = env.value->GetMethodID(eglClass, "release", "()V");
+    swapMethod = env.value->GetMethodID(eglClass, "swap", "()Z");
     if (env.clearException() || !createMethod || !validMethod || !errorMethod ||
-        !currentMethod || !detachMethod || !releaseMethod) return JNI_ERR;
+        !currentMethod || !detachMethod || !releaseMethod || !swapMethod) return JNI_ERR;
     return JNI_VERSION_1_6;
 }
 
@@ -96,7 +97,12 @@ bool RmbPbufferContext::detachThread() {
     bool result = env.value->CallBooleanMethod(context_, detachMethod);
     return !env.clearException() && result;
 }
-bool RmbPbufferContext::swapBuffers() { glFinish(); return true; }
+bool RmbPbufferContext::swapBuffers() {
+    Env env;
+    if (!context_ || !env.value) return false;
+    bool result = env.value->CallBooleanMethod(context_, swapMethod);
+    return !env.clearException() && result;
+}
 void RmbPbufferContext::release() {
     if (!context_) return;
     Env env;
@@ -106,6 +112,16 @@ void RmbPbufferContext::release() {
         env.value->DeleteGlobalRef(context_);
     }
     context_ = nullptr;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_retromobilebench_JavaEglContext_swapInterval(JNIEnv *, jclass, jint interval) {
+    static void *library = dlopen("libEGL.so", RTLD_LAZY | RTLD_LOCAL);
+    typedef EGLDisplay (*GetDisplay)();
+    typedef EGLBoolean (*SwapInterval)(EGLDisplay, EGLint);
+    GetDisplay getDisplay = library ? reinterpret_cast<GetDisplay>(dlsym(library, "eglGetCurrentDisplay")) : nullptr;
+    SwapInterval swap = library ? reinterpret_cast<SwapInterval>(dlsym(library, "eglSwapInterval")) : nullptr;
+    return getDisplay && swap && swap(getDisplay(), interval) == EGL_TRUE;
 }
 
 extern "C" void *rmb_egl_create(int width, int height) {

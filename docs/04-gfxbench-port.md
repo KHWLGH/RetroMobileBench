@@ -1,4 +1,6 @@
-# 04 GFXBench ES2 移植方案
+# 04 GFXBench ES2 移植方案（历史技术记录）
+
+> 2026-11-14：下文保留早期移植、六项离屏和r23c的历史证据，不作为当前产品配置。当前固定为Egypt/T-Rex各屏上与离屏，加Fill离屏，共398秒；主库实际使用r10e，默认完整离线资源，无单项/导入入口。窗口EGLSurface与交换缓冲区已接入，验证状态见 [13](13-suite-implementation.md)，当前范围见 [12](12-test-suite-plan.md)。
 
 > 这是整个项目风险最大的部分。本文最初的结论来自 2026-11-12 对 [Kishonti-Opensource/gfxbench](https://github.com/Kishonti-Opensource/gfxbench)（commit `89aa956`）的源码阅读和正则扫描。**同日已实际编译并在 Android 4.1.2 模拟器上跑通全部 6 个 ES2 离屏测试**，本文已按实测结果修订，验证经过和成绩见 [10-feasibility.md](10-feasibility.md)。文中路径都相对于 GFXBench 仓库根目录。
 

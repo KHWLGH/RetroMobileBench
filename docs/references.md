@@ -1,6 +1,22 @@
 # 参考资料
 
-截至 2026-11-12。
+更新于 2026-11-14。历史设计依据和当前实现证据分别记录，验收状态见 [13](13-suite-implementation.md)。
+
+## 媒体、加密与旧平台实现
+
+- 固定依赖版本及原始许可：[third_party/README.md](../third_party/README.md)。
+- MbedTLS 2.28.10配置/GCM/SHA源码：https://github.com/Mbed-TLS/mbedtls/tree/mbedtls-2.28.10 。
+- libjpeg-turbo 2.1.5.1 API/accurate DCT：https://github.com/libjpeg-turbo/libjpeg-turbo/tree/2.1.5.1 。JPEG参考使用同版djpeg标量整数DCT，PNG参考保留RGBA。
+- libpng 1.6.43：https://github.com/pnggroup/libpng/tree/v1.6.43 。
+- FFmpeg 4.4解码/EAGAIN/EOS：https://ffmpeg.org/doxygen/4.4/group__lavc__encdec.html 。
+- FFmpeg LGPL与分发：https://ffmpeg.org/legal.html ；本项目 [构建/替换/对应源码说明](media-distribution.md)。
+- MediaCodec旧同步接口：https://developer.android.com/reference/android/media/MediaCodec 。
+- MediaCodecInfo硬件属性：https://developer.android.com/reference/android/media/MediaCodecInfo#isHardwareAccelerated() 。属性来自系统声明。
+- AOSP CTS历史解码性能测试：https://android.googlesource.com/platform/cts/+/4d48fa2917d59a56c65d54e1931e6b90545dd4a1/tests/tests/media/src/android/media/cts/VideoDecoderPerfTest.java 。
+- Bigflake：https://bigflake.com/mediacodec/ ；Grafika：https://github.com/google/grafika ；ijkplayer：https://github.com/bilibili/ijkplayer 。参考方法，不直接移入高API宿主。
+- Sintel源与许可：https://durian.blender.org/sharing/ ；生成配方和全部参数/哈希：[固定素材清单](../app/src/main/assets/media/manifest.json)。
+- GLBenchmark/GFXBench 3.0底层测试、默认选择的历史证据与边界详见 [12 §8](12-test-suite-plan.md#8-调研依据)。
+
 
 ## GFXBench
 

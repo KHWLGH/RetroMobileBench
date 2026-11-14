@@ -8,11 +8,17 @@ public final class NativeBridge {
 
     /** Device and build report from the M0 feasibility probe (native/src/probe.c). */
     public static native String probeReport();
+    public static native int configuredProcessors();
+    public static native void resetMediaCancellation();
+    public static native void cancelMedia();
+    public static native String runCrypto(int threads, int durationMs);
+    public static native String runImage(byte[] data, String referencePath, boolean png, int width, int height, int durationMs);
+    public static native String runVideoSoftware(String path, int threads, int durationMs, int width, int height, String firstYuvSha256);
 
     /** Native file I/O suite. Single worker only; JSON includes parameters and cache mode. */
     public static native String runStorage(String directory, int fileMiB, int randomOperations);
 
-    /** Fixed zlib corpus; single and parallel compression/decompression, 1-4 threads. */
+    /** Fixed zlib corpus; single and parallel compression/decompression, explicit 64-worker capacity. */
     public static native String runCpu(int parallelThreads, int durationMs);
 
     public static native void resetCpuCancellation();
@@ -32,6 +38,8 @@ public final class NativeBridge {
 
     /** Memory suites share cancellation and must execute serially. */
     public static native String runMemory(int durationMs);
+    /** Fixed 24 MiB Triad working set, single plus N workers; memory-tiny-v2. */
+    public static native String runMemoryV2(int threads, int durationMs);
     public static native String runStream(int threads, int durationMs);
     public static native void resetMemoryCancellation();
     public static native void cancelMemory();

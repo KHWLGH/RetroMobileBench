@@ -44,6 +44,11 @@ final class BenchmarkRunner {
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private volatile boolean cancelRequested;
+    private volatile boolean interrupted;
+    private volatile long cancelRequestedElapsed = -1;
+    private long sessionStartedElapsed;
+    private JSONObject currentSession;
+    private long sessionRow = -1;
     private volatile boolean nativeReady;
     private Listener listener;
     private State state = new State(true, "正在读取本地记录", "", "");
@@ -53,9 +58,12 @@ final class BenchmarkRunner {
         return instance;
     }
 
-    private BenchmarkRunner(Application context) {
+    private BenchmarkRunner(Application context) { this(context, new ResultStore(context)); }
+
+    // Package-private store injection exercises real measurement when history writes fail.
+    BenchmarkRunner(Application context, ResultStore resultStore) {
         this.context = context;
-        store = new ResultStore(context);
+        store = resultStore;
         worker.execute(() -> {
             try {
                 cleanupSqliteFiles(context.getCacheDir());
@@ -78,6 +86,7 @@ final class BenchmarkRunner {
     }
 
     boolean isBusy() { return state.busy; }
+    void closeAfterChecks() { worker.shutdown(); store.close(); }
 
     void startStorage(boolean full) { start(BenchmarkSuite.STORAGE, full); }
 
@@ -85,26 +94,79 @@ final class BenchmarkRunner {
 
     void start(BenchmarkSuite suite, boolean full) {
         if (state.busy) return;
-        cancelRequested = false;
+        cancelRequested = interrupted = false; cancelRequestedElapsed = -1; currentSession = null;
         update(new State(true, "准备" + suite.label, state.text, ""));
         worker.execute(() -> run(suite, full ? 3 : 1, false));
     }
 
     void startAll() {
         if (state.busy) return;
-        cancelRequested = false;
-        update(new State(true, "准备全部测试", "各套件依次运行一轮，单独保存；缺数据或失败会记录并继续。", ""));
+        cancelRequested = interrupted = false; cancelRequestedElapsed = -1; currentSession = null;
+        sessionStartedElapsed = SystemClock.elapsedRealtime();
+        update(new State(true, "正在准备固定套件", "自动完成固定套件；CPU、图片、内存与存储三轮采样。请保持前台；GPU 配置时长 6 分 38 秒。", ""));
         worker.execute(() -> {
-            for (BenchmarkSuite suite : BenchmarkSuite.values()) {
-                if (cancelRequested) break;
-                run(suite, 1, true);
-                long until = SystemClock.elapsedRealtime() + 3000;
-                while (!cancelRequested && SystemClock.elapsedRealtime() < until) SystemClock.sleep(100);
+            TemperatureTrace trace = new TemperatureTrace(context);
+            try {
+                currentSession = new JSONObject().put("schema_version", 2).put("suite_version", BenchmarkSuite.SESSION_VERSION)
+                        .put("session_id", java.util.UUID.randomUUID().toString()).put("status", "running")
+                        .put("started_ms", System.currentTimeMillis()).put("results", new JSONArray())
+                        .put("stage_pause_ms", 1000).put("native_build_id", BuildConfig.NATIVE_BUILD_ID);
+                sessionRow = -1; checkpointSession();
+                GpuClient.resetCancellation(); MediaClient.resetCancellation(); GpuDataPack.beginSession();
+                long prepareDeadline = SystemClock.elapsedRealtime() + 180000;
+                try { GpuDataPack.ensure(context, "gl_egypt_off", () -> cancelRequested || SystemClock.elapsedRealtime() >= prepareDeadline); }
+                catch (Exception e) { currentSession.put("preparation_warning", e.toString()); }
+                try { MediaCorpus.prepare(context, () -> cancelRequested || SystemClock.elapsedRealtime() >= prepareDeadline); }
+                catch (Exception e) { currentSession.put("media_preparation_warning", e.toString()); }
+                currentSession.put("prepared_ms", System.currentTimeMillis());
+                JSONArray results = currentSession.getJSONArray("results");
+                for (int i = 0; i < BenchmarkSuite.DEFAULT.length && !cancelRequested; i++) {
+                    BenchmarkSuite suite = BenchmarkSuite.DEFAULT[i];
+                    currentSession.put("active_suite", suite.version);
+                    checkpointSession();
+                    results.put(run(suite, suite.repetitions(), true));
+                    currentSession.remove("active_report"); checkpointSession();
+                    if (i + 1 < BenchmarkSuite.DEFAULT.length && !cancelRequested) {
+                        long until = SystemClock.elapsedRealtime() + 1000;
+                        while (!cancelRequested && SystemClock.elapsedRealtime() < until) SystemClock.sleep(50);
+                    }
+                }
+                boolean complete = results.length() == BenchmarkSuite.DEFAULT.length;
+                for (int i = 0; i < results.length(); i++) complete &= "completed".equals(results.getJSONObject(i).optString("status"));
+                currentSession.put("status", interrupted ? "interrupted" : cancelRequested ? "cancelled" : complete ? "completed" : "partial");
+            } catch (Exception | LinkageError | OutOfMemoryError e) {
+                try { if (currentSession != null) currentSession.put("status", "failed").put("message", e.toString()); }
+                catch (JSONException ignored) { }
+            } finally {
+                try {
+                    if (currentSession != null) {
+                        currentSession.put("ended_ms", System.currentTimeMillis()).put("temperature", trace.finish());
+                        currentSession.put("wall_ms", SystemClock.elapsedRealtime() - sessionStartedElapsed);
+                        if (cancelRequestedElapsed >= 0) currentSession
+                                .put("cancel_request_elapsed_ms", cancelRequestedElapsed - sessionStartedElapsed)
+                                .put("cancel_stop_latency_ms", SystemClock.elapsedRealtime() - cancelRequestedElapsed);
+                        currentSession.remove("active_suite"); checkpointSession();
+                        publish(false, "本次测试 · " + BenchmarkReport.statusLabel(currentSession.optString("status")),
+                                BenchmarkReport.format(currentSession), currentSession.toString(2));
+                    }
+                } catch (Exception e) { publish(false, "结果处理失败", e.toString(), currentSession == null ? "" : currentSession.toString()); }
+                DisplaySurface.hide();
             }
-            try { showHistory(20); }
-            catch (Exception e) { publish(false, "全部测试结束，读取历史失败", e.toString(), ""); }
         });
     }
+
+    private void checkpointSession() {
+        try {
+            if (sessionRow < 0) sessionRow = store.begin(currentSession);
+            else store.save(sessionRow, currentSession);
+        } catch (Exception e) {
+            try { currentSession.put("persistence_warning", "保存失败，内存结果仍可导出：" + e); }
+            catch (JSONException ignored) { }
+        }
+    }
+
+    static void surfaceInterrupted() { if (instance != null && instance.isBusy()) instance.interrupt(); }
+    void interrupt() { interrupted = true; cancel(); }
 
     void licenses() {
         if (state.busy) return;
@@ -126,7 +188,10 @@ final class BenchmarkRunner {
     }
 
     void cancel() {
+        if (!cancelRequested) cancelRequestedElapsed = SystemClock.elapsedRealtime();
         cancelRequested = true;
+        if (state.busy) update(new State(true, "正在停止：等待当前安全边界", state.text, state.exportJson));
+        MediaClient.cancel();
         GpuClient.cancel();
         if (nativeReady) {
             NativeBridge.cancelStorage();
@@ -136,6 +201,7 @@ final class BenchmarkRunner {
             NativeBridge.cancelCoremark();
             NativeBridge.cancelScimark();
             NativeBridge.cancelMemory();
+            if (MediaNative.loaded()) NativeBridge.cancelMedia();
         }
     }
 
@@ -166,19 +232,20 @@ final class BenchmarkRunner {
         update(new State(true, "正在采集设备信息", state.text, ""));
         worker.execute(() -> {
             try {
-                JSONObject device = DeviceSnapshot.collect(context);
+                JSONObject device = CpuTopology.enrich(DeviceSnapshot.collect(context));
                 nativeReady = NativeLoader.load() != null;
                 String text = device.toString(2) + "\n\n";
                 text += nativeReady ? NativeBridge.probeReport() : String.valueOf(NativeLoader.error());
                 publish(false, "设备探针完成", text, device.toString(2));
                 Log.i("RMB", "PROBE_DONE");
-            } catch (Exception | LinkageError e) {
+            } catch (Exception | LinkageError | OutOfMemoryError e) {
                 publish(false, "设备探针失败", e.toString(), "");
             }
         });
     }
 
-    private void run(BenchmarkSuite suite, int repetitions, boolean batch) {
+    private JSONObject run(BenchmarkSuite suite, int repetitions, boolean batch) {
+        TemperatureTrace trace = new TemperatureTrace(context);
         JSONObject report = new JSONObject();
         long id = -1;
         String persistenceProblem = "";
@@ -188,13 +255,16 @@ final class BenchmarkRunner {
             report.put("status", "running");
             report.put("started_ms", System.currentTimeMillis());
             report.put("repetitions", repetitions);
-            report.put("repeat_pause_ms", repetitions > 1 ? 3000 : 0);
+            report.put("repeat_pause_ms", repetitions > 1 ? 1000 : 0);
             JSONArray samples = new JSONArray();
             report.put("samples", samples);
-            JSONObject device = DeviceSnapshot.collect(context);
+            if (batch) { currentSession.put("active_report", report); checkpointSession(); }
+            JSONObject device = CpuTopology.enrich(DeviceSnapshot.collect(context));
             report.put("device", device);
-            id = store.begin(report);
-            report.put("id", id);
+            if (!batch) {
+                try { id = store.begin(report); report.put("id", id); }
+                catch (Exception e) { persistenceProblem = "创建记录失败，结果保留在内存：" + e; }
+            }
             nativeReady = NativeLoader.load() != null;
             if (!nativeReady) throw new IllegalStateException("原生库加载失败：" + NativeLoader.error());
             suite.resetCancellation();
@@ -210,7 +280,7 @@ final class BenchmarkRunner {
             } else {
                 for (int round = 0; round < repetitions; round++) {
                     if (cancelRequested) break;
-                    JSONObject before = DeviceSnapshot.collect(context);
+                    JSONObject before = CpuTopology.enrich(DeviceSnapshot.collect(context));
                     reason = suite.preflight(before, parameter);
                     if (reason != null) {
                         report.put("status", "skipped");
@@ -224,29 +294,36 @@ final class BenchmarkRunner {
                     sample.put("native_library", NativeLoader.load());
                     sample.put("native_abi", before.getString("abi"));
                     sample.put("conditions_start", before);
-                    sample.put("conditions_end", DeviceSnapshot.collect(context));
+                    sample.put("conditions_end", CpuTopology.enrich(DeviceSnapshot.collect(context)));
                     samples.put(sample);
                     String status = sample.getString("status");
                     if (!"completed".equals(status)) {
                         report.put("status", status);
                         report.put("message", "本轮未完成，仅保留已完成的分项");
                     }
-                    store.save(id, report); // Checkpoint each completed/partial round.
+                    if (parameter == 1 && (suite.isCompression() || suite == BenchmarkSuite.COREMARK || suite == BenchmarkSuite.CRYPTO || suite == BenchmarkSuite.MEMORY)) {
+                        for (String metric : suite.metrics) if (metric.startsWith("parallel_")) sample.remove(metric);
+                        sample.put("parallel_omitted", "single_core");
+                    }
+                    if (interrupted) report.put("status", "interrupted");
+                    if (batch) checkpointSession();
+                    else if (id >= 0) try { store.save(id, report); }
+                    catch (Exception e) { persistenceProblem = "保存失败，结果保留在内存：" + e; }
                     if (!"completed".equals(status)) break;
                     if (round + 1 < repetitions) {
-                        publish(true, "轮次间休息 3 秒", BenchmarkReport.format(report), "");
-                        long until = SystemClock.elapsedRealtime() + 3000;
+                        publish(true, "轮次间间隔 1 秒", BenchmarkReport.format(report), "");
+                        long until = SystemClock.elapsedRealtime() + 1000;
                         while (!cancelRequested && SystemClock.elapsedRealtime() < until)
                             SystemClock.sleep(100);
                     }
                 }
-                if (cancelRequested) report.put("status", "cancelled");
+                if (cancelRequested) report.put("status", interrupted ? "interrupted" : "cancelled");
                 else if ("running".equals(report.optString("status")))
                     report.put("status", samples.length() == repetitions ? "completed" : "failed");
             }
             report.put("ended_ms", System.currentTimeMillis());
             BenchmarkReport.summarize(report);
-        } catch (Exception | LinkageError e) {
+        } catch (Exception | LinkageError | OutOfMemoryError e) {
             Log.e("RMB", suite.version + " run failed", e);
             try {
                 report.put("status", "failed");
@@ -255,10 +332,13 @@ final class BenchmarkRunner {
             } catch (JSONException ignored) { }
         }
         try {
-            if (id >= 0) store.save(id, report);
-            else persistenceProblem = "本次结果未写入数据库。";
+            report.put("temperature", trace.finish());
+            if (!batch && id >= 0) store.save(id, report);
+            else if (!batch && persistenceProblem.length() == 0) persistenceProblem = "本次结果未写入数据库。";
+            if (persistenceProblem.length() > 0) report.put("persistence_warning", persistenceProblem);
         } catch (Exception e) {
             persistenceProblem = "保存失败，可先复制 JSON：" + e;
+            try { report.put("persistence_warning", persistenceProblem); } catch (JSONException ignored) { }
         }
         try {
             String message = persistenceProblem.length() == 0
@@ -268,6 +348,7 @@ final class BenchmarkRunner {
         } catch (JSONException e) {
             publish(batch, "结果格式错误", e.toString(), report.toString());
         }
+        return report;
     }
 
     static String preflight(JSONObject device, int fileMiB) {
@@ -313,8 +394,6 @@ final class BenchmarkRunner {
     private static String batteryPreflight(JSONObject device) {
         if (device.optInt("battery_percent", 100) < 30 && !device.optBoolean("plugged"))
             return "电量低于 30%，请充电后再运行。";
-        if (device.optInt("battery_temperature_tenths_c", 0) >= 450)
-            return "电池温度已达 45°C，请降温后再运行。";
         return null;
     }
 
@@ -325,7 +404,7 @@ final class BenchmarkRunner {
             if (i > 0) text.append("\n────────────────\n\n");
             text.append(BenchmarkReport.format(reports.getJSONObject(i)));
         }
-        if (reports.length() == 0) text.append("尚无本地成绩。请选择测试套件，开始单轮或三轮测试。\n"
+        if (reports.length() == 0) text.append("尚无本地成绩。点击开始，自动执行固定套件；需多轮的项目自动采样三轮。\n"
                 + "测试期间请保持应用在前台，屏幕会保持亮起。\n"
                 + "切到后台会取消测试；旋转屏幕会保留进度。\n");
         String json = reports.length() == 1 ? reports.getJSONObject(0).toString(2)
@@ -334,6 +413,11 @@ final class BenchmarkRunner {
     }
 
     private void publish(boolean busy, String message, String text, String exportJson) {
+        if (busy && currentSession != null && "running".equals(currentSession.optString("status"))) {
+            JSONArray completed = currentSession.optJSONArray("results");
+            text = "已完成 " + (completed == null ? 0 : completed.length()) + " / " + BenchmarkSuite.DEFAULT.length + " 个阶段\n" + text;
+            exportJson = currentSession.toString();
+        }
         State next = new State(busy, message, text, exportJson);
         main.post(() -> update(next));
     }
