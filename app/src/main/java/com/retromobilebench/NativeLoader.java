@@ -7,7 +7,7 @@ import java.io.FileReader;
 import java.io.IOException;
 
 /**
- * Picks which native library build to load (docs/01-architecture.md §3.3).
+ * Picks which native library build to load (docs/development.md, native libraries).
  *
  * <p>The check runs in Java, before any native code is loaded: the NEON build may
  * already execute NEON instructions in static initializers, which would crash a

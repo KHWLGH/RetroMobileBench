@@ -1,14 +1,14 @@
 cmake_minimum_required(VERSION 3.18.1)
 project(gfxbench_es2_feasibility C CXX)
 
-# M1 feasibility check (docs/09-roadmap.md): does GFXBench's OpenGL ES 2.0 code path
-# compile and link with NDK r23c at API 16, without libGLESv3?
+# Shared ES2 source list for the production r10e/API 8 ARM, API 9 x86 app and the
+# standalone historical r23c/API 16 probe (docs/development.md, GPU host).
 #
-# This build does NOT use GFXBench's own build scripts. It compiles only the sources the
-# ES2 tests need (docs/04-gfxbench-port.md §4.2) straight from a GFXBench checkout, into
-# one shared library with a static C++ runtime (docs/01-architecture.md §3.1).
+# Compile only the required GFXBench sources and static dependencies, without
+# the upstream build scripts or libGLESv3. Each embedded app variant owns its
+# dependencies and uses a static C++ runtime (docs/development.md, native libraries).
 #
-# Usage: see scripts/feasibility-gfxbench-es2.ps1 (passes -DGFXBENCH_DIR=...).
+# Standalone usage: scripts/feasibility-gfxbench-es2.ps1 (-DGFXBENCH_DIR=...).
 
 if(NOT GFXBENCH_DIR OR NOT EXISTS "${GFXBENCH_DIR}/gfxbench40/src/gfx3_0")
     message(FATAL_ERROR "Set GFXBENCH_DIR to a GFXBench checkout (sparse: frameworks, gfxbench40, 3rdparty/zlib, 3rdparty/libpng)")

@@ -29,7 +29,7 @@ obj/
 *.o
 *.so.debug
 
-# GFXBench scene data packs and generated data (distributed separately, see docs/06-data-packs.md)
+# Local/generated GFXBench packs; production assets are bundled (docs/development.md)
 datapacks/
 *.zip
 

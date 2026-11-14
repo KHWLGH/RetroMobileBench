@@ -5,7 +5,7 @@
 .DESCRIPTION
     1. Stages what the tests need into feasibility/out/gfxdata (once; later runs reuse it):
          config/                         gl_{alu,fill,driver,blending,trex,egypt}{,_off}.json
-         data/gfx/shaders_40/            lowlevel/, shaders.20/ (ui.fs patched, docs/04 §4.7)
+         data/gfx/shaders_40/            lowlevel/, shaders.20/ (ui.fs patched, docs/development.md, GPU host)
          data/gfx/{fill,common,trex,egypt}/
                                          from gfxbench-data40, ETC1 textures only and without
                                          common/ref_* (quality-match reference images)
@@ -140,7 +140,7 @@ foreach ($s in 'lowlevel', 'shaders.20') {
     New-Item -ItemType Directory -Force $dst | Out-Null
     Copy-Item -Recurse -Force (Join-Path $GfxbenchDir "gfxbench40\resources\data\gfx\shaders_40\$s\*") $dst -ErrorAction Stop
 }
-# docs/04 §4.7: ui.fs (gl_blending) hard-codes "precision highp float;", which fails to
+# docs/development.md, GPU host: ui.fs (gl_blending) hard-codes "precision highp float;", which fails to
 # compile on GPUs without fragment-shader highp (Mali-400, Tegra 2/3). Use mediump there;
 # GPUs that have highp still get highp, so their results do not change.
 $uiFs = Join-Path $stage 'data\gfx\shaders_40\lowlevel\ui.fs'
@@ -150,7 +150,7 @@ if ($src -notmatch 'GL_FRAGMENT_PRECISION_HIGH') {
     if ($src.Contains("`r`n")) { $nl = "`r`n" }
     $guarded = '#ifdef GL_FRAGMENT_PRECISION_HIGH', 'precision highp float;', '#else', 'precision mediump float;', '#endif' -join $nl
     $patched = $src.Replace('precision highp float;', $guarded)
-    if ($patched -eq $src) { throw "$uiFs has no 'precision highp float;' line any more; recheck docs/04 §4.7" }
+    if ($patched -eq $src) { throw "$uiFs has no 'precision highp float;' line any more; recheck docs/development.md, GPU host" }
     [IO.File]::WriteAllText($uiFs, $patched)
 }
 foreach ($d in $dataDirs) { Export-GfxData $d }

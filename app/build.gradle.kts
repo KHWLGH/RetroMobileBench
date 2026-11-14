@@ -240,7 +240,7 @@ val benchmarkNotices = tasks.register<BenchmarkNotices>("generateBenchmarkNotice
         rootProject.file("third_party/libjpeg-turbo/LICENSE.md"),
         rootProject.file("third_party/libpng/LICENSE"),
         rootProject.file("third_party/ffmpeg/COPYING.LGPLv2.1"),
-        rootProject.file("docs/media-distribution.md"),
+        rootProject.file("docs/licenses.md"),
         rootProject.file("app/src/main/assets/media/manifest.json"),
         legacyNdkDirectory.file("build/tools/toolchain-licenses/COPYING3"),
         legacyNdkDirectory.file("build/tools/toolchain-licenses/COPYING.RUNTIME"),

@@ -1,18 +1,17 @@
-// Native host for the M1 GFXBench ES2 runtime check (docs/09-roadmap.md).
+// GFXBench ES2 host shared by the app and diagnostic CLI (docs/development.md).
 //
 // Runs the original GFXBench tests through a project-owned EGL context host:
 //   1. create an ES2 pbuffer context (RmbPbufferContext; testfw's own pbuffer init
 //      rejects EGLConfig handle 0, which Android 4.1's emulator returns)
 //   2. build the test descriptor JSON (config file + read/write paths + size)
 //   3. create the test through a static factory table (no dlopen/dlsym by name,
-//      which is unreliable for app libraries on Android 4.1/4.2; docs/04 §4.3)
+//      which is unreliable on old Android linkers; docs/development.md, GPU host)
 //   4. init() -> run() -> result()
 //
 // Two entry points use it:
 //   - CLI:  main() in cli_main.cpp, the gfxprobe executable for adb shell testing
 //           (scripts/feasibility-gfxbench-run.ps1)
-//   - JNI:  com.retromobilebench.GfxProbe.runTest(...), for the app integration (M4);
-//           no Java class calls it yet
+//   - JNI:  com.retromobilebench.GfxProbe.runTest(...), called by the GPU worker
 
 #include "rmb_egl_context.h"
 #include "testfw.h"
@@ -147,7 +146,7 @@ std::string rmbRunGfxTest(const std::string &configPath, const std::string &data
     desc.setRawConfig("screenmode", offscreen ? 1.0 : 0.0);
     desc.setRawConfig("offscreen_width", 1920.0);
     desc.setRawConfig("offscreen_height", 1080.0);
-    // ETC1 is the one compressed format every ES2 device has (docs/04 §4.6).
+    // Fix ETC1 for the shared resource protocol (docs/development.md, GPU host).
     desc.setRawConfig("texture_type", std::string("ETC1"));
     // Debug aid: RMB_SCREENSHOT_FRAMES="5000,20000" makes GFXBench save those
     // animation times (ms) as scr_<test>_<ms>.tga in writePath, to check that a scene

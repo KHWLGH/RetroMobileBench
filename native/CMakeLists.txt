@@ -19,9 +19,9 @@ if(ANDROID_ABI STREQUAL "x86")
     add_compile_options(${RMB_ABI_COMPILE_OPTIONS})
 endif()
 
-# Everything native ends up in ONE shared library per variant, with a static C++
-# runtime: before Android 4.3 the dynamic linker does not resolve DT_NEEDED entries
-# from the app's own lib/ directory (docs/01-architecture.md §3.1).
+# Main benchmarks and GFXBench share one library per variant with a static C++
+# runtime. Media/FFmpeg stay separate and load explicitly in dependency order for
+# pre-4.3 linkers (docs/development.md, native libraries).
 #
 # armeabi-v7a gets two variants built from the same sources:
 #   librmb.so         NEON explicitly enabled

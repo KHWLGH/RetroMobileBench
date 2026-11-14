@@ -43,7 +43,7 @@ git -C third_party/gfxbench sparse-checkout add gfxbench-data40/data/gfx/trex gf
 - GFXBench 上游不改；ES2 源码清单和 EGL 宿主在 `feasibility/gfxbench-es2`，现在同时用于 App。每个原生变体拥有自己的全部静态库；无 NEON 参数覆盖所有源码。生成数据时给 ui.fs 添加片元精度回退，素材仅留 ETC1 并删除参考图。
 - 主测试库仍为每变体一个librmb，gnustl_static；媒体每ABI另有librmbmedia及独立avutil/avcodec/avformat共享库。旧链接器按Java显式依赖顺序加载；媒体ARM全部标量、关闭汇编/SIMD，用r10e GCC4.9编译API8 ARM/API9 x86。
 - MbedTLS只编AES/GCM/SHA最小配置；JPEG accurate整数DCT/RGBA，PNG保留透明通道。原始上游源码不改，配置在native/media.cmake和crypto_config.h。
-- FFmpeg配置在scripts/build-ffmpeg.sh，仅四个软件视频解码器与必要解封装，无编码、网络或GPL/nonfree。对应源码ZIP和库替换说明见 [媒体分发](../docs/media-distribution.md)。
+- FFmpeg配置在scripts/build-ffmpeg.sh，仅四个软件视频解码器与必要解封装，无编码、网络或GPL/nonfree。对应源码ZIP和库替换说明见 [许可与分发](../docs/licenses.md)。
 - Zstd与完整STREAM四内核保留诊断/旧记录用途；正式内存阶段恢复Triad（`native/src/triad_bench.c`），1/N线程共享固定24MiB总量，64字节边界分区、共同起点/截止、计时外全量校验。是固定工作集变体，不声称标准STREAM或纯DRAM峰值。GPU默认资源恢复Fill离屏，ALU/Driver/Blending仍不进入固定流程。
 
 许可证来源为各子模块原文件。Gradle 将其打包成 `benchmark-notices.txt`；项目补充说明在 `licenses.txt` / `xiph-notices.txt`，App 的“开源许可”统一展示。升级任何依赖都需重新验证 API 8 ARM/API 9 x86、无 NEON 指令和动态依赖，并升级受影响的测试协议。

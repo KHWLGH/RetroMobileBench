@@ -4,7 +4,7 @@
 #include <stddef.h>
 
 /*
- * Feasibility probe (milestone M0, docs/09-roadmap.md).
+ * Build/device diagnostics (docs/development.md, development diagnostics).
  *
  * Writes a human-readable report about the build and the device into buf:
  * build variant, compiler, API level the library was built for, CPU features

@@ -59,7 +59,7 @@ static void read_first_line(const char *path, char *out, size_t cap) {
 
 /*
  * Pull a few interesting lines out of /proc/cpuinfo. getline() is API 18, so
- * fgets() is used (docs/02-platform-constraints.md §3).
+ * fgets() is used (docs/development.md, platform compatibility).
  */
 static void probe_cpuinfo(sb_t *sb) {
     FILE *f = fopen("/proc/cpuinfo", "r");
@@ -132,7 +132,7 @@ static void probe_gles2(sb_t *sb) {
         sb_printf(sb, "gl ext: ETC1=%d depth_texture=%d fragment_precision_high=%d (len %u)\n",
                   has_etc1, has_depth_tex, has_highp_frag_ext, ext ? (unsigned) strlen(ext) : 0u);
 
-        /* Fragment highp support decides whether GFXBench's ui.fs compiles (docs/04 §4.7). */
+        /* Fragment highp selects the ui.fs precision fallback (docs/development.md, GPU host). */
         GLint range[2] = {0, 0}, precision = 0;
         glGetShaderPrecisionFormat(GL_FRAGMENT_SHADER, GL_HIGH_FLOAT, range, &precision);
         sb_printf(sb, "fs highp float: range [%d,%d] precision %d -> %s\n", range[0], range[1], precision,
