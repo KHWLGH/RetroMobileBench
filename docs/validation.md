@@ -58,7 +58,24 @@ adb -s emulator-5554 shell chmod 700 /data/local/tmp/rmb-crypto-join-check
 adb -s emulator-5554 shell /data/local/tmp/rmb-crypto-join-check
 ```
 
-## GPU 屏上 FPS / 电池温度悬浮层验证（2026-11-15）
+## 当前全屏 / HUD 构建：小米 2A 真机验收（2026-11-15）
+
+用户连接小米 2A 后，先本地提交功能版本 `6303812`，再覆盖安装当前 Debug / 测试 APK。设备为 `c0e4aa9d`、Android 4.1.1 / API 16、ARMv7 NEON / Adreno 320，保留应用数据和原有历史；本次只有这台真机在线。
+
+| 当前原生构建 `r10e-gcc49-d093143d31fbc32cbdde01c4` | 实测结果 |
+|---|---|
+| `displayOnly` | PASS；主界面竖屏、1280×720 GPU 全屏与实际 HUD 更新、重复 Surface 创建/销毁、SD 播放、runner Web 三轮及竖屏返回 |
+| `webOnly + webFaults` | PASS；`web-daily-v2` 四项 × 20 单元 × 三轮、中位数/独立进程/身份/持久化，错误校验、卡死超时、取消、Home 中断与失败后重启 |
+| `lifecycleOnly` | PASS；取消保留首轮、无中位数，本次停止延迟 133 ms；GPU 切后台 interrupted 且释放亮屏 |
+| 严格 `mediaOnly` | PASS，七段软件/系统/播放 21/21 completed，严格帧数/EOS 与 Surface 生命周期检查通过 |
+| `production` | PASS，真实开始按钮的完整 15 阶段全部 completed，0 partial / failed / skipped；九个三轮阶段均有原始样本和中位数，五项正式 GPU 独立进程且未缩时长，视频亦 21/21 completed |
+| `interferenceOnly` | PASS；事件等待、取消竞争、迟到回调、温度源、无效读数过滤、阶段窗口与清理 |
+
+完整会话 `b39a02d2-a62d-456d-895c-37ead83246b8`，`wall_ms=1010097`（16 分 50.097 秒，已有资源缓存），数据库行 12 重新读取一致、分析副本 integrity_check=ok。接通电源，电池记录 25.4→25.5°C、采样峰值 25.6°C。截图确认全屏 Egypt / T-Rex 中 FPS（提交）与温度可见；正式两项 HUD 分别更新 122 / 74 次，离屏均为 none / 0 次。电池温度不是芯片结温，窗口提交不是实际屏幕显示 FPS。
+
+完整原始 JSON、数据库哈希、正式 GPU 与各阶段结果见[当前 ARM 真机记录](validation-devices.md#web-v2--全屏--gpu-hud小米-2a-实测2026-11-15)。三星当前构建、Release 真机、其他架构/系统与干净安装等缺口仍保留；不以本次结果替代其他设备或发布验收。
+
+## GPU 屏上 FPS / 电池温度悬浮层：模拟器验证（2026-11-15）
 
 在独立全屏窗口左上角增加半透明两行 HUD，显示最近约 1 秒的成功缓冲区交换速率和系统最新电池温度。FPS 标为“提交”，不是屏幕真实显示帧率；温度无有效读数时显示“不可用”。逐帧路径未增加计时或 IPC，跨进程窗口每秒推送一次，旧系统本地窗口直接更新；离屏不启动发布器。离开窗口时停止发布器并注销温度接收器。
 
@@ -67,7 +84,7 @@ adb -s emulator-5554 shell /data/local/tmp/rmb-crypto-join-check
 | Android 10 / API 29（RMB_API29_x86） | Egypt 屏上正式 113 秒完成，6774 次成功窗口交换，HUD 更新 114 次；截图可见 FPS（提交）与电池温度 25.0 °C，Surface 保持 1280×768。`displayOnly` PASS，覆盖真实 HUD 更新、重复窗口、SD 视频、Web 三轮及返回竖屏；`interferenceOnly` PASS，含无效温度、温度来源和清理。Egypt 离屏 5 秒完成，`onscreen_hud=none`、`hud_updates=0` |
 | Android 2.3.7 / API 10（Android2.3） | `displayOnly` PASS，旧 GPU 窗口收到真实 HUD 更新，SD 视频和 Web 三轮返回正常；T-Rex 屏上 5 秒完成、HUD 更新 10 次；`lifecycleOnly` PASS，覆盖旧 GPU/视频返回取消与 Home 中断 |
 
-当前 Debug / Release / 测试 APK、lintDebug 与 lintRelease 均通过；本次仅使用模拟器，未运行真机、完整 15 阶段或所有 GPU 正式时长。模拟器温度与 FPS 只用于核对功能，不作为真实设备热表现或性能结论。源码及构建身份已变化，不能把下节改版前专项视为该 HUD 构建的补充验收。
+该批 Debug / Release / 测试 APK、lintDebug 与 lintRelease 均通过；上表当时仅使用模拟器，没有运行完整 15 阶段或所有 GPU 正式时长。之后同一产品构建的小米 2A 完整真机记录独立列于上节。模拟器温度与 FPS 只用于核对功能，不作为真实设备热表现或性能结论，也不把下节改版前专项视为 HUD 构建的补充验收。
 
 单场景诊断可用 `-e gpuTest gl_egypt` 或 `-e gpuTest gl_trex`，默认 5000 ms；`-e gpuDurationMs 10000` 延长短测，`-e gpuDurationMs 0` 使用资源中的正式配置时长。非零诊断仅允许 1–10000 ms，不计作正式时长成绩。
 
@@ -83,7 +100,7 @@ adb -s emulator-5554 shell /data/local/tmp/rmb-crypto-join-check
 
 Web 故障矩阵覆盖校验错误、非法时钟、后续失败保留已完成分项、旧 nonce、进程死亡、准备/测量 JS 卡死、父进程取消、Home 中断和失败后重启。以上均为模拟器功能证据，不作为物理设备性能、温升或浏览器排名。主界面截图已确认竖屏，方向切换等待横向尺寸和窗口焦点就绪，内部切换不被误判为用户退后台。
 
-Debug / Release / 测试 APK、lintDebug 和 lintRelease 已通过。此次未重跑完整 15 阶段、全部 GPU 正式时长、严格媒体 21 路矩阵、API 19 或物理设备；下节旧 v1 完整流程及更早真机证据不代表当前全屏版本已完成这些验收。最后一步之前继续只使用虚拟设备。
+该批 Debug / Release / 测试 APK、lintDebug 和 lintRelease 已通过。当时未重跑完整 15 阶段、全部 GPU 正式时长、严格媒体 21 路矩阵、API 19 或物理设备；下节旧 v1 完整流程及更早真机证据不代表该全屏构建已完成这些验收。之后增加 HUD，并在用户连接小米 2A 后执行最终真机步骤，匹配的新记录独立列于本页前节。
 
 ## 全屏改版前：Web v1 / fixed-suite-v3 验证（2026-11-15）
 
