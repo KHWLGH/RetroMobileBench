@@ -164,7 +164,7 @@ final class WebClient {
             } catch (InterruptedException error) { cleanupFailed = true; snapshot.put("unsafe_cleanup", true).put("cleanup_error", "Interrupted binding cleanup"); }
             closed.set(true);
             try {
-                if (bound) WorkerProcess.close(context, connection, remote.get(), binder.get(), death, died, pid.get(), cleanupDeadline);
+                if (bound) WorkerProcess.close(context, connection, remote.get(), binder.get(), died, pid.get(), cleanupDeadline);
             } catch (Exception error) {
                 cleanupFailed = true;
                 synchronized (lock) { snapshot.put("unsafe_cleanup", true).put("cleanup_error", error.toString()); }

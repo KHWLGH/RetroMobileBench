@@ -1,6 +1,6 @@
 # ARM 真机验证记录（2026-11-14—15）
 
-本页保留小米 2A 的 2026-11-14 历史记录、三星 GT-I9260 的 2026-11-14—15 媒体修复记录，并独立记录 2026-11-15 小米 2A 的 Web v2 / 全屏 / GPU HUD 实测。日期采用宿主日期，各次构建的专项与完整套件分别归属。通用检查入口与发布待验项见[验证与已知限制](validation.md)，固定协议见[测试与结果](benchmarks.md)。
+本页保留小米 2A 的 2026-11-14 历史记录、三星 GT-I9260 的 2026-11-14—15 媒体修复记录，并独立记录 2026-11-15 两台设备的 Web v2 / 全屏 / GPU HUD 实测。日期采用宿主日期，各次构建的专项与完整套件分别归属。通用检查入口与发布待验项见[验证与已知限制](validation.md)，固定协议见[测试与结果](benchmarks.md)。
 
 ## Web v2 / 全屏 / GPU HUD：小米 2A 实测（2026-11-15）
 
@@ -56,7 +56,88 @@ GPU 均由工作进程记录为 Qualcomm / Adreno (TM) 320。阶段墙钟包含�
 
 本批 APK SHA-256：Debug `cbb371d263dae4060a9df09e1eb20ce7e745ff4f57b6ce8ef6a82ea8a1c0ac1c`（103173698 bytes）；测试 APK `72a998c6b0751ba47af75228c6e3bb9e2889f9110a34de569b765138d18bd8eb`（124779 bytes）。
 
-三星 GT-I9260 尚未连接，当前构建的 Web、全屏、HUD 与完整 15 阶段仍待该设备验证。以下保留既有 v2 证据，不能作为新构建的补充通过记录。
+## Web v2 / 全屏 / GPU HUD：三星 GT-I9260 实测（2026-11-15）
+
+用户连接三星后，仅对 `cff030496503230` 执行本批测试；Android 4.1.2 / API 16，ARMv7 NEON、双 Cortex-A9、PowerVR SGX 544。覆盖安装与上节小米相同的 Debug / 测试 APK，保留已有历史，没有清数据、root、修改设备时钟或性能设置，也未执行 `am kill-all`。安装前 98%、USB powered、电池温度 26.1°C；Web 专项快照可用内部空间 3474927616 bytes。设备时钟为 2012-01-07，记录日期采用宿主 2026-11-15，耗时使用单调时钟。
+
+先实际唤醒并滑动解锁，确认 `mCurrentFocus=MainActivity` 与竖屏截图后才开始。以下先列 Binder 清理修复前、原生构建 `r10e-gcc49-d093143d31fbc32cbdde01c4` 的独立专项；后面的修复后验收另列，不合并旧三星媒体修复构建。
+
+| 当前构建专项 | 结果与实际覆盖 |
+|---|---|
+| `displayOnly` | PASS；三次 Surface 创建/销毁，GPU 全屏 1280×720、真实窗口交换和 HUD 更新，SD 视频、runner Web 三轮与中位数、返回竖屏 |
+| `webOnly + webFaults` | PASS；四项 × 20 单元 × 三轮，独立 PID 3010 / 3038 / 3068；身份/持久化、错误结果与计时拒绝、部分保留、过期请求、进程死亡、准备/测量 JS 卡死、取消、Home 与失败后重启 |
+| `lifecycleOnly` | PASS；首轮保存后取消，保留 1 轮、无中位数，停止延迟 129 ms；真实 GPU 退后台 interrupted，并释放亮屏 |
+| 严格 `mediaOnly` | PASS，21/21 completed，矩阵 `wall_ms=75690`；四段 H.264 播放各 120 帧、其余各 30 帧，EOS 与 pending=0；Surface 连续获取/过期回调/取消等待及帧数边界检查通过 |
+
+Web 专项宿主与资源身份和上节一致，物理窗口/WebView 1280×720、CSS 640×360、DPR/scale=2、文本缩放 100%、硬件加速开启；系统捆绑 WebView、`Date.getTime`，观测分辨率 1 ms。三轮 20 单元总时间中位数为 page 1539、todo 2707、text 2044、data 5128 ms。这些是应用任务与布局检查点耗时，不是触摸延迟或真实显示 FPS。
+
+媒体中 H.264/H.263/MPEG-4 系统与播放由 `OMX.TI.DUCATI1.VIDEO.DECODER` 完成。High/FHD 的容器时间线修复继续有效。VP8 系统首选 `OMX.SEC.vp8.dec` 因 `first_frame_pixels_mismatch` 失败，播放首选进程退出/崩溃；Google VPX 后备分别完成，播放前 `surface_destroyed_before_fallback=true`，最终 30 帧、EOS、pending=0。保留全部 attempts，不能将后备成功写成 SEC 组件已修复。TI 专有颜色布局不可读，硬件类型继续 `unconfirmed`。
+
+### 首次完整流程失败与 Binder 清理修复
+
+以上专项属于修复前 APK（与小米同哈希）。首次完整流程起始为 100%、USB powered、33.1°C；CoreMark、SciMark、zlib、加密与图片五阶段已保存，进入视频后宿主进程崩溃，`production` 没有 PASS。数据库行 8、会话 `af2a4f63-02c1-46e2-b460-ff98e9b768ad` 在崩溃前为 running / 5 个结果；分析副本单独保留，不能与复测拼接。
+
+设备没有重启。日志为宿主 PID 4297、线程 4313 的 `JNI ERROR (app bug): accessed deleted global reference`，SIGSEGV / `0xdeadd00d`，栈经 `DeathRecipientList::find`、Binder JNI；此前工作进程已经退出。这与计时外的 `WorkerProcess.close()` 在死亡通知唤醒后再次 `unlinkToDeath` 相符，不能归为 TI 输入容量、Surface 尺寸或内存不足。
+
+对照 AOSP `android-4.1.2_r1` 的 `core/jni/android_util_Binder.cpp`：`binderDied` 调用 Java 回调后才把强全局引用降为弱引用并删除强引用，`matches` 另一路读取该引用。Java 的 latch 并不等待整个原生通知返回，后续 `unlinkToDeath` 查找可能与这一转换竞争。修复移除一次性工作进程结束后的显式 unlink，保留死亡通知、杀进程、异步解绑、硬时限及回收失败后停止后续负载；正常路径等待死亡，超时路径保留注册直到代理/进程释放，避免再次进入同一竞态。Media/GPU/Web 仅更新共用方法签名，未改变负载或通过门槛。
+
+首轮日志 `app/build/reports/i9260-production-first-crash.log`（888774 bytes）及数据库 `i9260-first-crash.db`（724992 bytes）已导出，设备中转文件已删除。修复后先重新构建并在 API 16 x86 模拟器执行退出/取消/超时/重启回归，再重做三星最终验收；后续结果单独记录，不覆盖此次失败。
+
+### Binder 修复后的独立回归
+
+重新构建 Debug、Release、测试 APK，lintDebug / lintRelease 通过；11 个共享库的 API 8/9 导入、SysV hash、动态依赖、无 RPATH/TEXTREL 检查通过，无 NEON 主库筛查为 0。API 16 x86 模拟器通过 `displayOnly`、`webOnly + webFaults`、`lifecycleOnly` 和 `fixedOnly`；媒体专项为七段软解完成、系统/播放如实保留部分 `drain_output` 失败，不冒充严格 21/21。
+
+模拟器生命周期首次在 runner 已中断而 Activity 尚未完成 `onStop` 时提前检查亮屏标志失败；测试改为最多 5 秒等待实际标志清除，仍要求释放，复测 PASS（停止延迟 89 ms），产品生命周期实现未改。额外 `gpuOnly + fullGpu` 在 API 16、API 29 及 API 29 显式 SwiftShader / 关闭 Vulkan 的尝试均未完成：推进至 T-Rex 离屏时模拟器进程退出、ADB 设备消失；最后一轮宿主 emulator 37.2.13 退出码 1。尚未定位该环境退出原因，不记 GPU 专项 PASS，也不将之归因于本次 Binder 修复。
+
+三星在修复版覆盖安装后重新解锁并取得真实焦点，`displayOnly`、`webOnly + webFaults`、`lifecycleOnly`、严格 `mediaOnly`、`interferenceOnly` 均 PASS。窗口 1280×720，Web 四项 × 20 × 3 完整；Web PID 5274 / 5303 / 5339，专项中位数 page 1494、todo 2748、text 2079、data 5589 ms。宿主身份更新为 `web-host-v2-024d03561b8e7f678e773227`，固定资源 SHA-256 不变，不与修复前宿主身份混合汇总。生命周期取消保留 1 轮、无中位数，停止延迟 116 ms；GPU 后台中断与亮屏释放通过。严格媒体再次 21/21，TI 各档与 Google VPX 后备完成，全部尝试继续保留。
+
+### 修复后完整正式流程：15/15 completed
+
+一次 `production` 启动预检被锁屏拒绝，未进入负载，不作性能结果。再次唤醒解锁并验证真实焦点后重跑，起始 100%、USB powered、29.8°C，未清缓存或回收其他应用后台。
+
+完整 `production` 流程/计时检查 **PASS，15/15 阶段 completed，0 partial / failed / skipped**。当前原生构建 `r10e-gcc49-8bfd6c4ebf061eb51f3bec46`，会话 `da9e89ea-256d-42f5-aab1-2def9f7a4286`，`wall_ms=1229389`（20 分 29.389 秒，已有资源缓存）。九个三轮阶段均有三条原始样本与有效中位数；视频与五项 GPU 各一次，GPU 均为独立 PID、`diagnostic_duration_ms=0`，Egypt 各 113 秒、T-Rex 各 56 秒、Fill 60 秒。包含加载与回收的阶段墙钟另列，不当作纯计时时长。
+
+完整会话媒体同样 21/21 completed：四段 H.264 播放各 120 帧，其余各 30 帧，EOS / pending=0；High/FHD 的系统与播放继续为核验 Extractor DTS 后提交容器 PTS、TI 首选完成。VP8 系统 SEC 首选像素校验失败，播放 SEC 首选进程退出/崩溃，Google VPX 后备完成；失败播放 attempts 的 `surface_destroyed_before_fallback=true`。组件原生失败没有被删去，不能表述为全部首选解码器成功或硬件类型已确认。
+
+完整会话电池温度 29.8→35.8°C、采样峰值 35.8°C、温升 +6.0°C，全程 USB powered。温度来自电池广播，不是芯片结温，不据此判断降频原因。
+
+| 正式 GPU / 渲染尺寸 | 原始速率 | 阶段墙钟 / PID | 窗口提交 / HUD |
+|---|---:|---|---|
+| Egypt 离屏 / 1920×1080 | 10.2412 fps | 139545 ms / 7693 | 0 次窗口交换，HUD none / 0 次更新 |
+| Egypt 屏上 / 1280×720 | 12.8637 fps | 141628 ms / 7725 | 1455 次成功窗口交换，HUD 更新 138 次 |
+| T-Rex 离屏 / 1920×1080 | 3.1436 fps | 103714 ms / 7774 | 0 次窗口交换，HUD none / 0 次更新 |
+| T-Rex 屏上 / 1280×720 | 5.5804 fps | 105967 ms / 7807 | 314 次成功窗口交换，HUD 更新 102 次 |
+| Fill 离屏 / 1920×1080 | 508 MTexels/s | 63055 ms / 7841 | 0 次窗口交换，HUD none / 0 次更新 |
+
+五项均报告 Imagination Technologies / PowerVR SGX 544。HUD 每 1000 ms 发布，更新次数覆盖窗口存在期间的加载/测量等过程；原始速率、窗口交换次数及最近一秒提交速率口径不同，不是真实显示 FPS。截图确认独立全屏、悬浮取消和 HUD；实时 Egypt 截图为 FPS（提交）13.0 / 34.9°C，另存 PNG 为 14.0 / 35.3°C。T-Rex 屏上有实际 HUD 更新证据，但本次未及时取得该场景截图，不补写截图结论。
+
+**画质待查：** Egypt 截图的部分水面/透明叠加区域出现彩色异常，取消按钮附近也可见异常背景。尚未区分实屏渲染、驱动与截图合成原因，没有像素基准证明画质正确。保存 `i9260-egypt-hud.png`；上表仅保留原始观测，在异常排除前不用于设备排名或宣称等价画质的 GPU 性能比较。完整流程 PASS 不等于画质验收通过。
+
+| 同次完整会话非 GPU 中位数 | 原始值 |
+|---|---|
+| CoreMark | 单线程 4162.32、并行 8327.67 iterations/s |
+| SciMark | FFT 198.26、SOR 313.50、Monte Carlo 73.28、稀疏矩阵 179.88、LU 222.00 MFLOPS |
+| zlib | 压缩单线程/并行 11.17 / 21.27 MB/s，解压 91.39 / 176.35 MB/s |
+| 加密与摘要 | GCM 加密单线程/并行 12.22 / 24.35 MB/s，解密认证 12.09 / 23.96 MB/s，SHA-256 46.45 / 92.78 MB/s |
+| 图片 / 视频 | 六图各三轮、按素材汇总中位数；七段视频三条路径全部 completed（21/21） |
+| 内存 | 复制 669.49、填充 2500.77 MB/s，延迟 124.69 ns；Triad 单线程/并行 993.02 / 1179.66 MB/s |
+| 文件存储 | 顺序写/读 6.80 / 25.56 MB/s，随机写/读 232.91 / 2125.85 IOPS |
+| SQLite | 插入/更新/删除 15.31 / 15.13 / 14.38 TPS |
+| Web 四项各 20 单元总时间 | page 1574、todo 2747、text 2131、data 5524 ms；阶段墙钟 45895 ms |
+
+完整 Web 三轮使用修复后宿主身份，物理窗口 1280×720 / CSS 640×360，专项与完整会话中位数分开。数据库行 12 重新读取为同一会话 / 15 阶段 / completed，分析副本 `PRAGMA integrity_check=ok`；行 8 是首轮崩溃后恢复为 interrupted 的五阶段会话，行 10 cancelled、行 11 interrupted 是复测生命周期的预期结果。再次打开应用并解锁后，竖屏结果页显示同一会话和构建，截图另存 `i9260-results.png`。
+
+| 本批验证产物（`app/build/reports/`，不纳入源码提交） | SHA-256 |
+|---|---|
+| `i9260-web-v2-hud-binderfix.json`（20709 bytes） | `be29683ab9ae545df9b23a4270f5ebc00a941143d5c85fb9e04c5de1cb90e13b` |
+| `i9260-media-hud-binderfix.json`（146910 bytes） | `ac95c04e5e5d49607834508e749fb581d6f1e1da2aa13ef50da4ee513d08504d` |
+| `i9260-production-v3-hud-binderfix.json`（736169 bytes） | `7c4e59f372ef3b1ad07298c425c4aa235b0721df531cedf60b2c1509198cef5c` |
+| `i9260-v3-hud-binderfix.db`（1134592 bytes） | `c0042bcab8fb5e1e42bc57009106cbfedc25802ff3e372f098c05b8d6a0ab403` |
+| `i9260-egypt-hud.png`（1384553 bytes） | `73e6dfa73d9ed821c7ff8054d47f4640521f181c7ef42b265b631191e2a22335` |
+
+修复后 APK：Debug SHA-256 `5475162d761445e78444afd6161e74b1d10457ed95fac5071407480807e43ac7`（103173705 bytes）；测试 APK `bcfe350dc5bfaedbeedd6f5559aee75d306f9d7ff63e2c29cb2ee8d4c08b3bf6`（124968 bytes）。设备 `/sdcard` 中转文件已删除；原始证据在忽略的 build 目录，构建清理会删除，正式交付需另行归档。小米上节使用修复前 APK，本次没有重新连接小米，不将三星修复后的结果扩展到小米或 Release。
+
+以下保留既有 v2 证据，不能作为新构建的补充通过记录。
 
 ## 既有 v2 结论与覆盖范围
 

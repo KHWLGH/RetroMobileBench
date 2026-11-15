@@ -121,7 +121,7 @@ final class MediaClient {
             try {
                 if (bound) {
                     closed.set(true);
-                    try { WorkerProcess.close(context, connection, remote.get(), binder.get(), death, died, pid.get()); }
+                    try { WorkerProcess.close(context, connection, remote.get(), binder.get(), died, pid.get()); }
                     catch (Exception e) { cleanupFailed = true; throw e; }
                 }
             } finally { if (surface != null) DisplaySurface.hide(); externalPlayback = false; }

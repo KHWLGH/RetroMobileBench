@@ -58,7 +58,7 @@ adb -s emulator-5554 shell chmod 700 /data/local/tmp/rmb-crypto-join-check
 adb -s emulator-5554 shell /data/local/tmp/rmb-crypto-join-check
 ```
 
-## 当前全屏 / HUD 构建：小米 2A 真机验收（2026-11-15）
+## 全屏 / HUD 首批构建：小米 2A 真机验收（2026-11-15）
 
 用户连接小米 2A 后，先本地提交功能版本 `6303812`，再覆盖安装当前 Debug / 测试 APK。设备为 `c0e4aa9d`、Android 4.1.1 / API 16、ARMv7 NEON / Adreno 320，保留应用数据和原有历史；本次只有这台真机在线。
 
@@ -73,7 +73,26 @@ adb -s emulator-5554 shell /data/local/tmp/rmb-crypto-join-check
 
 完整会话 `b39a02d2-a62d-456d-895c-37ead83246b8`，`wall_ms=1010097`（16 分 50.097 秒，已有资源缓存），数据库行 12 重新读取一致、分析副本 integrity_check=ok。接通电源，电池记录 25.4→25.5°C、采样峰值 25.6°C。截图确认全屏 Egypt / T-Rex 中 FPS（提交）与温度可见；正式两项 HUD 分别更新 122 / 74 次，离屏均为 none / 0 次。电池温度不是芯片结温，窗口提交不是实际屏幕显示 FPS。
 
-完整原始 JSON、数据库哈希、正式 GPU 与各阶段结果见[当前 ARM 真机记录](validation-devices.md#web-v2--全屏--gpu-hud小米-2a-实测2026-11-15)。三星当前构建、Release 真机、其他架构/系统与干净安装等缺口仍保留；不以本次结果替代其他设备或发布验收。
+完整原始 JSON、数据库哈希、正式 GPU 与各阶段结果见[匹配构建的 ARM 真机记录](validation-devices.md#web-v2--全屏--gpu-hud小米-2a-实测2026-11-15)。随后三星实测发现 Binder 清理竞态并修复，记录如下；小米这批结果仍归属于修复前 APK，未在新 APK 重跑。Release 真机、其他架构/系统与干净安装等缺口仍保留，不以本次结果替代其他设备或发布验收。
+
+## 三星 GT-I9260：Binder 清理修复与完整复测（2026-11-15）
+
+仅连接 `cff030496503230`、Android 4.1.2 / API 16、ARMv7 NEON / PowerVR SGX 544，覆盖安装并保留历史。首次同小米 APK 的全屏、Web、生命周期与严格媒体通过，但完整流程进入视频后宿主 `DeathRecipientList::find` 触发已删除 JNI 全局引用并崩溃；已保存五阶段，不能记为完整 PASS。移除一次性工作进程结束后多余的 `unlinkToDeath`，保留死亡通知、异步解绑、硬截止和回收失败保护，先回模拟器再进入真机复测。
+
+| Binder 修复后 APK / 原生构建 `r10e-gcc49-8bfd6c4ebf061eb51f3bec46` | 实测结果 |
+|---|---|
+| API 16 x86 模拟器回归 | `displayOnly`、`webOnly + webFaults`、`lifecycleOnly`、`fixedOnly` PASS；后者七段软解完成，系统/播放仍有原有 `drain_output` 失败。生命周期测试改为限时等待实际 `onStop` 清除亮屏标志，未改产品实现 |
+| 额外模拟器 GPU 专项 | 未完成；API 16、API 29 和显式 SwiftShader 尝试在 T-Rex 离屏阶段模拟器整体退出、ADB 消失，原因尚未定位，不记 PASS |
+| 三星 `displayOnly` | PASS；1280×720 完整横向窗口、真实窗口交换和 HUD 更新、重复 Surface、视频/Web 与返回竖屏 |
+| 三星 `webOnly + webFaults` | PASS；四项 × 20 × 三轮、独立 PID / 身份 / 中位数 / 持久化，错误计时、卡死、取消、Home 与重启 |
+| 三星 `lifecycleOnly` | PASS；取消保留 1 轮、无中位数，停止延迟 116 ms；GPU 退后台 interrupted 并释放亮屏 |
+| 三星严格 `mediaOnly` | PASS，21/21 completed；TI 各档及 Google VPX 后备、严格帧数/EOS 与 Surface 生命周期通过，保留 SEC 失败 attempts |
+| 三星 `interferenceOnly` | PASS；事件等待/取消竞争、过期回调、温度源、阶段窗口与清理 |
+| 三星完整 `production` | 流程/计时 PASS，15/15 completed，0 partial / failed / skipped；九项三轮与中位数、视频 21/21、五项正式 GPU 独立进程与持久化全部通过 |
+
+完整会话 `da9e89ea-256d-42f5-aab1-2def9f7a4286`，`wall_ms=1229389`（20 分 29.389 秒，已有资源缓存），数据库行 12、integrity_check=ok；首轮崩溃的行 8 恢复为 interrupted，未与复测拼接。USB 供电，电池温度 29.8→35.8°C、采样峰值 35.8°C，不是结温。屏上 Egypt / T-Rex HUD 更新 138 / 102 次，离屏 none / 0；Egypt HUD 截图与最终竖屏结果页已确认。Web 宿主为 `web-host-v2-024d03561b8e7f678e773227`，资源未变，修复前后身份与成绩分别保留。
+
+**画质缺口保留：** Egypt 截图的水面/透明叠加区域和取消按钮附近有彩色异常，尚未区分实屏、驱动与截图合成原因。未取得正确性像素基准，GPU 数值暂不用于设备排名或等价画质比较；完整流程 PASS 不等于画质验收通过。详见[三星完整原始证据与边界](validation-devices.md#web-v2--全屏--gpu-hud三星-gt-i9260-实测2026-11-15)。小米 Binder 修复后 APK、Release 与其他平台仍不在本轮三星结论内。
 
 ## GPU 屏上 FPS / 电池温度悬浮层：模拟器验证（2026-11-15）
 

@@ -65,7 +65,16 @@ final class LifecycleChecks {
             JSONObject interrupted = new JSONObject(state(test, runner).exportJson);
             check("interrupted".equals(interrupted.optString("status")), "background is interruption, not normal completion");
             check(!interrupted.has("median"), "interrupted GPU does not produce a normal score");
-            test.runOnMainSync(() -> check((background.getWindow().getAttributes().flags & WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) == 0, "background releases keep-screen-on"));
+            // A lost Surface can stop the runner before the framework delivers onStop.
+            AtomicBoolean screenReleased = new AtomicBoolean();
+            long stoppedDeadline = SystemClock.elapsedRealtime() + 5000;
+            do {
+                test.runOnMainSync(() -> screenReleased.set((background.getWindow().getAttributes().flags
+                        & WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) == 0));
+                if (screenReleased.get()) break;
+                check(SystemClock.elapsedRealtime() < stoppedDeadline, "background releases keep-screen-on");
+                SystemClock.sleep(25);
+            } while (true);
             return "cancelled three-round stage kept " + partial.getJSONArray("samples").length() + " raw rounds; stop latency=" + cancelled.getLong("cancel_stop_latency_ms") + " ms; GPU background interrupted; screen-on flag released";
         } finally {
             test.runOnMainSync(() -> { if (runner.isBusy()) runner.cancel(); });
