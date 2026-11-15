@@ -34,7 +34,9 @@ adb -s emulator-5554 shell am instrument -w com.retromobilebench.test/com.retrom
 | `-e fixedOnly true` | 拓扑、加密已知向量/坏标签/8 工作线程、六图参考像素、会话恢复、保存异常与七段视频的软件/系统/播放矩阵 |
 | `-e mediaTimestamps true` | API 16+ 只做时间线诊断：平台与容器时间、逐包 SHA-256、旧 Extractor 的 DTS/PTS 识别；不运行解码或生成性能成绩 |
 | `-e mediaOnly true` | API 16+ 严格媒体专项：EOS/时间戳计数、Surface 连续获取/过期回调/取消等待、前台亮屏，以及七段软件/系统/播放共 21 路径全部完成；仅用于预期支持这些固定档位的设备 |
-| `-e gpuOnly true -e fullGpu true` | 要求完整资源包；GPU 隔离进程与资源校验，Egypt/T-Rex 四模式各 5 秒诊断及正式 60 秒 Fill，取消、超时与重启 |
+| `-e gpuOnly true -e fullGpu true` | 要求完整资源包；GPU 隔离进程与资源校验，Egypt/T-Rex 四模式各 5 秒诊断及正式 60 秒 Fill，取消、超时与重启；屏上检查工作进程实际不透明 RGB888 配置 |
+| `-e gpuSurfaceOnly true` | API 11+ 已知 RGB/alpha 色块、实际 EGL 配置与 GL 回读；约 20 秒供外部截图，只做诊断 |
+| `-e gpuCaptureOnly true -e gpuTest gl_egypt` | API 11+ 独立配置副本上的四个固定动画时间 GL 回读；也支持 gl_trex，强制不计分；详见 [SGX544 调查](gpu-sgx544.md) |
 | `-e production true` | 真实开始按钮触发完整固定套件，检查顺序、三轮/单次、中位数、五项正式 GPU 时长、窗口参数与持久化 |
 
 例如运行完整一键流程：
@@ -92,7 +94,7 @@ adb -s emulator-5554 shell /data/local/tmp/rmb-crypto-join-check
 
 完整会话 `da9e89ea-256d-42f5-aab1-2def9f7a4286`，`wall_ms=1229389`（20 分 29.389 秒，已有资源缓存），数据库行 12、integrity_check=ok；首轮崩溃的行 8 恢复为 interrupted，未与复测拼接。USB 供电，电池温度 29.8→35.8°C、采样峰值 35.8°C，不是结温。屏上 Egypt / T-Rex HUD 更新 138 / 102 次，离屏 none / 0；Egypt HUD 截图与最终竖屏结果页已确认。Web 宿主为 `web-host-v2-024d03561b8e7f678e773227`，资源未变，修复前后身份与成绩分别保留。
 
-**画质缺口保留：** Egypt 截图的水面/透明叠加区域和取消按钮附近有彩色异常，尚未区分实屏、驱动与截图合成原因。未取得正确性像素基准，GPU 数值暂不用于设备排名或等价画质比较；完整流程 PASS 不等于画质验收通过。详见[三星完整原始证据与边界](validation-devices.md#web-v2--全屏--gpu-hud三星-gt-i9260-实测2026-11-15)。小米 Binder 修复后 APK、Release 与其他平台仍不在本轮三星结论内。
+**该历史构建保留画质异常：** Egypt 截图的水面/透明叠加区域和取消按钮附近有彩色噪声，该批 GPU 数值仍不用于设备排名或等价画质比较；完整流程 PASS 不等于画质验收通过。随后对 GL 回读与系统截图做对照，并修正屏上不透明 EGL 配置选择，见 [SGX544 专项调查与新构建验证](gpu-sgx544.md)。后续修复不倒算到本次完整会话，原始证据见[三星完整记录](validation-devices.md#web-v2--全屏--gpu-hud三星-gt-i9260-实测2026-11-15)。小米 Binder 修复后 APK、Release 与其他平台仍不在本轮三星结论内。
 
 ## GPU 屏上 FPS / 电池温度悬浮层：模拟器验证（2026-11-15）
 

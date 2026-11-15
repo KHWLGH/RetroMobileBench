@@ -81,6 +81,8 @@ final class GpuClient {
                     if (!test.endsWith("_off") && "completed".equals(parsed.optString("status")) && swaps < 1)
                         parsed = failure("failed", "屏上测试未成功交换窗口缓冲区");
                     parsed.put("successful_window_swaps", swaps);
+                    String eglConfig = message.getData().getString("egl_config");
+                    parsed.put("egl_config", new JSONObject(eglConfig == null ? "{}" : eglConfig));
                     parsed.put("onscreen_hud", test.endsWith("_off") ? "none" : GpuHud.VERSION)
                             .put("hud_interval_ms", test.endsWith("_off") ? 0 : GpuHud.INTERVAL_MS)
                             .put("hud_updates", legacyWindow ? message.getData().getInt("hud_updates") : hudUpdates.get());

@@ -18,7 +18,7 @@ import java.util.concurrent.atomic.AtomicReference;
 public final class BackendInstrumentation extends Instrumentation {
     private boolean gpuOnly, fullGpu, production, fixedOnly, lifecycleOnly, interferenceOnly, mediaOnly, mediaTimestamps;
     private String gpuTest, gpuDuration;
-    private boolean webOnly, webFaults, displayOnly;
+    private boolean webOnly, webFaults, displayOnly, gpuSurfaceOnly, gpuCaptureOnly;
     @Override
     public void onCreate(Bundle arguments) {
         super.onCreate(arguments);
@@ -35,6 +35,8 @@ public final class BackendInstrumentation extends Instrumentation {
         webOnly = arguments != null && "true".equals(arguments.getString("webOnly"));
         webFaults = arguments != null && "true".equals(arguments.getString("webFaults"));
         displayOnly = arguments != null && "true".equals(arguments.getString("displayOnly"));
+        gpuSurfaceOnly = arguments != null && "true".equals(arguments.getString("gpuSurfaceOnly"));
+        gpuCaptureOnly = arguments != null && "true".equals(arguments.getString("gpuCaptureOnly"));
         start();
     }
 
@@ -43,6 +45,10 @@ public final class BackendInstrumentation extends Instrumentation {
         Bundle result = new Bundle();
         try {
             Context context = getTargetContext();
+            if (gpuSurfaceOnly) {
+                result.putString("stream", "\nPASS: diagnostic pixels only, not a benchmark: " + GpuSurfaceChecks.run(this, this::progress) + "\n");
+                finish(Activity.RESULT_OK, result); return;
+            }
             if (displayOnly) {
                 result.putString("stream", "\nPASS: " + FullscreenChecks.run(this, this::progress) + "\n");
                 finish(Activity.RESULT_OK, result); return;
@@ -53,6 +59,10 @@ public final class BackendInstrumentation extends Instrumentation {
             }
             if (mediaTimestamps) {
                 result.putString("stream", "\nDIAGNOSTIC: extractor sample timestamps\n" + MediaTimestampChecks.run(this) + "\n");
+                finish(Activity.RESULT_OK, result); return;
+            }
+            if (gpuCaptureOnly) {
+                result.putString("stream", "\nPASS: diagnostic captures only, not a benchmark: " + GpuSceneCaptureChecks.run(this, gpuTest, this::progress) + "\n");
                 finish(Activity.RESULT_OK, result); return;
             }
             if (gpuTest != null) {

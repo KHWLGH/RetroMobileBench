@@ -45,6 +45,7 @@ final class FullscreenChecks {
             GpuClient.resetCancellation();
             JSONObject gpu = new JSONObject(GpuClient.run(context, "gl_egypt", 5000));
             check("completed".equals(gpu.optString("status")) && gpu.getLong("successful_window_swaps") > 0, "real GPU completes: " + gpu);
+            GpuBackendChecks.checkOpaqueWindow(gpu);
             check(GpuHud.VERSION.equals(gpu.optString("onscreen_hud")) && gpu.optInt("hud_updates") > 0
                     && gpu.optInt("hud_interval_ms") == 1000, "live HUD receives real window-submission samples: " + gpu);
             check("fullscreen".equals(gpu.getString("window_mode")) && gpu.getInt("render_width") > gpu.getInt("render_height"), "full-screen GPU geometry");

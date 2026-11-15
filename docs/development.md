@@ -57,7 +57,7 @@ API 8–15 的 MediaPlayer 由媒体进程 Activity 持有本地窗口，API 8�
 
 GFXBench ES2 源码清单与宿主位于 `feasibility/gfxbench-es2`，同时供主 App 构建使用，不使用上游完整构建系统或 Java 宿主。testfw、KCL/KRL 和所需依赖静态进入各主库变体，通过静态工厂表创建测试，避免按名称 `dlopen`。Poco、libepoxy 和 ES3/Vulkan 路径未编入当前目标。
 
-API 8 的 EGL 操作由 Java EGL10 宿主完成，只链接 GLES2。离屏使用小 pbuffer 和 1080p FBO，屏上使用真实窗口 EGLSurface；判断 EGL 配置是否存在以 API 返回值和数量为准，不能把不透明的 `EGLConfig` 句柄 0 当作失败。GFXBench 的少量兼容转换在生成文件中完成，保留上游源码树。
+API 8 的 EGL 操作由 Java EGL10 宿主完成，只链接 GLES2。离屏使用小 pbuffer 和 1080p FBO，屏上使用真实窗口 EGLSurface。屏上按 `opaque-rgb888-v1` 检查实际 RGB 8/8/8、alpha 0、samples 0、depth 至少 16 位，允许厂商 native visual；不只取 `eglChooseConfig` 第一项，也不把 `EGL_ALPHA_SIZE=0` 下限当作精确位数。结果中的 `egl_config` 记录工作进程实际选项。离屏保留驱动首选配置；没有合格的不透明窗口配置则失败，不回退为 alpha 窗口。依据与三星花屏对照见 [SGX544 调查](gpu-sgx544.md)。判断 EGL 配置是否存在以 API 返回值和数量为准，不能把不透明的 `EGLConfig` 句柄 0 当作失败。GFXBench 的少量兼容转换在生成文件中完成，保留上游源码树。
 
 纹理固定 ETC1，避免自动选择缺失的 ETC2 数据。打包时为 `lowlevel/ui.fs` 添加基于 `GL_FRAGMENT_PRECISION_HIGH` 的 highp / mediump 回退；顶点精度和其他着色器不随意调整。是否覆盖老 GPU 的真实驱动行为仍需真机验证。
 

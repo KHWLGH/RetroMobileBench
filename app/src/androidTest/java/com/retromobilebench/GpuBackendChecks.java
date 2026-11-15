@@ -37,6 +37,7 @@ final class GpuBackendChecks {
             if ("gl_fill_off".equals(test)) check(result.getInt("diagnostic_duration_ms") == 0 && "MTexels/s".equals(result.getString("unit")), "full Fill timing and unit");
             if (!test.endsWith("_off")) {
                 check(result.getLong("successful_window_swaps") > 0, "actual window buffers swapped");
+                checkOpaqueWindow(result);
                 check("fullscreen".equals(result.optString("window_mode")), "on-screen GPU uses a full-screen window");
                 check(GpuHud.VERSION.equals(result.optString("onscreen_hud")) && result.optInt("hud_updates") > 0, "on-screen HUD receives frame-rate samples");
                 if (android.os.Build.VERSION.SDK_INT < 11) check("worker_activity".equals(result.optString("window_owner")), "old GPU owns a local window");
@@ -72,6 +73,14 @@ final class GpuBackendChecks {
         check("timeout".equals(timeout.getString("status")) && timeout.getString("error_stage").contains("超时"), "GPU timeout");
         check("completed".equals(new JSONObject(GpuClient.run(context, "gl_egypt_off", 5000)).getString("status")), "GPU restart after kill");
         check("failed".equals(GpuClient.parse("ERROR: init failed", "gl_alu_off").getString("status")), "GPU native failure");
+    }
+
+    static void checkOpaqueWindow(JSONObject result) throws Exception {
+        JSONObject config = result.getJSONObject("egl_config");
+        check(JavaEglContext.WINDOW_CONFIG_POLICY.equals(config.getString("policy"))
+                && config.getInt("red") == 8 && config.getInt("green") == 8 && config.getInt("blue") == 8
+                && config.getInt("alpha") == 0 && config.getInt("depth") >= 16 && config.getInt("samples") == 0,
+                "opaque RGB888 window config from rendering process: " + config);
     }
 
     private static void packValidation(Context context) throws Exception {

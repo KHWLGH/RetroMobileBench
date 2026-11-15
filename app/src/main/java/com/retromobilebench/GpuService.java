@@ -64,6 +64,7 @@ public final class GpuService extends Service {
                 result.getData().putString("raw", raw);
                 result.getData().putInt("pid", Process.myPid());
                 result.getData().putLong("window_swaps", JavaEglContext.successfulWindowSwaps);
+                result.getData().putString("egl_config", JavaEglContext.lastConfig);
                 result.getData().putInt("hud_updates", telemetry == null ? 0 : telemetry.updates);
                 try { reply.send(result); } catch (RemoteException ignored) { terminate(); }
             }, "rmb-gpu").start();
