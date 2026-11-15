@@ -1,0 +1,54 @@
+{
+  "diagnostic_only": true,
+  "score_eligible": false,
+  "green": 8,
+  "egl_config_id": 20,
+  "width": 1280,
+  "native_visual_id": 511,
+  "stencil": 8,
+  "samples": [
+    {
+      "requested_alpha": 0,
+      "read_rgba": [
+        255,
+        0,
+        0,
+        255
+      ]
+    },
+    {
+      "requested_alpha": 0.25,
+      "read_rgba": [
+        0,
+        255,
+        0,
+        255
+      ]
+    },
+    {
+      "requested_alpha": 0.5,
+      "read_rgba": [
+        0,
+        0,
+        255,
+        255
+      ]
+    },
+    {
+      "requested_alpha": 1,
+      "read_rgba": [
+        191,
+        128,
+        64,
+        255
+      ]
+    }
+  ],
+  "depth": 24,
+  "height": 720,
+  "red": 8,
+  "blue": 8,
+  "gl_version": "OpenGL ES 2.0 build 1.9.RC2@2139099",
+  "alpha": 0,
+  "renderer": "PowerVR SGX 544"
+}

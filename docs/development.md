@@ -57,11 +57,46 @@ API 8–15 的 MediaPlayer 由媒体进程 Activity 持有本地窗口，API 8�
 
 GFXBench ES2 源码清单与宿主位于 `feasibility/gfxbench-es2`，同时供主 App 构建使用，不使用上游完整构建系统或 Java 宿主。testfw、KCL/KRL 和所需依赖静态进入各主库变体，通过静态工厂表创建测试，避免按名称 `dlopen`。Poco、libepoxy 和 ES3/Vulkan 路径未编入当前目标。
 
-API 8 的 EGL 操作由 Java EGL10 宿主完成，只链接 GLES2。离屏使用小 pbuffer 和 1080p FBO，屏上使用真实窗口 EGLSurface。屏上按 `opaque-rgb888-v1` 检查实际 RGB 8/8/8、alpha 0、samples 0、depth 至少 16 位，允许厂商 native visual；不只取 `eglChooseConfig` 第一项，也不把 `EGL_ALPHA_SIZE=0` 下限当作精确位数。结果中的 `egl_config` 记录工作进程实际选项。离屏保留驱动首选配置；没有合格的不透明窗口配置则失败，不回退为 alpha 窗口。依据与三星花屏对照见 [SGX544 调查](gpu-sgx544.md)。判断 EGL 配置是否存在以 API 返回值和数量为准，不能把不透明的 `EGLConfig` 句柄 0 当作失败。GFXBench 的少量兼容转换在生成文件中完成，保留上游源码树。
+API 8 的 EGL 操作由 Java EGL10 宿主完成，只链接 GLES2。离屏使用小 pbuffer 和 1080p FBO，屏上使用真实窗口 EGLSurface。屏上按 `opaque-rgb888-v1` 检查实际 RGB 8/8/8、alpha 0、samples 0、depth 至少 16 位，允许厂商 native visual；不只取 `eglChooseConfig` 第一项，也不把 `EGL_ALPHA_SIZE=0` 下限当作精确位数。结果中的 `egl_config` 记录工作进程实际选项。离屏保留驱动首选配置；没有合格的不透明窗口配置则失败，不回退为 alpha 窗口。依据与三星花屏对照见 [SGX544 兼容验证](validation.md#sgx544-屏上花屏)。判断 EGL 配置是否存在以 API 返回值和数量为准，不能把不透明的 `EGLConfig` 句柄 0 当作失败。GFXBench 的少量兼容转换在生成文件中完成，保留上游源码树。
 
 纹理固定 ETC1，避免自动选择缺失的 ETC2 数据。打包时为 `lowlevel/ui.fs` 添加基于 `GL_FRAGMENT_PRECISION_HIGH` 的 highp / mediump 回退；顶点精度和其他着色器不随意调整。是否覆盖老 GPU 的真实驱动行为仍需真机验证。
 
 相关依据：[旧 C++ 库加载限制](https://developer.android.com/ndk/guides/cpp-support)、[Android 2.3.7 Surface JNI](https://android.googlesource.com/platform/frameworks/base/+/android-2.3.7_r1/core/jni/android_view_Surface.cpp)、[Surface 实现](https://android.googlesource.com/platform/frameworks/base/+/android-2.3.7_r1/libs/surfaceflinger_client/Surface.cpp)、[GFXBench 源码](https://github.com/Kishonti-Opensource/gfxbench)。
+
+## 固定依赖
+
+下表记录来源和构建身份；许可与素材署名统一见[许可与分发](licenses.md)。上游原始说明和许可随源码保留。
+
+| 组件 | 来源 | 固定版本 / 提交 |
+|---|---|---|
+| zlib | https://github.com/madler/zlib | 1.3.1 / `51b7f2abdade71cd9bb0e7a373ef2610ec6f9daf` |
+| Zstd | https://github.com/facebook/zstd | 1.5.7 / `f8745da6ff1ad1e7bab384bd1f9d742439278e99` |
+| CoreMark | https://github.com/eembc/coremark | 1.0 / `1f483d5b8316753a742cbf5590caf5bd0a4e4777` |
+| tinymembench | https://github.com/ssvb/tinymembench | `a2cf6d7e382e3aea1eb39173174d9fa28cad15f3` |
+| STREAM | https://github.com/jeffhammond/STREAM | `6703f7504a38a8da96b353cadafa64d3c2d7a2d3` |
+| GFXBench | https://github.com/Kishonti-Opensource/gfxbench | `89aa956f43836798d1eaaab8ec32d3dc8b02eead` |
+| SQLite | https://www.sqlite.org/2026/sqlite-amalgamation-3530100.zip | 3.53.1 |
+| SciMark | https://math.nist.gov/scimark2/scimark2c.zip | SciMark 2.0 C |
+| Mbed TLS | https://github.com/Mbed-TLS/mbedtls | 2.28.10 / `2fc8413bfcb51354c8e679141b17b3f1a5942561` |
+| libjpeg-turbo | https://github.com/libjpeg-turbo/libjpeg-turbo | 2.1.5.1 / `8ecba3647edb6dd940463fedf38ca33a8e2a73d1` |
+| libpng | https://github.com/pnggroup/libpng | 1.6.43 / `ed217e3e601d8e462f7fd1e04bed43ac42212429` |
+| FFmpeg | https://github.com/FFmpeg/FFmpeg | 4.4.6 / `44b04492bfc83215e136f2a68783bff71d328692` |
+
+SQLite 归档 SHA-256：`36ad6e7f38540a3b21a2ac36340833f0a9e426bc1c752751c3ba669466827eae`；SciMark：`53d6bffc6468f20a55bc3184ec293bb73bcb2b01cce4965869845ed2210b81ff`。两份解包源码直接入库，其余为固定提交的子模块，禁止用 `--remote` 更新版本。
+
+```powershell
+git submodule update --init third_party/zlib third_party/zstd third_party/coremark third_party/tinymembench third_party/stream third_party/mbedtls third_party/libjpeg-turbo third_party/libpng third_party/ffmpeg
+# 仅在 GFXBench 未初始化且目录不存在时执行 clone；避免全量检出所有场景格式。
+git clone --filter=blob:none --no-checkout https://github.com/Kishonti-Opensource/gfxbench.git third_party/gfxbench
+git -C third_party/gfxbench sparse-checkout init --cone
+git -C third_party/gfxbench sparse-checkout set frameworks gfxbench40 3rdparty/zlib 3rdparty/libpng gfxbench-data40/data/gfx/common gfxbench-data40/data/gfx/fill
+git -C third_party/gfxbench checkout --detach 89aa956f43836798d1eaaab8ec32d3dc8b02eead
+git submodule absorbgitdirs third_party/gfxbench
+# 已初始化时跳过 clone，沿用 sparse 设置并执行 git submodule update。
+git -C third_party/gfxbench sparse-checkout add gfxbench-data40/data/gfx/trex gfxbench-data40/data/gfx/egypt
+```
+
+本地适配保留在项目宿主、port 或生成文件中：CoreMark 仅自定义 port；CPU zlib 用 `Z_PREFIX` / `z_errmsg=rmb_z_errmsg` 隔离；tinymembench 只用 C 内核，STREAM 抽取为 pthread 固定工作集变体；GFXBench 保留 ETC1 和片元精度回退。SciMark 的 Random.c / MonteCarlo.c 增加分配失败处理，计算内核不变。Mbed TLS 只编 AES/GCM/SHA，图片配置见 `native/media.cmake`，FFmpeg 配置见 `scripts/build-ffmpeg.sh`。升级依赖需复核旧 API、无 NEON 和动态依赖，并升级受影响协议。
 
 ## 工具链与构建
 
@@ -74,7 +109,7 @@ API 8 的 EGL 操作由 Java EGL10 宿主完成，只链接 GLES2。离屏使用
 | NDK r23c / 23.2.8568313 | 现代打包及 ELF、指令检查，不替代 r10e 编译 |
 | Git Bash / r10e make | FFmpeg configure / make |
 
-1. 按 [固定版本依赖](../third_party/README.md) 初始化固定提交和 GFXBench 的 Egypt / T-Rex 数据。不要使用 `--remote` 更新到不同提交。
+1. 按本页[固定依赖](#固定依赖)初始化源码和 GFXBench 的 Egypt / T-Rex 数据。
 2. 在 Studio 所用 SDK 中安装 SDK 37、CMake 3.18.1、NDK r23c，确认本机 `local.properties` 指向该 SDK。
 3. 将官方 r10e 安装到 `.tools/android-ndk-r10e`，或先执行下列准备任务。该任务下载约 1 GB 官方归档并验证固定 SHA-256；依赖准备需要联网，设备运行离线。
 
@@ -121,7 +156,13 @@ adb -s emulator-5554 shell am start -n com.retromobilebench/.MainActivity
 
 安装和更新需要同时容纳 APK、解包内容及新包暂存；资源提交还保留 16 MiB。场景要求至少 192 MiB 可用内存，Fill 为 128 MiB；不足时说明原因，不静默降低分辨率或删场景。资源和测试文件均在内部私有目录，无网络或外部存储权限要求。
 
-`generateWebCorpus` 按 [Web 协议](web-daily.md) 生成原创合成 JPEG/PNG、文本与 JSON。使用本机规定 JBR 的 ImageIO；生成文件大小和 SHA-256 必须匹配 `app/web-corpus-lock.json`，不匹配则构建失败，不接受静默更换编码器。HTML/ES3 脚本和资源清单一并打包；每轮在计时外校验整个清单。`WEB_BUILD_ID` 独立于原生构建身份。
+`generateWebCorpus` 按 [Web 协议](benchmarks.md#web-日常响应) 生成原创合成 JPEG/PNG、文本与 JSON。使用本机规定 JBR 的 ImageIO；生成文件大小和 SHA-256 必须匹配 `app/web-corpus-lock.json`，不匹配则构建失败，不接受静默更换编码器。HTML/ES3 脚本和资源清单一并打包；每轮在计时外校验整个清单。`WEB_BUILD_ID` 独立于原生构建身份。
+
+## 清理生成文件
+
+必要的真机原始报告和截图保存在 `docs/evidence/`，索引见[验证证据](validation.md#原始证据)，不放在构建目录。日常可运行 `.\gradlew.bat clean --console=plain` 删除构建输出；需要彻底清理时，先停止构建与 Gradle daemon，再删除项目内的 `app/build/`、`build/`、`.gradle/` 和 `feasibility/out/`。下次构建会重新生成这些内容，耗时会增加。
+
+`.tools/` 中的 r10e 是实际编译工具链，FFmpeg/JPEG 工具和素材供生成脚本使用；`ffmpeg-host.zip` 也被脚本用于定位解包目录，不能作为普通下载缓存删除。保留固定的 third_party 源码/数据、Gradle wrapper、媒体素材、`local.properties` 和 IDE 设置。
 
 ## 开发诊断
 
