@@ -26,6 +26,9 @@ adb -s emulator-5554 shell am instrument -w com.retromobilebench.test/com.retrom
 | 参数 | 覆盖内容 |
 |---|---|
 | 无参数 | 真实 JNI、存储/SQLite、CoreMark/SciMark、压缩、内存/Triad、加密与图片、汇总/旧历史/恢复、保存失败、宿主干扰和 GPU 回归 |
+| `-e displayOnly true` | 竖屏主界面、5 秒 Egypt 屏上交换缓冲区、SD 视频全屏、忙碌 runner 的 Web 三轮及中位数、各阶段返回竖屏；API 11+ 另检查独立 Surface 尺寸与重复创建/销毁；诊断时长不作正式成绩 |
+| `-e webOnly true` | 无 JNI 依赖的 Web 四项 × 20 单元 × 三轮、实际视口、独立进程、身份隔离、持久化与旧会话 |
+| `-e webOnly true -e webFaults true` | 上述正式三轮，加校验错误、时钟错误、保留部分、进程死亡、JS 卡死超时、取消、Home 与失败后重启；仅 Debug |
 | `-e interferenceOnly true` | 事件等待、取消竞争、迟到回调、共享温度源、阶段窗口及关闭 |
 | `-e lifecycleOnly true` | API 16+ 第一轮落盘后取消、轻量进度与 GPU 后台中断；API 8–15 检查旧系统播放/窗口的返回取消和 Home 中断 |
 | `-e fixedOnly true` | 拓扑、加密已知向量/坏标签/8 工作线程、六图参考像素、会话恢复、保存异常与七段视频的软件/系统/播放矩阵 |
@@ -55,9 +58,60 @@ adb -s emulator-5554 shell chmod 700 /data/local/tmp/rmb-crypto-join-check
 adb -s emulator-5554 shell /data/local/tmp/rmb-crypto-join-check
 ```
 
-## 已记录的验证结论
+## GPU 屏上 FPS / 电池温度悬浮层验证（2026-11-15）
 
-以下以宿主开销优化后的最新回归为主，保留对当前兼容说明仍有效的旧系统证据。
+在独立全屏窗口左上角增加半透明两行 HUD，显示最近约 1 秒的成功缓冲区交换速率和系统最新电池温度。FPS 标为“提交”，不是屏幕真实显示帧率；温度无有效读数时显示“不可用”。逐帧路径未增加计时或 IPC，跨进程窗口每秒推送一次，旧系统本地窗口直接更新；离屏不启动发布器。离开窗口时停止发布器并注销温度接收器。
+
+| HUD 构建 / x86 虚拟设备 | 本次实际检查 |
+|---|---|
+| Android 10 / API 29（RMB_API29_x86） | Egypt 屏上正式 113 秒完成，6774 次成功窗口交换，HUD 更新 114 次；截图可见 FPS（提交）与电池温度 25.0 °C，Surface 保持 1280×768。`displayOnly` PASS，覆盖真实 HUD 更新、重复窗口、SD 视频、Web 三轮及返回竖屏；`interferenceOnly` PASS，含无效温度、温度来源和清理。Egypt 离屏 5 秒完成，`onscreen_hud=none`、`hud_updates=0` |
+| Android 2.3.7 / API 10（Android2.3） | `displayOnly` PASS，旧 GPU 窗口收到真实 HUD 更新，SD 视频和 Web 三轮返回正常；T-Rex 屏上 5 秒完成、HUD 更新 10 次；`lifecycleOnly` PASS，覆盖旧 GPU/视频返回取消与 Home 中断 |
+
+当前 Debug / Release / 测试 APK、lintDebug 与 lintRelease 均通过；本次仅使用模拟器，未运行真机、完整 15 阶段或所有 GPU 正式时长。模拟器温度与 FPS 只用于核对功能，不作为真实设备热表现或性能结论。源码及构建身份已变化，不能把下节改版前专项视为该 HUD 构建的补充验收。
+
+单场景诊断可用 `-e gpuTest gl_egypt` 或 `-e gpuTest gl_trex`，默认 5000 ms；`-e gpuDurationMs 10000` 延长短测，`-e gpuDurationMs 0` 使用资源中的正式配置时长。非零诊断仅允许 1–10000 ms，不计作正式时长成绩。
+
+## HUD 加入前：竖屏主界面 / 独立全屏改版验证（2026-11-15）
+
+当前改版将主界面固定为竖屏，GPU 屏上、Web 和视频播放使用独立横向全屏窗口；取消按钮叠加显示，不占用渲染布局。Web 使用实际全屏视口与响应式排版，协议升级为 `web-daily-v2`；仍为四项 × 20 单元 × 三轮，旧 v1 成绩可读但不与 v2 混合。API 19+ 隐藏系统栏，旧系统保留平台必须显示的导航区域。
+
+| HUD 加入前的 Debug 构建 / x86 虚拟设备 | 实际观察结果 |
+|---|---|
+| Android 2.3.7 / API 10（Android2.3） | `displayOnly` PASS：旧工作进程 GPU 窗口实际渲染 800×480、成功交换缓冲区、SD 全屏播放、忙碌 runner 的 Web 三轮及中位数、返回竖屏；`webOnly + webFaults` PASS；`lifecycleOnly` PASS，覆盖旧 GPU/视频返回取消与 Home 中断 |
+| Android 4.1.2 / API 16（Android4.1） | `displayOnly` PASS：三次完整 Surface 创建/销毁与竖屏返回、1196×720 窗口与 Surface 等大、5 秒 Egypt 真实渲染、SD 全屏播放、忙碌 runner 的 Web 三轮及中位数；`webOnly + webFaults` PASS；`lifecycleOnly` PASS，首轮落盘后取消保留 1 轮，GPU 退后台中断并释放亮屏，观察停止延迟 91 ms |
+| Android 10 / API 29（RMB_API29_x86） | `displayOnly` PASS：三次 Surface 创建/销毁与返回、1280×768 独立全屏窗口、5 秒 Egypt 真实渲染、SD 视频、忙碌 runner 的 Web 三轮及中位数；`webOnly + webFaults` PASS；实际截图确认 GPU 场景和 Web 文本内容铺满窗口、取消按钮叠加 |
+
+Web 故障矩阵覆盖校验错误、非法时钟、后续失败保留已完成分项、旧 nonce、进程死亡、准备/测量 JS 卡死、父进程取消、Home 中断和失败后重启。以上均为模拟器功能证据，不作为物理设备性能、温升或浏览器排名。主界面截图已确认竖屏，方向切换等待横向尺寸和窗口焦点就绪，内部切换不被误判为用户退后台。
+
+Debug / Release / 测试 APK、lintDebug 和 lintRelease 已通过。此次未重跑完整 15 阶段、全部 GPU 正式时长、严格媒体 21 路矩阵、API 19 或物理设备；下节旧 v1 完整流程及更早真机证据不代表当前全屏版本已完成这些验收。最后一步之前继续只使用虚拟设备。
+
+## 全屏改版前：Web v1 / fixed-suite-v3 验证（2026-11-15）
+
+以下保留新增 `web-daily-v1` 时的原始验证记录，使用固定 320×160 CSS px 小视口。固定四项 × 20 单元 × 三轮，每轮使用新的 `:web` 进程；均为全屏改版前 Debug 构建的虚拟设备功能证据，不能作为当前 v2 或物理设备速度、温升、浏览器排名的结论。
+
+| 虚拟环境 | 正式负载与故障回归 |
+|---|---|
+| Android 2.3.7 / API 10 / x86（Android2.3） | PASS：四项三轮、不同 PID、实际 320×160 CSS px、三轮中位数、无 JNI 加载、持久化及故障矩阵 |
+| Android 4.1.2 / API 16 / x86（Android4.1） | PASS：同上；另补宿主事件等待/取消竞争/迟到回调、温度源和清理专项 |
+| Android 4.4.2 / API 19 / x86（RMB_API19_x86） | PASS：同上；修复该 WebView prompt 返回 `file:///` 安全源导致的启动超时，仍要求顶层 URL 精确匹配内置页面 |
+| Android 10 / API 29 / x86（RMB_API29_x86） | PASS：同上；提供程序记录为 `com.android.webview:74.0.3729.185:373018515` |
+| Android 2.2 / API 8 / ARM | **未验证**：已安装 `platforms/android-8` 旧镜像，但当前 avdmanager 对该平台创建 AVD 时抛出 `PlatformDetailsType` → `SysImgDetailsType` 类型转换错误；没有可运行的 API 8 设备证据 |
+
+故障矩阵包括四项错误结果、零/倒退计时、后续分项失败时保留已完成结果、旧 nonce 回调、进程死亡、准备/正式阶段 JS 卡死、父进程超时与取消、Home 中断、失败后新进程重启。修改资源、宿主、引擎、窗口、时钟等任一比较身份后均不生成混合中位数；恢复 `running` 记录保留原始轮次并删除过期中位数。Debug 故障结果不能进入正式汇总。
+
+本次 Web 宿主身份为 `web-host-v1-a053a06a046c21d066d3631f`，资源清单 SHA-256 为 `d7f1d70d3b4a3e400abb8bda4f2bb1140be83a2f44953ac0bcedfefca15e3619`。本地完整三轮原始 JSON 位于 `app/build/web-api10.json`、`web-api16.json`、`web-api19.json`、`web-api29.json`，均为生成的验证产物，不随源码提交。各版本分别保留实际缩放、硬件加速、UA/系统、可用提供程序及计时源，不跨设备汇总这些时间。
+
+API 16 x86 真实开始按钮的完整 `fixed-suite-v3` 检查 **PASS**：15 阶段按序尝试，九个三轮阶段（含 Web 四项 × 20 × 3）全部完成并生成中位数，五项 GPU 以 113/113/56/56/60 秒正式时长全部完成，检查独立进程、窗口参数、温度、历史和整次持久化。结果为 **14 completed、视频 partial**，会话保持 `partial`；七段视频的三种路径均独立记录，不能把流程 PASS 写成媒体全部成功。本次有资源缓存，`wall_ms=805113`（约 13 分 25 秒），完整原始导出为 `app/build/production-api16-v3.json`。
+
+另运行 API 16 宿主干扰与生命周期检查均 PASS：首轮落盘后取消保留 1 轮、不生成中位数，GPU 后台中断且释放亮屏标志；该次停止延迟 100 ms，不作为通用上限。`fixedOnly` 也 PASS，覆盖 15 阶段定义、加密已知向量/8 工作线程、六图参考像素、会话恢复与保存失败。其媒体复核中七段软件解码均完成；SD、HD Baseline、VP8 的系统/播放完成，High/FHD、H.263、MPEG-4 的系统或播放出现 `feed_input` / `drain_output` 失败，均保留为失败，不视为媒体严格专项通过。
+
+最新 Debug、Release、测试 APK、lintDebug 和 lintRelease 已通过。11 个共享库的 API 8/9 导入、SysV hash、依赖与无 RPATH/TEXTREL 复核通过；无 NEON 主库及四个 ARM 媒体/FFmpeg 库的 NEON/VFP-D32 筛查均为 0，NEON 主库阳性对照为 13768。`git diff --check` 未发现空白错误。匹配 v3 对应源码 ZIP 已生成，23831 个文件通过 7-Zip 兼容工具的完整 CRC 检查；内容检查确认包含 Web HTML/JS、四个宿主类、Web 回归测试、生成器、固定语料锁、当前文档、原生诊断源与 FFmpeg 许可。生成通知已核对包含原创 Web 内容说明与既有完整许可/署名/库替换说明。
+
+完成上述虚拟设备、构建和归档检查后才进入最终真机步骤；停止模拟器后 `adb devices -l` 列表为空，小米 2A 与三星 GT-I9260 均不在线，所以 **Web / v3 最终物理验收未执行**。本次没有运行真机负载；需两台设备连接、授权并解锁后，各执行 Web 专项、生命周期和真实开始按钮完整 15 阶段，再补充匹配构建的独立记录。下方既有 v2 真机记录不代表新 Web / v3 已通过。
+
+## 既有 v2 验证结论
+
+以下为新增 Web 之前的宿主开销优化回归，保留对当前兼容说明仍有效的旧系统证据。
 
 | 环境 / 检查 | 已观察结果 |
 |---|---|

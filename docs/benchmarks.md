@@ -1,6 +1,6 @@
 # 测试与结果
 
-RetroMobileBench 使用 `fixed-suite-v2` 固定套件，按下表顺序串行执行。内部阶段用于调度和结果解释，界面不提供单项、线程、分辨率、轮数或软硬解选择。完整流程与资源准备见 [开发与构建](development.md)，已获得的设备证据见 [验证与已知限制](validation.md)。
+RetroMobileBench 使用 `fixed-suite-v3` 固定套件，按下表顺序串行执行。内部阶段用于调度和结果解释，界面不提供单项、线程、分辨率、轮数或软硬解选择。完整流程与资源准备见 [开发与构建](development.md)，已获得的设备证据见 [验证与已知限制](validation.md)。
 
 ## 固定项目
 
@@ -15,13 +15,14 @@ RetroMobileBench 使用 `fixed-suite-v2` 固定套件，按下表顺序串行执
 | 7 | 内存 / `memory-tiny-v2` | 8 MiB C 复制/填充、4 MiB 依赖访问延迟；另测单线程 + N 的固定总量 24 MiB Triad；MB/s、ns | 3 |
 | 8 | 文件存储 / `storage-file-v1` | 内部私有目录，4–32 MiB 文件；顺序块 256 KiB、随机块 4 KiB、256 次随机操作；MB/s、IOPS | 3 |
 | 9 | SQLite / `sqlite-tps-v1` | SQLite 3.53.1；INSERT / UPDATE / DELETE 各 300 个独立事务，每事务一行 1 KiB，DELETE 日志、FULL 同步；TPS | 3 |
-| 10 | Egypt HD 离屏 / `gpu-gl_egypt_off-v1` | ETC1，1920×1080，113 秒；frames、FPS | 1 |
-| 11 | Egypt HD 屏上 / `gpu-gl_egypt-v1` | ETC1，实际窗口尺寸，113 秒；frames、FPS | 1 |
-| 12 | T-Rex 离屏 / `gpu-gl_trex_off-v1` | ETC1，1920×1080，56 秒；frames、FPS | 1 |
-| 13 | T-Rex 屏上 / `gpu-gl_trex-v1` | ETC1，实际窗口尺寸，56 秒；frames、FPS | 1 |
-| 14 | Fill 离屏 / `gpu-gl_fill_off-v1` | ETC1，1920×1080，60 秒；MTexels/s | 1 |
+| 10 | Web 日常响应 / `web-daily-v2` | 离线系统 WebView，独立横向全屏；页面/待办/文本/数据四项各 20 单元，记录实际 CSS/物理视口；总 ms、ms/单元，越低越好 | 3 |
+| 11 | Egypt HD 离屏 / `gpu-gl_egypt_off-v1` | ETC1，1920×1080，113 秒；frames、FPS | 1 |
+| 12 | Egypt HD 屏上 / `gpu-gl_egypt-v1` | ETC1，实际窗口尺寸，113 秒；frames、FPS | 1 |
+| 13 | T-Rex 离屏 / `gpu-gl_trex_off-v1` | ETC1，1920×1080，56 秒；frames、FPS | 1 |
+| 14 | T-Rex 屏上 / `gpu-gl_trex-v1` | ETC1，实际窗口尺寸，56 秒；frames、FPS | 1 |
+| 15 | Fill 离屏 / `gpu-gl_fill_off-v1` | ETC1，1920×1080，60 秒；MTexels/s | 1 |
 
-八个三轮阶段各自连续运行三轮，轮间固定 1 秒；阶段间也固定 1 秒，最后不额外等待。五项 GPU 配置合计 398 秒，不含加载、资源准备和间隔。预计整套约 12–15 分钟，具体耗时受设备和资源缓存状态影响。
+九个三轮阶段各自连续运行三轮，轮间固定 1 秒；阶段间也固定 1 秒，最后不额外等待。五项 GPU 配置合计 398 秒，不含加载、资源准备和间隔。Web 阶段上限 330 秒，异常回收另加至多 10 秒；整套耗时受设备和资源缓存状态影响，不能沿用 v2 耗时作为 v3 实测。Web 的完整负载、时钟边界和兼容矩阵见 [Web 日常响应](web-daily.md)。
 
 ### 线程与计时
 
@@ -69,7 +70,9 @@ Triad 复用 STREAM `a=b+3*c` 内核，三个 double 数组各 8 MiB，单线程
 
 文件存储默认 32 MiB、最低 4 MiB，并保留 16 MiB 空间。写入使用 `O_SYNC`，读取优先 `O_DIRECT`，不支持时明确标记 `cached`；不声称已驱逐页缓存。文件系统、缓存模式和文件大小不同的结果不直接混算。SQLite 使用固定版本的独立测试数据库，与保存历史记录的系统 SQLite 数据库分开。
 
-离屏 GPU 使用小 pbuffer + 固定 1080p FBO；屏上创建真实窗口 EGLSurface 并交换缓冲区，记录窗口归属、实际渲染尺寸、显示刷新率、交换间隔请求、成功交换次数和 GPU 身份。屏上成绩受分辨率、VSync 和刷新率影响，不与离屏混算，也不把交换次数当成精确显示帧数。
+离屏 GPU 使用小 pbuffer + 固定 1080p FBO；屏上自动进入独立横向全屏窗口，创建填满窗口的真实 EGLSurface 并交换缓冲区，取消按钮作为浮层。记录窗口归属、全屏模式、实际渲染尺寸、显示刷新率、交换间隔请求、成功交换次数和 GPU 身份。屏上成绩受分辨率、VSync 和刷新率影响，不与离屏混算，也不把交换次数当成精确显示帧数。
+
+GPU 屏上左上角的“FPS（提交）”以约 1 秒内成功交换次数 / 实际经过秒数计算，电池温度使用系统最新广播读数；缺失温度显示“不可用”。悬浮值只用于观察，不替代正式结果或视为真实显示帧率，也不把电池温度当作 GPU 结温。离屏、Web 与视频不启用该 GPU 悬浮层；结果保留 `onscreen_hud`、`hud_interval_ms` 和 `hud_updates`，构建身份不同的记录仍隔离比较。
 
 Fill 主指标为 MTexels/s，不是显存峰值带宽；完整 60 秒包含上游自适应负载，短诊断不能替代正式成绩。宿主保留既定同步行为，不为提分随意增删 `glFinish`。场景使用后续开源 GFXBench 的 ES2 路径，不宣称等同原版 GLBenchmark / GFXBench 官方分数。
 
@@ -90,6 +93,6 @@ Fill 主指标为 MTexels/s，不是显存峰值带宽；完整 60 秒包含上�
 
 整次运行共用一个低优先级温度采样线程，约 2 秒读取一次电池广播，各阶段截取同一数据流；边界补点在测量调用之外，阶段结束后才生成温度 JSON。记录起止、采样最大值、温升（结束减开始）、充电状态、来源和时间戳；缺失或异常读数不填 0。电池温度不等于 CPU/GPU 结温，升温本身不能证明降频，也不触发停测或冷却等待。低电量低于 30% 且未充电、真实空间或内存不足仍会明确提示。
 
-不生成综合分，缺项不填零。旧 `fixed-suite-v1`、`memory-tiny-v1` 和早期 CPU 协议记录继续可读，协议、构建、素材或参数不同不混合汇总。Zstd、完整 STREAM 四内核及 ALU / Driver / Blending 保留必要诊断与旧记录解释，不在固定流程中。网络、编码、音频、4K、新视频格式、ES3 和续航压力测试不属于当前套件。
+不生成综合分，缺项不填零。旧 `fixed-suite-v1` / `fixed-suite-v2`、`memory-tiny-v1` 和早期 CPU 协议记录继续可读，协议、构建、素材或参数不同不混合汇总。Zstd、完整 STREAM 四内核及 ALU / Driver / Blending 保留必要诊断与旧记录解释，不在固定流程中。网络、编码、音频、4K、新视频格式、ES3 和续航压力测试不属于当前套件。
 
 参考：[STREAM 运行规则](https://www.cs.virginia.edu/stream/ref.html)、[MediaCodec](https://developer.android.com/reference/android/media/MediaCodec)、[系统硬件属性](https://developer.android.com/reference/android/media/MediaCodecInfo#isHardwareAccelerated())、[FFmpeg 解码接口](https://ffmpeg.org/doxygen/4.4/group__lavc__encdec.html)。

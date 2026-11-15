@@ -40,27 +40,32 @@ final class ProductionFlowChecks {
             JSONObject session = new JSONObject(state.exportJson);
             check(BenchmarkSuite.SESSION_VERSION.equals(session.getString("suite_version")), "exports current session, not last twenty history rows");
             JSONArray results = session.getJSONArray("results"); check(results.length() == BenchmarkSuite.DEFAULT.length, "all fixed stages attempted");
-            check(session.has("temperature"), "session telemetry saved"); HashSet<Integer> gpuPids = new HashSet<>();
+            check(session.has("temperature"), "session telemetry saved"); HashSet<Integer> gpuPids = new HashSet<>(), webPids = new HashSet<>();
             for (int i = 0; i < results.length(); i++) {
                 JSONObject report = results.getJSONObject(i); BenchmarkSuite suite = BenchmarkSuite.DEFAULT[i];
                 check(suite.version.equals(report.getString("suite_version")), "stable order and protocol identity");
                 check(report.getInt("repetitions") == suite.repetitions() && report.has("temperature"), "automatic repetitions and stage telemetry");
                 check(report.getInt("repeat_pause_ms") == (suite.repetitions() == 3 ? 1000 : 0), "fixed one-second round gaps");
                 check(!"running".equals(report.getString("status")), "stage not left running");
-                if ("skipped".equals(report.optString("status"))) { check(report.optString("message").length() > 0, "skip explained"); continue; }
+                if ("skipped".equals(report.optString("status"))) { check(suite != BenchmarkSuite.WEB, "formal Web cannot be skipped in acceptance"); check(report.optString("message").length() > 0, "skip explained"); continue; }
                 JSONArray samples = report.getJSONArray("samples");
                 if ("completed".equals(report.optString("status"))) {
                     check(samples.length() == suite.repetitions() && report.has("median"), "all rounds completed and summarized: " + suite);
                     for (int r = 0; r < samples.length(); r++) check("completed".equals(samples.getJSONObject(r).getString("status")), "each raw round completed");
                 } else check(!report.has("median"), "partial stage cannot have normal median");
                 check(samples.length() > 0, "at least one attempted sample"); JSONObject sample = samples.getJSONObject(0);
-                if (suite.isGpu() && "completed".equals(sample.optString("status"))) {
+                if (suite.isGpu()) {
+                    check("completed".equals(sample.optString("status")), "all five official GPU workloads must complete in acceptance: " + sample);
                     check(sample.getInt("diagnostic_duration_ms") == 0, "full GPU timing");
                     check(gpuPids.add(sample.getInt("worker_pid")), "disposable GPU worker");
                     if (suite.gpuTest().endsWith("_off")) check(sample.getInt("render_width") == 1920 && sample.getInt("render_height") == 1080, "fixed offscreen dimensions");
                     else check("window_submission".equals(sample.getString("presentation")), "real window protocol");
                     long seconds = suite == BenchmarkSuite.GPU_FILL ? 60000 : suite.gpuTest().contains("egypt") ? 113000 : 56000;
                     check(report.getLong("ended_ms") - report.getLong("started_ms") >= seconds - 2000, "full scene duration");
+                }
+                if (suite == BenchmarkSuite.WEB) {
+                    check("completed".equals(report.optString("status")) && samples.length() == 3 && report.has("median"), "formal Web 4 x 20 x 3 must complete");
+                    for (int r = 0; r < samples.length(); r++) { WebRegressionChecks.completed(samples.getJSONObject(r)); check(webPids.add(samples.getJSONObject(r).getInt("worker_pid")), "fresh Web process every round"); }
                 }
                 if (suite == BenchmarkSuite.VIDEO) {
                     JSONArray clips = sample.getJSONArray("results"); check(clips.length() == 7, "all seven clips attempted independently");
@@ -71,6 +76,8 @@ final class ProductionFlowChecks {
             ResultStore store = new ResultStore(context);
             try { JSONObject saved = store.latest(1).getJSONObject(0); check(saved.getString("session_id").equals(session.getString("session_id")), "whole session persisted"); }
             finally { store.close(); }
+            java.io.FileOutputStream evidence = context.openFileOutput("production-validation.json", Context.MODE_PRIVATE);
+            try { evidence.write(session.toString(2).getBytes("UTF-8")); } finally { evidence.close(); }
             return session.optString("status") + ": " + results.length() + " fixed stages; " + gpuPids.size() + " completed GPU workers; wall_ms=" + session.getLong("wall_ms");
         } finally {
             instrumentation.runOnMainSync(() -> { if (runner.isBusy()) runner.cancel(); });

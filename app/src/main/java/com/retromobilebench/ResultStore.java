@@ -63,6 +63,7 @@ class ResultStore extends SQLiteOpenHelper {
                 while (cursor.moveToNext()) {
                     JSONObject report = new JSONObject(cursor.getString(1));
                     report.put("status", "interrupted");
+                    report.remove("median");
                     report.put("ended_ms", System.currentTimeMillis());
                     report.put("message", "进程退出，测试中断；已完成的轮次已保留");
                     JSONObject active = report.optJSONObject("active_report");

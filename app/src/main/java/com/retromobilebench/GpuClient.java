@@ -42,7 +42,8 @@ final class GpuClient {
             envelope.put("pbuffer_width", test.endsWith("_off") ? 800 : 0).put("pbuffer_height", test.endsWith("_off") ? 480 : 0);
             envelope.put("diagnostic_duration_ms", diagnosticMs);
             envelope.put("presentation", test.endsWith("_off") ? "offscreen" : "window_submission");
-            envelope.put("window_owner", test.endsWith("_off") ? "none" : Build.VERSION.SDK_INT < 11 ? "worker_activity" : "main_activity");
+            envelope.put("window_owner", test.endsWith("_off") ? "none" : Build.VERSION.SDK_INT < 11 ? "worker_activity" : "display_activity");
+            envelope.put("window_mode", test.endsWith("_off") ? "offscreen" : "fullscreen");
             envelope.put("refresh_hz", DisplaySurface.refreshHz).put("swap_interval_request", test.endsWith("_off") ? JSONObject.NULL : 1);
             return envelope.toString();
         } catch (InterruptedIOException e) {
@@ -52,12 +53,13 @@ final class GpuClient {
 
     static JSONObject invoke(Context context, File pack, String test, int duration, long timeoutMs) throws Exception {
         final boolean legacyWindow = !test.endsWith("_off") && Build.VERSION.SDK_INT < 11;
-        final android.view.Surface surface = test.endsWith("_off") || legacyWindow ? null : DisplaySurface.acquire(cancellation::isCancelled);
+        final android.view.Surface surface = test.endsWith("_off") || legacyWindow ? null : DisplaySurface.acquire(context, cancellation::isCancelled, true);
         externalDisplay = legacyWindow;
         CountDownLatch died = new CountDownLatch(1);
         java.util.concurrent.atomic.AtomicInteger pid = new java.util.concurrent.atomic.AtomicInteger();
         WorkerRequest pending = new WorkerRequest(failure("cancelled", "GPU 测试已取消"));
         AtomicBoolean closed = new AtomicBoolean();
+        java.util.concurrent.atomic.AtomicInteger hudUpdates = new java.util.concurrent.atomic.AtomicInteger();
         AtomicReference<Messenger> remote = new AtomicReference<>();
         AtomicReference<IBinder> binder = new AtomicReference<>();
         IBinder.DeathRecipient death = () -> {
@@ -67,7 +69,11 @@ final class GpuClient {
         Messenger reply = new Messenger(new Handler(Looper.getMainLooper()) {
             @Override public void handleMessage(Message message) {
                 if (message.what == GpuService.READY && !closed.get()) { pid.set(message.getData().getInt("pid")); return; }
-                if (message.what != GpuService.RESULT || pending.isComplete()) return;
+                if (message.what == GpuService.STATS) {
+                    if (!closed.get() && !pending.isComplete() && !test.endsWith("_off") && GpuHud.publish(message.getData().getDouble("fps"))) hudUpdates.incrementAndGet();
+                    return;
+                }
+                if (message.what != GpuService.RESULT || pending.isComplete() || closed.get()) return;
                 try {
                     String raw = message.getData().getString("raw");
                     JSONObject parsed = parse(raw, test);
@@ -75,6 +81,9 @@ final class GpuClient {
                     if (!test.endsWith("_off") && "completed".equals(parsed.optString("status")) && swaps < 1)
                         parsed = failure("failed", "屏上测试未成功交换窗口缓冲区");
                     parsed.put("successful_window_swaps", swaps);
+                    parsed.put("onscreen_hud", test.endsWith("_off") ? "none" : GpuHud.VERSION)
+                            .put("hud_interval_ms", test.endsWith("_off") ? 0 : GpuHud.INTERVAL_MS)
+                            .put("hud_updates", legacyWindow ? message.getData().getInt("hud_updates") : hudUpdates.get());
                     parsed.put("worker_pid", message.getData().getInt("pid"));
                     final String status = parsed.optString("status");
                     pending.complete(parsed, () -> {

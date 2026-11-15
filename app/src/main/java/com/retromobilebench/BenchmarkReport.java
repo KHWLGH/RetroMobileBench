@@ -32,8 +32,9 @@ final class BenchmarkReport {
                     && first.optString("native_build_id", "legacy").equals(sample.optString("native_build_id", "legacy"))
                     && first.optString("native_library", "legacy").equals(sample.optString("native_library", "legacy"))
                     && first.optString("native_abi", "legacy").equals(sample.optString("native_abi", "legacy"));
+            if (suite == BenchmarkSuite.WEB && (sample.has("diagnostic_fault") || !sample.optBoolean("cleanup_confirmed"))) matches = false;
             JSONObject device = report.optJSONObject("device");
-            if (device != null && device.has("native_build_id"))
+            if (suite != BenchmarkSuite.WEB && device != null && device.has("native_build_id"))
                 matches &= device.getString("native_build_id").equals(sample.optString("native_build_id"));
             for (String key : parameterKeys(suite, sample)) {
                 if (!sample.has(key) || !first.has(key)
@@ -44,6 +45,7 @@ final class BenchmarkReport {
                 return;
             }
         }
+        if (suite == BenchmarkSuite.WEB && (count != 3 || first.has("diagnostic_fault"))) return;
         JSONObject median = new JSONObject();
         if (suite == BenchmarkSuite.IMAGE && !summarizeImages(samples, median)) {
             report.put("message", "图片各轮的素材、参考像素或完成状态不同，仅保留原始结果");
@@ -74,6 +76,12 @@ final class BenchmarkReport {
 
     static String[] parameterKeys(BenchmarkSuite suite, JSONObject sample) {
         if (suite == BenchmarkSuite.IMAGE && !sample.has("duration_ms")) return new String[]{"corpus_version"};
+        if (suite == BenchmarkSuite.WEB && "web-daily-v1".equals(sample.optString("test_version"))) {
+            java.util.ArrayList<String> legacy = new java.util.ArrayList<>();
+            for (String key : suite.parameters) if (!key.equals("viewport_width") && !key.equals("viewport_height")
+                    && !key.equals("window_mode") && !key.equals("window_width") && !key.equals("window_height")) legacy.add(key);
+            return legacy.toArray(new String[0]);
+        }
         return suite == BenchmarkSuite.MEMORY && "memory-tiny-v1".equals(sample.optString("test_version"))
                 ? prefix(suite.parameters, 7) : suite.parameters;
     }
@@ -143,12 +151,31 @@ final class BenchmarkReport {
                     .append(" / Android ").append(device.optString("android_release"))
                     .append(" (API ").append(device.optInt("sdk")).append(")\n");
             if (device.optBoolean("emulator")) text.append("模拟器：成绩仅用于验证流程，不能代表真机性能。\n");
-            text.append("原生库：").append(device.optString("native_library", "加载失败")).append('\n');
-            text.append("构建：").append(device.optString("native_build_id", "旧版构建（独立比较组）")).append('\n');
+            if (suite != BenchmarkSuite.WEB) {
+                text.append("原生库：").append(device.optString("native_library", "加载失败")).append('\n');
+                text.append("构建：").append(device.optString("native_build_id", "旧版构建（独立比较组）")).append('\n');
+            }
         }
         String message = report.optString("message");
         if (message.length() != 0) text.append(message).append('\n');
         appendTemperature(text, report.optJSONObject("temperature"));
+        if (suite == BenchmarkSuite.WEB) {
+            text.append("离线固定负载；每项 20 单元 × 3 轮；")
+                    .append("web-daily-v1".equals(report.optString("suite_version")) ? "旧版 320×160 CSS px" : "独立横向全屏视口")
+                    .append("；12/18 px 字体。\n")
+                    .append("任务完成＋布局检查点，包含单元间调度；越低越好。不是 FPS、绘制或真实输入延迟。\n");
+            JSONArray rounds = report.optJSONArray("samples");
+            if (rounds != null && rounds.length() > 0) {
+                JSONObject environment = rounds.getJSONObject(0);
+                text.append("Web 宿主：").append(environment.optString("host_build_id")).append('\n')
+                        .append("资源：").append(environment.optString("resource_sha256")).append('\n')
+                        .append("引擎：").append(environment.optString("provider")).append('\n')
+                        .append("UA：").append(environment.optString("user_agent")).append('\n')
+                        .append("CSS 视口：").append(environment.optInt("viewport_width")).append('×').append(environment.optInt("viewport_height")).append('\n')
+                        .append("物理视口：").append(environment.optInt("physical_width")).append('×').append(environment.optInt("physical_height"))
+                        .append("；DPR ").append(environment.optDouble("dpr")).append("；硬件加速 ").append(environment.optBoolean("hardware_accelerated")).append('\n');
+            }
+        }
         JSONObject median = report.optJSONObject("median");
         boolean summaryOnly = median != null && report.optInt("repetitions") == 3
                 && (suite != BenchmarkSuite.IMAGE || median.has("images"));
@@ -190,6 +217,9 @@ final class BenchmarkReport {
                             text.append('\n');
                         }
                     }
+                } else if (suite == BenchmarkSuite.WEB) {
+                    text.append("独立工作进程 ").append(sample.optInt("worker_pid")).append("；回收确认 ").append(sample.optBoolean("cleanup_confirmed"))
+                            .append("；计时器 ").append(sample.optString("clock_source")).append(" / ").append(sample.optDouble("clock_resolution_ms")).append(" ms\n");
                 } else if (suite == BenchmarkSuite.CRYPTO) {
                     text.append("Mbed TLS ").append(sample.optString("library_version")).append(" / AES-128-GCM 含认证 / SHA-256\n");
                 } else if (suite.isGpu()) {
@@ -242,7 +272,7 @@ final class BenchmarkReport {
                 }
             }
         }
-        text.append("\n仅显示原始吞吐量，尚未换算综合分数。\n");
+        text.append("\n仅显示原始测量值，尚未换算综合分数。\n");
         return text.toString();
     }
 

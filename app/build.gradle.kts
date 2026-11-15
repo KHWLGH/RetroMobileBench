@@ -33,6 +33,16 @@ val nativeBuildId = providers.provider {
     "r10e-gcc49-" + digest.digest().take(12).joinToString("") { "%02x".format(it) }
 }
 
+val webInputs = files(fileTree("src/main/java") { include("**/*.java") },
+    fileTree("src/main/assets/web"), file("web-assets.gradle.kts"), file("web-corpus-lock.json"))
+val webBuildId = providers.provider {
+    val digest = MessageDigest.getInstance("SHA-256")
+    webInputs.files.sortedBy { it.relativeTo(rootDir).invariantSeparatorsPath }.forEach {
+        digest.update(it.relativeTo(rootDir).invariantSeparatorsPath.toByteArray()); digest.update(it.readBytes())
+    }
+    "web-host-v2-" + digest.digest().take(12).joinToString("") { "%02x".format(it) }
+}
+
 val legacyNdkDirectory = rootProject.layout.projectDirectory.dir(
     providers.gradleProperty("legacyNdkDir").orElse(".tools/android-ndk-r10e").get())
 
@@ -173,6 +183,7 @@ android {
         applicationId = "com.retromobilebench"
         minSdk = 8
         buildConfigField("String", "NATIVE_BUILD_ID", "\"${nativeBuildId.get()}\"")
+        buildConfigField("String", "WEB_BUILD_ID", "\"${webBuildId.get()}\"")
         // 23: lowest target Android 14+ will install; no behaviour change on 4.x (README "发布方式").
         targetSdk = 23
         versionCode = 1
@@ -335,6 +346,12 @@ androidComponents.onVariants { variant ->
     variant.sources.assets?.addGeneratedSourceDirectory(gpuPack, GpuPackTask::outputDirectory)
 }
 
+apply(from = "web-assets.gradle.kts")
+androidComponents.onVariants { variant ->
+    variant.sources.assets?.addGeneratedSourceDirectory(tasks.named("generateWebCorpus")) {
+        it.property("outputDirectory") as DirectoryProperty
+    }
+}
 apply(from = "corresponding-source.gradle.kts")
 
 dependencies {

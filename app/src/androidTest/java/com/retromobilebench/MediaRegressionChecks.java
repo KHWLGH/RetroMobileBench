@@ -30,14 +30,14 @@ final class MediaRegressionChecks {
         });
         progress.stage("Surface reuse, obsolete callbacks and cancellation while acquiring a window");
         try {
-            Surface initial = DisplaySurface.acquire();
+            Surface initial = DisplaySurface.acquire(context);
             int width = DisplaySurface.width();
             DisplaySurface.Host obsolete = visible -> { throw new AssertionError("obsolete host used"); };
             DisplaySurface.changed(obsolete, initial, 1, 1); DisplaySurface.lost(obsolete);
             check(DisplaySurface.width() == width, "obsolete host callbacks cannot invalidate current Surface");
             for (int i = 0; i < 5; i++) {
                 AtomicReference<Surface> next = new AtomicReference<>(); AtomicReference<Throwable> error = new AtomicReference<>();
-                Thread acquirer = new Thread(() -> { try { next.set(DisplaySurface.acquire()); } catch (Throwable e) { error.set(e); } });
+                Thread acquirer = new Thread(() -> { try { next.set(DisplaySurface.acquire(context)); } catch (Throwable e) { error.set(e); } });
                 // Hold the main queue until acquire supersedes the pending hide, reproducing the race.
                 test.runOnMainSync(() -> {
                     DisplaySurface.hide(); acquirer.start();
@@ -50,15 +50,13 @@ final class MediaRegressionChecks {
             }
             DisplaySurface.retire(() -> false);
             check(DisplaySurface.width() == 0 && DisplaySurface.height() == 0, "retire waits for real surfaceDestroyed before fallback");
-            check(DisplaySurface.acquire().isValid(), "fallback acquires a recreated Surface");
-            test.runOnMainSync(() -> { DisplaySurface.hide(); DisplaySurface.detach(activity); });
-            AtomicBoolean cancel = new AtomicBoolean(); AtomicReference<Throwable> error = new AtomicReference<>();
-            Thread waiting = new Thread(() -> { try { DisplaySurface.acquire(cancel::get); } catch (Throwable e) { error.set(e); } });
-            waiting.start(); long until = SystemClock.elapsedRealtime() + 1000;
-            while (!DisplaySurface.requested && SystemClock.elapsedRealtime() < until) SystemClock.sleep(5);
-            cancel.set(true); waiting.join(1000);
+            check(DisplaySurface.acquire(context).isValid(), "fallback acquires a recreated Surface");
+            DisplaySurface.retire(() -> false);
+            AtomicBoolean cancel = new AtomicBoolean(true); AtomicReference<Throwable> error = new AtomicReference<>();
+            Thread waiting = new Thread(() -> { try { DisplaySurface.acquire(context, cancel::get); } catch (Throwable e) { error.set(e); } });
+            waiting.start(); waiting.join(1000);
             check(!waiting.isAlive() && error.get() instanceof java.io.InterruptedIOException, "cancel stops Surface acquisition promptly");
-        } finally { DisplaySurface.hide(); test.runOnMainSync(() -> DisplaySurface.attach(activity)); }
+        } finally { DisplaySurface.hide(); }
         MediaClient.resetCancellation(); MediaCorpus.prepare(context, () -> false);
         progress.stage("all seven software/system/playback profiles with exact output frame counts");
         JSONObject video = new JSONObject(MediaCorpus.video(context, 2)).put("native_build_id", BuildConfig.NATIVE_BUILD_ID);

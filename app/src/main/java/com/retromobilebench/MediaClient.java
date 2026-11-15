@@ -49,7 +49,7 @@ final class MediaClient {
         if (cancelled()) return failure("cancelled", "before_start");
         boolean legacyPlayback = "playback".equals(mode) && Build.VERSION.SDK_INT < 16;
         final Surface surface;
-        try { surface = "playback".equals(mode) && !legacyPlayback ? DisplaySurface.acquire(MediaClient::cancelled) : null; }
+        try { surface = "playback".equals(mode) && !legacyPlayback ? DisplaySurface.acquire(context, MediaClient::cancelled) : null; }
         catch (java.io.IOException e) {
             // No worker was started: retain this path's failure and allow the other clips.
             return failure(cancelled() ? "cancelled" : "interrupted", "surface_acquire: " + e.getMessage());
@@ -112,6 +112,8 @@ final class MediaClient {
                 while (keys.hasNext()) { String key = keys.next(); value.put(key, known.get(key)); }
             }
             if (pid.get() > 0) value.put("worker_pid", pid.get());
+            if (surface != null) value.put("output_window", "display_activity").put("window_mode", "fullscreen")
+                    .put("physical_width", DisplaySurface.width()).put("physical_height", DisplaySurface.height());
             value.put("path_wall_ms", SystemClock.elapsedRealtime() - start); return value;
         } finally {
             pending.complete(failure("failed", "媒体请求已关闭"));

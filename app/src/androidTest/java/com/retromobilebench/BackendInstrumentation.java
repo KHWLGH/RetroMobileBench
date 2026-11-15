@@ -17,12 +17,14 @@ import java.util.concurrent.atomic.AtomicReference;
 /** Real JNI + SQLite regression checks using only the API 16 framework. */
 public final class BackendInstrumentation extends Instrumentation {
     private boolean gpuOnly, fullGpu, production, fixedOnly, lifecycleOnly, interferenceOnly, mediaOnly, mediaTimestamps;
-    private String gpuTest;
+    private String gpuTest, gpuDuration;
+    private boolean webOnly, webFaults, displayOnly;
     @Override
     public void onCreate(Bundle arguments) {
         super.onCreate(arguments);
         gpuOnly = arguments != null && "true".equals(arguments.getString("gpuOnly"));
         gpuTest = arguments == null ? null : arguments.getString("gpuTest");
+        gpuDuration = arguments == null ? null : arguments.getString("gpuDurationMs");
         fullGpu = arguments != null && "true".equals(arguments.getString("fullGpu"));
         lifecycleOnly = arguments != null && "true".equals(arguments.getString("lifecycleOnly"));
         fixedOnly = arguments != null && "true".equals(arguments.getString("fixedOnly"));
@@ -30,6 +32,9 @@ public final class BackendInstrumentation extends Instrumentation {
         interferenceOnly = arguments != null && "true".equals(arguments.getString("interferenceOnly"));
         mediaOnly = arguments != null && "true".equals(arguments.getString("mediaOnly"));
         mediaTimestamps = arguments != null && "true".equals(arguments.getString("mediaTimestamps"));
+        webOnly = arguments != null && "true".equals(arguments.getString("webOnly"));
+        webFaults = arguments != null && "true".equals(arguments.getString("webFaults"));
+        displayOnly = arguments != null && "true".equals(arguments.getString("displayOnly"));
         start();
     }
 
@@ -38,6 +43,14 @@ public final class BackendInstrumentation extends Instrumentation {
         Bundle result = new Bundle();
         try {
             Context context = getTargetContext();
+            if (displayOnly) {
+                result.putString("stream", "\nPASS: " + FullscreenChecks.run(this, this::progress) + "\n");
+                finish(Activity.RESULT_OK, result); return;
+            }
+            if (webOnly) {
+                result.putString("stream", "\nPASS: " + WebRegressionChecks.run(this, this::progress, webFaults) + "\n");
+                finish(Activity.RESULT_OK, result); return;
+            }
             if (mediaTimestamps) {
                 result.putString("stream", "\nDIAGNOSTIC: extractor sample timestamps\n" + MediaTimestampChecks.run(this) + "\n");
                 finish(Activity.RESULT_OK, result); return;
@@ -46,11 +59,13 @@ public final class BackendInstrumentation extends Instrumentation {
                 check(GpuClient.isTest(gpuTest), "known diagnostic GPU test");
                 startActivitySync(new android.content.Intent(context, MainActivity.class).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK));
                 GpuClient.resetCancellation();
+                int diagnosticMs = gpuDuration == null ? 5000 : Integer.parseInt(gpuDuration);
+                check(diagnosticMs >= 0 && diagnosticMs <= 10000, "GPU diagnostic milliseconds: 0 means official duration");
                 File pack = GpuDataPack.ensure(context, gpuTest, () -> false);
-                JSONObject value = GpuClient.invoke(context, pack, gpuTest, 5000, 30000);
+                JSONObject value = GpuClient.invoke(context, pack, gpuTest, diagnosticMs, diagnosticMs == 0 ? 240000 : 30000);
                 try (java.io.FileOutputStream out = new java.io.FileOutputStream(new File(context.getFilesDir(), "gpu-diagnostic.json"))) { out.write(value.toString(2).getBytes("UTF-8")); }
                 check("completed".equals(value.optString("status")), value.toString());
-                result.putString("stream", "\nPASS: 5-second diagnostic only: " + value + "\n");
+                result.putString("stream", "\nPASS: " + (diagnosticMs == 0 ? "official configured GPU duration" : diagnosticMs + " ms diagnostic only") + ": " + value + "\n");
                 finish(Activity.RESULT_OK, result); return;
             }
             if (production) {

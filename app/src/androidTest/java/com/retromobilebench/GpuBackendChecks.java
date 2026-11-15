@@ -37,8 +37,10 @@ final class GpuBackendChecks {
             if ("gl_fill_off".equals(test)) check(result.getInt("diagnostic_duration_ms") == 0 && "MTexels/s".equals(result.getString("unit")), "full Fill timing and unit");
             if (!test.endsWith("_off")) {
                 check(result.getLong("successful_window_swaps") > 0, "actual window buffers swapped");
+                check("fullscreen".equals(result.optString("window_mode")), "on-screen GPU uses a full-screen window");
+                check(GpuHud.VERSION.equals(result.optString("onscreen_hud")) && result.optInt("hud_updates") > 0, "on-screen HUD receives frame-rate samples");
                 if (android.os.Build.VERSION.SDK_INT < 11) check("worker_activity".equals(result.optString("window_owner")), "old GPU owns a local window");
-            }
+            } else check("none".equals(result.optString("onscreen_hud")) && result.optInt("hud_updates") == 0, "offscreen tests have no HUD publisher");
             int pid = result.getInt("worker_pid");
             check(pid != Process.myPid() && pid != lastPid, "each GPU test gets a separate process");
             lastPid = pid;

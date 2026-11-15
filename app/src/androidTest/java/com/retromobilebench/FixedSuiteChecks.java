@@ -17,10 +17,10 @@ final class FixedSuiteChecks {
         device.remove("battery_temperature_tenths_c"); check(BenchmarkRunner.cpuPreflight(device) == null, "missing sensor cannot block");
         HashSet<BenchmarkSuite> suites = new HashSet<>(); int gpu = 0;
         for (BenchmarkSuite suite : BenchmarkSuite.DEFAULT) { check(suites.add(suite), "suite not repeated"); if (suite.isGpu()) gpu++; }
-        check(gpu == 5 && suites.size() == 14 && suites.contains(BenchmarkSuite.GPU_FILL) && !suites.contains(BenchmarkSuite.ZSTD) && !suites.contains(BenchmarkSuite.STREAM) && !suites.contains(BenchmarkSuite.GPU_ALU), "fixed product scope");
+        check(gpu == 5 && suites.size() == 15 && suites.contains(BenchmarkSuite.WEB) && suites.contains(BenchmarkSuite.GPU_FILL) && !suites.contains(BenchmarkSuite.ZSTD) && !suites.contains(BenchmarkSuite.STREAM) && !suites.contains(BenchmarkSuite.GPU_ALU), "fixed product scope");
         int triple = 0;
         for (BenchmarkSuite suite : BenchmarkSuite.DEFAULT) { check(suite.repetitions() == (suite.isGpu() || suite == BenchmarkSuite.VIDEO ? 1 : 3), "automatic repetition policy"); if (suite.repetitions() == 3) triple++; }
-        check(triple == 8 && BenchmarkSuite.DEFAULT[13] == BenchmarkSuite.GPU_FILL, "eight triple stages, Fill last");
+        check(triple == 9 && BenchmarkSuite.DEFAULT[14] == BenchmarkSuite.GPU_FILL, "nine triple stages, Fill last");
         MediaNative.load(); NativeBridge.resetMediaCancellation();
         for (int threads : new int[]{1, 8}) {
             JSONObject crypto = new JSONObject(NativeBridge.runCrypto(threads, 50));

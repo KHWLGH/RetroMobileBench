@@ -8,12 +8,13 @@
 MainActivity → BenchmarkRunner → BenchmarkSuite.DEFAULT
                                   ├─ JNI：CPU / 内存 / 存储 / SQLite / 加密 / 图片
                                   ├─ MediaClient → :media 一次性进程
+                                  ├─ WebClient   → :web 可见 WebView 一次性进程（无 JNI 依赖）
                                   └─ GpuClient   → :gpu 一次性进程
                      ↓
               ResultStore：整次会话与逐轮检查点
 ```
 
-`BenchmarkRunner` 是应用级单串行工作线程，只持有 Application。Activity 订阅状态；普通界面重建不会重复启动测试。`BenchmarkSuite.DEFAULT` 定义固定 14 阶段、轮数与协议，诊断枚举不自动进入产品流程。
+`BenchmarkRunner` 是应用级单串行工作线程，只持有 Application。Activity 订阅状态；普通界面重建不会重复启动测试。`BenchmarkSuite.DEFAULT` 定义固定 15 阶段、轮数与协议，诊断枚举不自动进入产品流程。
 
 运行开始先创建 UUID 会话并准备完整资源，每轮结束同步保存检查点，再通知已保存轮数；只有保存成功才推进 `savedRounds`。结束后生成完整可读报告和 JSON。数据库创建或更新失败单独记录告警，不阻止已有测量结果保存在内存中。启动恢复将遗留 `running` 会话与活动阶段标为 `interrupted`，保留已完成轮次并移除当前阶段的正常中位数。
 
@@ -21,7 +22,11 @@ MainActivity → BenchmarkRunner → BenchmarkSuite.DEFAULT
 
 取消立即反馈且不启动下一阶段。CPU/CoreMark 和同步 I/O 等待安全边界，GPU/媒体发出停止请求并回收工作进程。请求状态通过结果、取消、死亡或超时事件唤醒，测量期间不轮询 Binder；每个请求独立保存终态，取消注册受锁保护，旧请求的迟到回调不影响新请求。进程回收确认位于测量之后。
 
-界面保持亮屏。离开前台、锁屏、正在使用的 Surface 丢失按中断处理；旧系统内部 GPU/媒体 Activity 切换属于同一次测试，不当作用户退后台。返回与取消记为取消，Home 记为中断，已有结果保留。
+主界面固定竖屏，只显示控制与结果。GPU 屏上、Web 与视频播放自动跳转独立横向全屏窗口；渲染视图填满窗口，取消按钮浮在右上角，不挤占渲染尺寸。测试结束后返回竖屏主界面。API 19+ 使用沉浸式隐藏系统栏；更旧系统隐藏标题与状态栏，保留平台必须显示的导航区域。
+
+GPU 屏上窗口左上角叠加半透明 HUD，每约 1 秒按成功窗口缓冲区交换次数的增量 / 实际经过时间显示“FPS（提交）”；这是窗口提交速率，不是真实显示 FPS，也不替代场景正式结果。工作进程读取既有 volatile 计数，不在逐帧路径增加采样或 IPC；API 11+ 每秒向宿主推送，API 8–10 在本地窗口更新。电池温度订阅系统 `ACTION_BATTERY_CHANGED`，使用最新系统报告的十分之一摄氏度读数，无有效传感器数据时显示“不可用”。退出时取消采样回调并注销接收器；Web、视频和离屏 GPU 不启用该 HUD。结果记录 HUD 版本、刷新间隔与实际更新次数，构建身份变化后不得与旧构建混比，不承诺悬浮层开销为零。
+
+界面保持亮屏。离开前台、锁屏、正在使用的 Surface 丢失按中断处理；主界面到全屏窗口只放行一次有时限的内部切换，实际全屏 Activity 负责后台中断。返回与取消记为取消，Home 记为中断，已有结果保留。
 
 ## 平台兼容与原生库
 
@@ -46,7 +51,7 @@ Android 4.3 以前的链接器不能可靠地按现代规则查找应用库间�
 
 每个视频请求在一次性 `:media` 进程执行，父进程负责时限、Binder 死亡和回收确认。API 16 起使用 Java 同步 MediaCodec 的旧缓冲区接口；API 29 的属性访问隔离在单独类中，旧系统不加载相关类型。
 
-API 8–15 的 MediaPlayer 由媒体进程 Activity 持有本地窗口，API 8–10 使用 push-buffer holder；私有素材通过文件描述符交给 MediaPlayer。Gingerbread 的 `Surface.writeToParcel` 无法转发普通窗口收到的 Surface，因此 API 8–10 屏上 GPU 也由 GPU 进程 Activity 创建本地窗口。API 11+ GPU 和 API 16+ 媒体播放可由主 Activity 提供 Surface。
+API 8–15 的 MediaPlayer 由媒体进程 Activity 持有本地窗口，API 8–10 使用 push-buffer holder；私有素材通过文件描述符交给 MediaPlayer。Gingerbread 的 `Surface.writeToParcel` 无法转发普通窗口收到的 Surface，因此 API 8–10 屏上 GPU 也由 GPU 进程 Activity 创建本地窗口。API 11+ GPU 和 API 16+ 媒体播放由独立的 `DisplayActivity` 全屏提供 Surface，主 Activity 不再内嵌渲染区域。窗口请求携带代次，过期页面或 Surface 回调不能替换当前请求；失败后备仍等待旧 Surface 销毁再重建。
 
 ### GPU 宿主
 
@@ -89,7 +94,7 @@ $env:JAVA_HOME = 'C:/Program Files/Android/Android Studio/jbr'
 | 测试 APK | `app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk` |
 | Release 未签名 APK | `app/build/outputs/apk/release/app-release-unsigned.apk` |
 | 生成的原生库 | `app/build/generated/legacyJniLibs/<abi>/` |
-| 匹配对应源码 ZIP | `app/build/distributions/RetroMobileBench-corresponding-source-fixed-suite-v2.zip` |
+| 匹配对应源码 ZIP | `app/build/distributions/RetroMobileBench-corresponding-source-fixed-suite-v3.zip` |
 
 `assembleRelease` 不等于可发布的签名产物；发布时配置自己的签名并保留 v1。原生构建身份会根据源码、宿主和构建输入更新，比较结果需核对 `native_build_id`。
 
@@ -115,6 +120,8 @@ adb -s emulator-5554 shell am start -n com.retromobilebench/.MainActivity
 媒体固定文件位于 [assets/media](../app/src/main/assets/media/manifest.json)。视频校验后原子写入 `files/media-v1`，缓存也复核哈希；图片的压缩文件与参考像素在计时前校验。大参考像素由原生流式读取，避免经 Java 大数组复制。`scripts/generate-media.ps1` 和 `scripts/generate-jpeg-references.ps1` 是生成配方，默认构建不重新编码；重新生成须审查哈希并升级语料协议，不能用不同解码器的像素覆盖 JPEG 参考。
 
 安装和更新需要同时容纳 APK、解包内容及新包暂存；资源提交还保留 16 MiB。场景要求至少 192 MiB 可用内存，Fill 为 128 MiB；不足时说明原因，不静默降低分辨率或删场景。资源和测试文件均在内部私有目录，无网络或外部存储权限要求。
+
+`generateWebCorpus` 按 [Web 协议](web-daily.md) 生成原创合成 JPEG/PNG、文本与 JSON。使用本机规定 JBR 的 ImageIO；生成文件大小和 SHA-256 必须匹配 `app/web-corpus-lock.json`，不匹配则构建失败，不接受静默更换编码器。HTML/ES3 脚本和资源清单一并打包；每轮在计时外校验整个清单。`WEB_BUILD_ID` 独立于原生构建身份。
 
 ## 开发诊断
 

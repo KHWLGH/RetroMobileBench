@@ -107,14 +107,14 @@ final class BenchmarkRunner {
     void startCpu(boolean full) { start(BenchmarkSuite.CPU, full); }
 
     void start(BenchmarkSuite suite, boolean full) {
-        if (state.busy) return;
+        if (state.busy || refuseUnsafeRestart()) return;
         cancelRequested = interrupted = false; cancelRequestedElapsed = -1; currentSession = null;
         update(new State(true, "准备" + suite.label, "", ""));
         worker.execute(() -> run(suite, full ? 3 : 1, null));
     }
 
     void startAll() {
-        if (state.busy) return;
+        if (state.busy || refuseUnsafeRestart()) return;
         cancelRequested = interrupted = false; cancelRequestedElapsed = -1; currentSession = null;
         sessionStartedElapsed = SystemClock.elapsedRealtime();
         update(new State(true, "正在准备固定套件", "自动完成固定套件；CPU、图片、内存与存储三轮采样。请保持前台；GPU 配置时长 6 分 38 秒。", ""));
@@ -148,7 +148,7 @@ final class BenchmarkRunner {
                 }
                 boolean complete = results.length() == BenchmarkSuite.DEFAULT.length;
                 for (int i = 0; i < results.length(); i++) complete &= "completed".equals(results.getJSONObject(i).optString("status"));
-                currentSession.put("status", interrupted ? "interrupted" : cancelRequested ? "cancelled" : complete ? "completed" : "partial");
+                currentSession.put("status", WebClient.cleanupFailed() ? "failed" : interrupted ? "interrupted" : cancelRequested ? "cancelled" : complete ? "completed" : "partial");
             } catch (Exception | LinkageError | OutOfMemoryError e) {
                 try { if (currentSession != null) currentSession.put("status", "failed").put("message", e.toString()); }
                 catch (JSONException ignored) { }
@@ -169,6 +169,12 @@ final class BenchmarkRunner {
                 DisplaySurface.hide();
             }
         });
+    }
+
+    private boolean refuseUnsafeRestart() {
+        if (!WebClient.cleanupFailed()) return false;
+        publish(false, "工作进程回收未确认，请重启应用", state.text, state.exportJson);
+        return true;
     }
 
     private boolean checkpointSession() {
@@ -215,6 +221,7 @@ final class BenchmarkRunner {
         if (Looper.myLooper() == Looper.getMainLooper()) feedback.run(); else main.post(feedback);
         MediaClient.cancel();
         GpuClient.cancel();
+        WebClient.cancel();
         if (nativeReady) {
             NativeBridge.cancelStorage();
             NativeBridge.cancelCpu();
@@ -273,7 +280,9 @@ final class BenchmarkRunner {
         int savedRounds = 0;
         long id = -1;
         String persistenceProblem = "";
+        if (suite == BenchmarkSuite.WEB) WebClient.beginStage();
         try {
+            if (WebClient.cleanupFailed()) throw new IllegalStateException("Web 进程回收未确认，禁止后续负载；请重启应用");
             if (!batch || suite.isGpu()) report.put("memory_preparation", MemoryPreparation.collect(context));
             report.put("schema_version", 1);
             report.put("suite_version", suite.version);
@@ -284,14 +293,16 @@ final class BenchmarkRunner {
             JSONArray samples = new JSONArray();
             report.put("samples", samples);
             if (batch) { currentSession.put("active_report", report); checkpointSession(); }
-            JSONObject device = CpuTopology.enrich(DeviceSnapshot.collect(context));
+            JSONObject device = conditions(suite);
             report.put("device", device);
             if (!batch) {
                 try { id = store.begin(report); report.put("id", id); }
                 catch (Exception e) { persistenceProblem = "创建记录失败，结果保留在内存：" + e; }
             }
-            nativeReady = NativeLoader.load() != null;
-            if (!nativeReady) throw new IllegalStateException("原生库加载失败：" + NativeLoader.error());
+            if (suite != BenchmarkSuite.WEB) {
+                nativeReady = NativeLoader.load() != null;
+                if (!nativeReady) throw new IllegalStateException("原生库加载失败：" + NativeLoader.error());
+            }
             suite.resetCancellation();
             // Cancel may have arrived before loading the library or during reset.
             if (cancelRequested) cancel();
@@ -305,7 +316,7 @@ final class BenchmarkRunner {
             } else {
                 for (int round = 0; round < repetitions; round++) {
                     if (cancelRequested) break;
-                    JSONObject before = CpuTopology.enrich(DeviceSnapshot.collect(context));
+                    JSONObject before = conditions(suite);
                     reason = suite.preflight(before, parameter);
                     if (reason != null) {
                         report.put("status", "skipped");
@@ -315,12 +326,15 @@ final class BenchmarkRunner {
                     publishProgress(suite, round + 1, repetitions, savedRounds,
                             "正在运行" + suite.label + "，第 " + (round + 1) + " / " + repetitions + " 轮");
                     JSONObject sample = new JSONObject(suite.run(context, parameter));
-                    sample.put("native_build_id", BuildConfig.NATIVE_BUILD_ID);
-                    sample.put("native_library", NativeLoader.load());
-                    sample.put("native_abi", before.getString("abi"));
+                    if (suite != BenchmarkSuite.WEB) {
+                        sample.put("native_build_id", BuildConfig.NATIVE_BUILD_ID);
+                        sample.put("native_library", NativeLoader.load());
+                        sample.put("native_abi", before.getString("abi"));
+                    }
                     sample.put("conditions_start", before);
-                    sample.put("conditions_end", CpuTopology.enrich(DeviceSnapshot.collect(context)));
+                    sample.put("conditions_end", conditions(suite));
                     samples.put(sample);
+                    if (sample.optBoolean("unsafe_cleanup")) cancel();
                     String status = sample.getString("status");
                     if (!"completed".equals(status)) {
                         report.put("status", status);
@@ -344,7 +358,7 @@ final class BenchmarkRunner {
                             SystemClock.sleep(100);
                     }
                 }
-                if (cancelRequested) report.put("status", interrupted ? "interrupted" : "cancelled");
+                if (cancelRequested) report.put("status", WebClient.cleanupFailed() ? "failed" : interrupted ? "interrupted" : "cancelled");
                 else if ("running".equals(report.optString("status")))
                     report.put("status", samples.length() == repetitions ? "completed" : "failed");
             }
@@ -358,6 +372,7 @@ final class BenchmarkRunner {
                 report.put("message", e.toString());
             } catch (JSONException ignored) { }
         }
+        if (suite == BenchmarkSuite.WEB) WebClient.endStage();
         try {
             report.put("temperature", trace.finish());
             if (!batch && id >= 0) store.save(id, report);
@@ -376,6 +391,10 @@ final class BenchmarkRunner {
             if (!batch) publish(false, "结果格式错误", e.toString(), report.toString());
         }
         return report;
+    }
+
+    private JSONObject conditions(BenchmarkSuite suite) throws Exception {
+        return suite == BenchmarkSuite.WEB ? DeviceSnapshot.collect(context, false) : CpuTopology.enrich(DeviceSnapshot.collect(context));
     }
 
     static String preflight(JSONObject device, int fileMiB) {

@@ -14,6 +14,7 @@ final class LifecycleChecks {
         if (android.os.Build.VERSION.SDK_INT < 16) return LegacyOutputChecks.run(test, progress);
         Intent intent = new Intent(test.getTargetContext(), MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         Instrumentation.ActivityMonitor windows = test.addMonitor(MainActivity.class.getName(), null, false);
+        Instrumentation.ActivityMonitor displays = test.addMonitor(DisplayActivity.class.getName(), null, false);
         test.startActivitySync(intent);
         BenchmarkRunner runner = BenchmarkRunner.get(test.getTargetContext());
         try {
@@ -57,8 +58,9 @@ final class LifecycleChecks {
                 check(state(test, runner).busy && SystemClock.elapsedRealtime() < until, "window acquired for interruption test"); SystemClock.sleep(50);
             }
             SystemClock.sleep(500);
-            MainActivity background = activity(windows);
-            test.runOnMainSync(() -> check(background.hasWindowFocus() && background.moveTaskToBack(true), "real foreground activity moved to background"));
+            check(displays.getLastActivity() instanceof DisplayActivity, "dedicated full-screen GPU Activity launched");
+            DisplayActivity background = (DisplayActivity)displays.getLastActivity();
+            test.runOnMainSync(() -> check(background.hasWindowFocus() && background.moveTaskToBack(true), "real full-screen activity moved to background"));
             waitIdle(test, runner, 30000);
             JSONObject interrupted = new JSONObject(state(test, runner).exportJson);
             check("interrupted".equals(interrupted.optString("status")), "background is interruption, not normal completion");
@@ -68,7 +70,7 @@ final class LifecycleChecks {
         } finally {
             test.runOnMainSync(() -> { if (runner.isBusy()) runner.cancel(); });
             test.runOnMainSync(() -> test.getTargetContext().startActivity(intent));
-            test.removeMonitor(windows);
+            test.removeMonitor(windows); test.removeMonitor(displays);
         }
     }
     private static MainActivity activity(Instrumentation.ActivityMonitor monitor) {

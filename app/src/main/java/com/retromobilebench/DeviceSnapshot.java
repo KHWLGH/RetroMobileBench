@@ -23,7 +23,10 @@ final class DeviceSnapshot {
     private DeviceSnapshot() { }
 
     @SuppressWarnings("deprecation") // StatFs long variants and SUPPORTED_ABIS are newer than API 16.
-    static JSONObject collect(Context context) throws JSONException {
+    static JSONObject collect(Context context) throws JSONException { return collect(context, true); }
+
+    @SuppressWarnings("deprecation")
+    static JSONObject collect(Context context, boolean includeNative) throws JSONException {
         JSONObject data = new JSONObject();
         data.put("manufacturer", Build.MANUFACTURER);
         data.put("model", Build.MODEL);
@@ -36,8 +39,10 @@ final class DeviceSnapshot {
         data.put("vm", System.getProperty("java.vm.version"));
         data.put("app_version", BuildConfig.VERSION_NAME);
         data.put("app_version_code", BuildConfig.VERSION_CODE);
-        data.put("native_library", NativeLoader.load());
-        data.put("native_build_id", BuildConfig.NATIVE_BUILD_ID);
+        if (includeNative) {
+            data.put("native_library", NativeLoader.load());
+            data.put("native_build_id", BuildConfig.NATIVE_BUILD_ID);
+        }
         String identity = (Build.FINGERPRINT + " " + Build.MODEL + " " + Build.HARDWARE)
                 .toLowerCase(Locale.US);
         data.put("emulator", identity.contains("generic") || identity.contains("emulator")

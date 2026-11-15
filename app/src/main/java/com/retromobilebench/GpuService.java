@@ -13,7 +13,7 @@ import java.io.File;
 
 /** Bound, unexported :gpu process. Each binding executes at most one native test. */
 public final class GpuService extends Service {
-    static final int RUN = 1, RESULT = 2, STOP = 3, READY = 4;
+    static final int RUN = 1, RESULT = 2, STOP = 3, READY = 4, STATS = 5;
     private boolean started;
     private final Messenger messenger = new Messenger(new Handler(Looper.getMainLooper()) {
         @Override public void handleMessage(Message request) {
@@ -30,6 +30,7 @@ public final class GpuService extends Service {
             final int width = request.getData().getInt("width", 800), height = request.getData().getInt("height", 480);
             new Thread(() -> {
                 String raw;
+                GpuHud.Publisher telemetry = null;
                 try {
                     if (!GpuClient.isTest(test) || root == null || duration < 0 || duration > 10000)
                         throw new IllegalArgumentException("GPU arguments");
@@ -40,6 +41,10 @@ public final class GpuService extends Service {
                     if (NativeLoader.load() == null) throw new IllegalStateException(String.valueOf(NativeLoader.error()));
                     File output = new File(getCacheDir(), "gpu-output");
                     if (!output.isDirectory() && !output.mkdir()) throw new IllegalStateException("GPU output directory");
+                    if (!test.endsWith("_off")) {
+                        telemetry = new GpuHud.Publisher(reply, android.os.Build.VERSION.SDK_INT < 11);
+                        telemetry.start();
+                    }
                     if (!test.endsWith("_off") && android.os.Build.VERSION.SDK_INT < 11) {
                         raw = LegacyGpuActivity.run(GpuService.this, test, new File(pack, "config/" + test + ".json").getPath(),
                                 new File(pack, "data/gfx").getPath() + "/", output.getPath() + "/", duration);
@@ -54,11 +59,12 @@ public final class GpuService extends Service {
                     if (raw == null || raw.length() > 100000) throw new IllegalStateException("GPU result size");
                 } catch (Exception | LinkageError failure) {
                     raw = "ERROR: " + failure;
-                }
+                } finally { if (telemetry != null) telemetry.stop(); }
                 Message result = Message.obtain(null, RESULT);
                 result.getData().putString("raw", raw);
                 result.getData().putInt("pid", Process.myPid());
                 result.getData().putLong("window_swaps", JavaEglContext.successfulWindowSwaps);
+                result.getData().putInt("hud_updates", telemetry == null ? 0 : telemetry.updates);
                 try { reply.send(result); } catch (RemoteException ignored) { terminate(); }
             }, "rmb-gpu").start();
         }

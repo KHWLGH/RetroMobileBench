@@ -21,6 +21,7 @@ RetroMobileBench 直接分发 APK。组件固定版本、提交、归档哈希�
 | GFXBench 素材 | CC BY 4.0 | 署名、来源、许可链接与修改说明 |
 | GFXBench 内含依赖 | 各自许可 | 保留实际编入的 zlib、libpng、TinyXML/TinyXML2、libetc1、Xiph Ogg/Theora 声明 |
 | GNU 静态 C++ 运行时 | GPLv3 + GCC Runtime Library Exception | 保留工具链原始 COPYING3 / COPYING.RUNTIME，按运行时例外使用 |
+| Web 日常响应 HTML/JS 与合成图/JSON/文本 | 本项目原创合成内容 | 不包含第三方网页或框架，不冒充官方浏览器基准 |
 | Sintel 衍生视频和 JPEG | CC BY 3.0，Blender Foundation | 保留来源、许可和裁剪/缩放/重编码/去音轨说明 |
 
 Poco、libepoxy、IJG 的 GFXBench 独立目标和 pytorch/cpuinfo 未编入当前目标，不将候选库列为实际依赖。JPEG 仍使用 libjpeg-turbo，保留其 IJG 相关署名：
@@ -55,7 +56,7 @@ App 的“许可”入口合并显示 `licenses.txt`、Gradle 生成的 `benchma
 .\gradlew.bat :app:correspondingSource --console=plain
 ```
 
-输出为 `app/build/distributions/RetroMobileBench-corresponding-source-fixed-suite-v2.zip`，包含实际 FFmpeg 源码、构建脚本、JNI 适配、项目构建文件、依赖源码与声明。保留依赖清单中的提交身份，核对归档完整性、当前文档及许可材料，再与对应 APK 一起分发。修改 APK 或构建输入后重新生成和核对，不复用不匹配的旧源码包。
+输出为 `app/build/distributions/RetroMobileBench-corresponding-source-fixed-suite-v3.zip`，包含实际 FFmpeg 源码、构建脚本、JNI 适配、项目构建文件、依赖源码与声明。保留依赖清单中的提交身份，核对归档完整性、当前文档及许可材料，再与对应 APK 一起分发。修改 APK 或构建输入后重新生成和核对，不复用不匹配的旧源码包。
 
 动态链接本身不能代替 LGPL 交付义务。原始 [LGPL-2.1 文本](../third_party/ffmpeg/COPYING.LGPLv2.1) 和 [FFmpeg 法律说明](https://ffmpeg.org/legal.html) 随源码保留。Mbed TLS 仅执行固定加密负载；图片库仅解码内置素材，它们不是设备安全服务。
 

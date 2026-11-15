@@ -28,6 +28,7 @@ final class TemperatureTrace {
             this.temperature = temperature;
         }
     }
+    static boolean validTemperature(int value) { return value != 0 && value >= -200 && value <= 1000; }
     private static final int INTERVAL_MS = 2000;
     private final Source source;
     private final boolean owner;
@@ -64,7 +65,7 @@ final class TemperatureTrace {
         for (Point point : points) {
             JSONObject value = new JSONObject().put("timestamp_ms", point.timestamp).put("plugged", point.plugged);
             // Includes the legacy absent-sensor zero sentinel. Never invent a zero temperature.
-            if (point.temperature != 0 && point.temperature >= -200 && point.temperature <= 1000) {
+            if (validTemperature(point.temperature)) {
                 value.put("tenths_c", point.temperature);
                 if (start == null) start = point.temperature;
                 end = point.temperature;

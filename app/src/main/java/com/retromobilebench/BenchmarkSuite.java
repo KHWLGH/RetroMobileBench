@@ -29,6 +29,13 @@ enum BenchmarkSuite {
             new String[]{"TPS", "TPS", "TPS"},
             new String[]{"sqlite_version", "sqlite_source_id", "transactions", "rows_per_transaction",
                     "payload_bytes", "page_bytes", "cache_kib", "journal_mode", "synchronous"}),
+    WEB("web-daily-v2", "Web 日常响应",
+            new String[]{"page_total_ms", "page_unit_ms", "todo_total_ms", "todo_unit_ms", "text_total_ms", "text_unit_ms", "data_total_ms", "data_unit_ms"},
+            new String[]{"页面构建 · 20 单元", "页面构建 · 每单元", "待办交互 · 20 单元", "待办交互 · 每单元", "文本排版 · 20 单元", "文本排版 · 每单元", "数据展示 · 20 单元", "数据展示 · 每单元"},
+            new String[]{"ms", "ms", "ms", "ms", "ms", "ms", "ms", "ms"},
+            new String[]{"resource_sha256", "host_build_id", "app_build_type", "app_debuggable", "units_per_subtest", "prewarm_units_per_subtest", "viewport_css", "font_css", "viewport_width", "viewport_height", "window_mode", "window_width", "window_height",
+                    "bridge_origin", "clock_source", "clock_resolution_ms", "user_agent", "provider", "os_fingerprint", "dpr", "physical_width", "physical_height",
+                    "density", "initial_scale_percent", "webview_scale", "css_to_physical_x", "css_to_physical_y", "layout_algorithm", "hardware_accelerated", "text_zoom_percent", "scheduling", "measurement"}),
     COREMARK("cpu-coremark-v2", "CPU 整数测试（CoreMark®）",
             new String[]{"single_iterations_per_second", "parallel_iterations_per_second"},
             new String[]{"单线程", "并行"}, new String[]{"iterations/s", "iterations/s"},
@@ -64,12 +71,12 @@ enum BenchmarkSuite {
     IMAGE("image-decode-v1", "图片解码", new String[]{}, new String[]{}, new String[]{}, new String[]{"corpus_version", "duration_ms"}),
     VIDEO("video-decode-v1", "视频解码与播放", new String[]{}, new String[]{}, new String[]{}, new String[]{});
 
-    static final BenchmarkSuite[] DEFAULT = {COREMARK, SCIMARK, CPU, CRYPTO, IMAGE, VIDEO, MEMORY, STORAGE, SQLITE,
+    static final BenchmarkSuite[] DEFAULT = {COREMARK, SCIMARK, CPU, CRYPTO, IMAGE, VIDEO, MEMORY, STORAGE, SQLITE, WEB,
             GPU_EGYPT, GPU_EGYPT_SCREEN, GPU_TREX, GPU_TREX_SCREEN, GPU_FILL};
-    static final String SESSION_VERSION = "fixed-suite-v2";
+    static final String SESSION_VERSION = "fixed-suite-v3";
 
     int repetitions() { return isGpu() || this == VIDEO ? 1 : 3; }
-    static boolean isSession(String version) { return SESSION_VERSION.equals(version) || "fixed-suite-v1".equals(version); }
+    static boolean isSession(String version) { return SESSION_VERSION.equals(version) || "fixed-suite-v2".equals(version) || "fixed-suite-v1".equals(version); }
 
     static final int CPU_DURATION_MS = 1500;
     final String version, label;
@@ -102,6 +109,7 @@ enum BenchmarkSuite {
         if ("cpu-zstd-v1".equals(version)) return ZSTD;
         if ("cpu-coremark-v1".equals(version)) return COREMARK;
         if ("memory-tiny-v1".equals(version)) return MEMORY;
+        if ("web-daily-v1".equals(version)) return WEB;
         for (BenchmarkSuite suite : values()) if (suite.version.equals(version)) return suite;
         return null;
     }
@@ -111,7 +119,7 @@ enum BenchmarkSuite {
     @Override public String toString() { return label; }
 
     int parameter(JSONObject device) {
-        if (isGpu()) return 0;
+        if (isGpu() || this == WEB) return 0;
         if (this == SQLITE) return 300;
         if (this == SCIMARK) return CPU_DURATION_MS;
         if (this == STREAM) return Math.max(1, Math.min(4, device.optInt("available_processors", 1))); // Legacy diagnostics only.
@@ -131,7 +139,8 @@ enum BenchmarkSuite {
     }
 
     void resetCancellation() {
-        if (this == VIDEO) MediaClient.resetCancellation();
+        if (this == WEB) WebClient.resetCancellation();
+        else if (this == VIDEO) MediaClient.resetCancellation();
         else if (this == CRYPTO || this == IMAGE) { MediaClient.resetCancellation(); MediaNative.load(); NativeBridge.resetMediaCancellation(); }
         else if (isGpu()) GpuClient.resetCancellation();
         else if (this == MEMORY || this == STREAM) NativeBridge.resetMemoryCancellation();
@@ -144,6 +153,7 @@ enum BenchmarkSuite {
     }
 
     String run(Context context, int parameter) {
+        if (this == WEB) return WebClient.run(context);
         if (this == CRYPTO) return NativeBridge.runCrypto(parameter, CPU_DURATION_MS);
         if (this == IMAGE) return MediaCorpus.images(context, parameter);
         if (this == VIDEO) return MediaCorpus.video(context, parameter);
@@ -159,6 +169,7 @@ enum BenchmarkSuite {
     }
 
     String progress(int parameter) {
+        if (this == WEB) return "独立横向全屏 Web 视口；四项各 20 单元、三轮中位数。\n任务完成时间（越低越好），含布局检查点及单元间调度；不代表绘制、FPS 或真实输入延迟。";
         if (this == CRYPTO) return "AES-128-GCM 加密、解密认证与 SHA-256；单线程及 N 线程，先校验再计时。";
         if (this == IMAGE || this == VIDEO) return "固定离线素材；实际解码并校验。系统媒体在独立进程运行，异常会记录并继续。";
         if (isGpu()) return (gpuTest().endsWith("_off") ? "1920 × 1080 离屏" : "实际窗口分辨率屏上提交") + " / ETC1 / 完整时长。\n独立进程运行；当前项可取消。";

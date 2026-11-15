@@ -15,6 +15,10 @@ import java.util.concurrent.atomic.AtomicReference;
 final class WorkerProcess {
     static void close(Context context, ServiceConnection connection, Messenger remote, IBinder binder,
                       IBinder.DeathRecipient death, CountDownLatch died, int pid) throws Exception {
+        close(context, connection, remote, binder, death, died, pid, android.os.SystemClock.elapsedRealtime() + 10000);
+    }
+    static void close(Context context, ServiceConnection connection, Messenger remote, IBinder binder,
+                      IBinder.DeathRecipient death, CountDownLatch died, int pid, long cleanupDeadline) throws Exception {
         CountDownLatch unbound = new CountDownLatch(1);
         AtomicReference<Exception> error = new AtomicReference<>();
         Thread reaper = new Thread(() -> {
@@ -30,13 +34,14 @@ final class WorkerProcess {
         }, "rmb-worker-reaper");
         reaper.setDaemon(true); reaper.start();
         try {
-            if (!unbound.await(5, TimeUnit.SECONDS)) throw new IOException("工作进程解绑超时；停止后续同类负载");
+            if (!unbound.await(remaining(cleanupDeadline), TimeUnit.MILLISECONDS)) throw new IOException("工作进程解绑超时；停止后续同类负载");
             if (error.get() != null) throw error.get();
-            if (binder != null && !died.await(5, TimeUnit.SECONDS))
+            if (binder != null && !died.await(remaining(cleanupDeadline), TimeUnit.MILLISECONDS))
                 throw new IOException("工作进程未退出；停止后续同类负载");
         } finally {
             if (binder != null) try { binder.unlinkToDeath(death, 0); }
             catch (java.util.NoSuchElementException ignored) { }
         }
     }
+    private static long remaining(long deadline) { return Math.max(0, Math.min(5000, deadline - android.os.SystemClock.elapsedRealtime())); }
 }
