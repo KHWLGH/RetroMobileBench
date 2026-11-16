@@ -25,6 +25,17 @@
 
 点击「开始测试」后，应用按固定顺序串行执行 **12 个测试阶段**，覆盖 CPU 整数/浮点算力、内存带宽与延迟、闪存 I/O、SQLite 事务、Web 竖屏信息流与大图解码、7 段视频三路径解码/播放以及 OpenGL ES 2.0 离屏与屏上渲染，全程采样电池温升与电量曲线，并支持双语界面切换与完整数据导出。
 
+## 为什么做这个项目
+
+折腾旧款 Android 手机和平板时，当年常用的基准测试软件——尤其是依赖独立数据包运行的 **GPU 跑分软件**——如今大多已经无法正常使用：
+
+- **GLBenchmark / GFXBench 已无官方数据下载渠道**：早期商店版 APK（仅约 20–50 MB）需要在首次启动时从 Kishonti 服务器在线拉取数百 MB 的场景纹理数据包。随着 Kishonti 于 2025 年 11 月底停止 GFXBench / CompuBench 服务、下架应用商店并关闭资源服务器，无论是早已下架的 **GLBenchmark 2.5 / 2.7**，还是 **GFXBench 3.x–5.x** 的历史安装包，如今都会卡在服务器校验或数据包下载失败。官方虽在 GitHub 开源了源码与场景资产，但未提供预编译 APK，且默认构建要求 Android 5.0+（`minSdk 21`）、完整打包体积超过 1 GB，无法直接跑在 Android 2.2–4.4 老设备上。
+- **老版本 3DMark（Ice Storm 等）无法拉取 DLC**：3DMark 采用壳 APK + 在线按需下载测试模块（DLC）机制，且不支持离线迁移测试包；随着后台切换至 HTTPS（TLS 1.2+），缺乏现代根证书或默认未启用 TLS 1.2 的 Android 4.x 设备已无法完成下载，而新版客户端要求 Android 6.0+ 并已于 2020 年停止支持 Ice Storm。
+- **Basemark X / Basemark OS II / Epic Citadel 缺失 OBB 扩展包**：这些基于 Unity 或 Unreal Engine 3 的经典图形测试早已停更下架，当年依赖 Google Play 的 APK + OBB 扩展分发机制。在第三方站往往只能找到几十 MB 的基础 APK，缺少对应 `.obb` 资源时启动即触发 Play 资源校验失败。
+- **其他经典工具陆续退场**：**NenaMark 1/2/3**、**Qualcomm Neocore**、**Quadrant**、**Qualcomm Vellamo** 等早期测试软件也已全面退出官方应用商店，留存安装包常因在线接口失效或早期图形环境兼容问题无法运行。
+
+为了不再受制于下架、停服和找不齐数据包的困扰，于是做了 **RetroMobileBench**：将所有测试内核、着色器、ETC1 纹理子集（基于开源 GFXBench 移植 Egypt HD / T-Rex / Fill 场景）、音视频语料与 Web 负载全部内置在单个 APK 中，无需任何网络连接或额外数据包下载，在 Android 2.2+ 老设备上安装即可开跑。
+
 ## 界面预览
 
 > 以下主要界面截图采集自启用硬件加速的 Android 4.4 模拟器（`768×1280`），测试报告与阶段详情数据导入自三星 **GT-I9260**（TI OMAP 4470 · Android 4.1.2）完整 12 阶段实测记录；英文版主界面截图见 [docs/screenshots/en/](docs/screenshots/en/)。

@@ -25,6 +25,17 @@ Offline Benchmark Suite for Legacy Android Phones & Tablets (Version `0.1.0` · 
 
 With one tap on **Start Test**, the app executes **12 deterministic stages** covering CPU integer/float, memory bandwidth & latency, internal storage I/O, SQLite transactions, portrait WebView feed & HD image decoding, 7-clip 3-path video decode/playback, and OpenGL ES 2.0 offscreen/onscreen rendering, recording thermal and battery curves throughout with full Chinese/English localization.
 
+## Why RetroMobileBench?
+
+When revisiting vintage Android phones and tablets, most classic benchmarks—especially **GPU benchmarks** that relied on external asset packs—no longer work out of the box today:
+
+- **No official asset download channel for GLBenchmark / GFXBench**: Store releases of GLBenchmark and GFXBench shipped as small APKs (~20–50 MB) that downloaded hundreds of megabytes of scene assets from Kishonti's servers on first launch. After Kishonti shut down GFXBench / CompuBench services in late November 2025, delisted the apps, and took the asset servers offline, legacy **GLBenchmark 2.5 / 2.7** and **GFXBench 3.x–5.x** APKs fail during server checks or data downloads. While Kishonti open-sourced the code and assets on GitHub, no prebuilt APKs are provided, and the default build targets Android 5.0+ (`minSdk 21`) at over 1 GB—unusable on Android 2.2–4.4 devices.
+- **Broken DLC downloads in legacy 3DMark (Ice Storm, etc.)**: 3DMark downloads test modules (DLC) online per device without offline transfer support. After UL migrated endpoints to HTTPS (TLS 1.2+), Android 4.x devices with outdated CA roots or no default TLS 1.2 fail to fetch DLCs, while current 3DMark releases require Android 6.0+ and ended support for Ice Storm in 2020.
+- **Missing OBB expansion packs in Basemark X / Basemark OS II / Epic Citadel**: These Unity and Unreal Engine 3 benchmarks were discontinued and delisted years ago. They relied on Google Play's APK + OBB expansion delivery, so standalone APKs found on mirrors fail with Play resource lookup errors when the matching `.obb` data is missing.
+- **Disappearance of early classics**: **NenaMark 1/2/3**, **Qualcomm Neocore**, **Quadrant**, and **Qualcomm Vellamo** have all been removed from official stores, with archived APKs often breaking due to dead endpoints or legacy runtime incompatibilities.
+
+To solve this, **RetroMobileBench** bundles every native kernel, shader, ETC1 texture subset (porting Egypt HD / T-Rex / Fill from open-source GFXBench), media clip, and Web workload directly inside a single APK—zero internet access, zero external data packs, install and run from Android 2.2 onward.
+
 ## Screenshots
 
 > Captured on a GPU-accelerated Android 4.4 emulator (`768×1280`) with full 12-stage benchmark measurements imported from a real **Samsung GT-I9260** (TI OMAP 4470 · Android 4.1.2). Simplified Chinese screenshots are available in [docs/screenshots/zh/](docs/screenshots/zh/).
