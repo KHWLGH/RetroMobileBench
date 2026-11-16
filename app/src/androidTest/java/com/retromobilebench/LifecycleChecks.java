@@ -44,7 +44,11 @@ final class LifecycleChecks {
                 }
                 check(SystemClock.elapsedRealtime() < until, "first stage deadline"); SystemClock.sleep(25);
             }
-            test.runOnMainSync(() -> { runner.cancel(); check(runner.currentState().busy && runner.currentState().message.contains("正在停止"), "immediate stopping feedback"); });
+            test.runOnMainSync(() -> {
+                runner.cancel();
+                String msg = runner.currentState().message;
+                check(runner.currentState().busy && (msg.contains("正在停止") || msg.contains("Stopping")), "immediate stopping feedback");
+            });
             waitIdle(test, runner, 45000);
             JSONObject cancelled = new JSONObject(state(test, runner).exportJson);
             check("cancelled".equals(cancelled.optString("status")), "whole session cancelled");

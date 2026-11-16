@@ -34,6 +34,7 @@ public final class LegacyGpuActivity extends Activity {
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state); work = pending;
         if (work == null) { finish(); return; }
+        I18n.init(this);
         FullscreenWindow.configure(this);
         FrameLayout frame = new FrameLayout(this);
         SurfaceView output = new SurfaceView(this);
@@ -52,16 +53,16 @@ public final class LegacyGpuActivity extends Activity {
                     final String value = raw; runOnUiThread(() -> complete(value));
                 }, "rmb-legacy-gpu").start();
             }
-            public void surfaceDestroyed(SurfaceHolder holder) { if (started && !isFinishing()) complete("INTERRUPTED: GPU 窗口 Surface 丢失"); }
+            public void surfaceDestroyed(SurfaceHolder holder) { if (started && !isFinishing()) complete("INTERRUPTED: " + I18n.t(LegacyGpuActivity.this, "GPU 窗口 Surface 丢失", "GPU window Surface lost")); }
         });
         frame.addView(output, new FrameLayout.LayoutParams(-1, -1));
         hud = new GpuHud(this, frame); hud.setVisible(true);
-        FullscreenWindow.cancel(this, frame, () -> complete("CANCELLED: 用户停止 GPU 测试"));
+        FullscreenWindow.cancel(this, frame, () -> complete("CANCELLED: " + I18n.t(LegacyGpuActivity.this, "用户停止 GPU 测试", "GPU test stopped by user")));
         setContentView(frame);
     }
     private void complete(String raw) { if (hud != null) hud.setVisible(false); if (work != null) work.publish(raw); finish(); }
-    @Override public void onBackPressed() { complete("CANCELLED: 用户返回停止 GPU 测试"); }
+    @Override public void onBackPressed() { complete("CANCELLED: " + I18n.t(this, "用户返回停止 GPU 测试", "GPU test stopped via back button")); }
     @Override public void onWindowFocusChanged(boolean focused) { super.onWindowFocusChanged(focused); if (focused) FullscreenWindow.immersive(this); }
-    @Override protected void onStop() { if (hud != null) hud.setVisible(false); if (!isFinishing() && !PlatformCompat.changingConfigurations(this)) complete("INTERRUPTED: GPU 窗口退到后台"); super.onStop(); }
+    @Override protected void onStop() { if (hud != null) hud.setVisible(false); if (!isFinishing() && !PlatformCompat.changingConfigurations(this)) complete("INTERRUPTED: " + I18n.t(this, "GPU 窗口退到后台", "GPU window moved to background")); super.onStop(); }
     @Override protected void onDestroy() { if (hud != null) hud.setVisible(false); super.onDestroy(); }
 }

@@ -34,7 +34,7 @@ final class WebClient {
         diagnosticPhase = "preflight";
         JSONObject snapshot = failure("failed", "not_started");
         try {
-            if (cleanupFailed) return failure("failed", "Web 工作进程此前回收失败；请重启应用").put("unsafe_cleanup", true);
+            if (cleanupFailed) return failure("failed", I18n.t(context, "Web 工作进程此前回收失败；请重启应用", "Previous Web worker failed cleanup; please restart app")).put("unsafe_cleanup", true);
             if (cancellation.isCancelled()) return failure("cancelled", "preflight");
             long deadline = stageDeadline == 0 ? SystemClock.elapsedRealtime() + 330000 : stageDeadline;
             snapshot = WebAssets.verify(context);

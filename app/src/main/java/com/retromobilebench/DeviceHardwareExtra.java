@@ -43,8 +43,8 @@ final class DeviceHardwareExtra {
             extra.put("display_id", Build.DISPLAY);
             String osVer = System.getProperty("os.version");
             String osArch = System.getProperty("os.arch");
-            extra.put("kernel_version", osVer != null ? osVer : "未知");
-            extra.put("kernel_arch", osArch != null ? osArch : "未知");
+            extra.put("kernel_version", osVer != null ? osVer : I18n.t("未知", "Unknown"));
+            extra.put("kernel_arch", osArch != null ? osArch : I18n.t("未知", "Unknown"));
 
             // Display metrics
             DisplayMetrics dm = context.getResources().getDisplayMetrics();

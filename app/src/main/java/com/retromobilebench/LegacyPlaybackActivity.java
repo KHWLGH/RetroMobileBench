@@ -36,6 +36,7 @@ public final class LegacyPlaybackActivity extends Activity {
     @Override @SuppressWarnings("deprecation") protected void onCreate(Bundle state) {
         super.onCreate(state); work = pending;
         if (work == null) { finish(); return; }
+        I18n.init(this);
         FullscreenWindow.configure(this);
         FrameLayout frame = new FrameLayout(this);
         SurfaceView output = new SurfaceView(this);
@@ -54,17 +55,17 @@ public final class LegacyPlaybackActivity extends Activity {
                     final JSONObject value = result; runOnUiThread(() -> complete(value));
                 }, "rmb-legacy-playback").start();
             }
-            public void surfaceDestroyed(SurfaceHolder holder) { if (started && !isFinishing()) complete(MediaClient.failure("interrupted", "播放窗口 Surface 丢失")); }
+            public void surfaceDestroyed(SurfaceHolder holder) { if (started && !isFinishing()) complete(MediaClient.failure("interrupted", I18n.t(LegacyPlaybackActivity.this, "播放窗口 Surface 丢失", "Playback window Surface lost"))); }
         });
         frame.addView(output, new FrameLayout.LayoutParams(-1, -1));
-        FullscreenWindow.cancel(this, frame, () -> complete(MediaClient.failure("cancelled", "用户取消视频播放")));
+        FullscreenWindow.cancel(this, frame, () -> complete(MediaClient.failure("cancelled", I18n.t(LegacyPlaybackActivity.this, "用户取消视频播放", "Video playback cancelled by user"))));
         setContentView(frame);
     }
     private void complete(JSONObject result) { if (work != null) work.publish(result); finish(); }
-    @Override public void onBackPressed() { complete(MediaClient.failure("cancelled", "用户返回停止视频播放")); }
+    @Override public void onBackPressed() { complete(MediaClient.failure("cancelled", I18n.t(this, "用户返回停止视频播放", "Video playback stopped via back button"))); }
     @Override public void onWindowFocusChanged(boolean focused) { super.onWindowFocusChanged(focused); if (focused) FullscreenWindow.immersive(this); }
     @Override protected void onStop() {
-        if (!isFinishing() && !PlatformCompat.changingConfigurations(this)) complete(MediaClient.failure("interrupted", "视频播放窗口退到后台"));
+        if (!isFinishing() && !PlatformCompat.changingConfigurations(this)) complete(MediaClient.failure("interrupted", I18n.t(this, "视频播放窗口退到后台", "Video playback window moved to background")));
         super.onStop();
     }
 }

@@ -25,11 +25,11 @@ final class GpuClient {
     static String run(Context context, String test, int diagnosticMs) {
         long preparationDeadline = SystemClock.elapsedRealtime() + 180000;
         try {
-            if (cleanupFailed) return failure("failed", "此前 GPU 工作进程未能回收；请重启应用后再测").toString();
+            if (cleanupFailed) return failure("failed", I18n.t(context, "此前 GPU 工作进程未能回收；请重启应用后再测", "Previous GPU worker failed cleanup; please restart app")).toString();
             if (!isTest(test)) return failure("failed", "arguments").toString();
             if (cancellation.isCancelled()) return failure("cancelled", "preflight").toString();
             File pack = GpuDataPack.ensure(context, test, () -> cancellation.isCancelled() || SystemClock.elapsedRealtime() >= preparationDeadline);
-            if (pack == null) return failure("skipped", "内置固定资源不完整").toString();
+            if (pack == null) return failure("skipped", I18n.t(context, "内置固定资源不完整", "Bundled fixed assets incomplete")).toString();
             JSONObject envelope = invoke(context, pack, test, diagnosticMs, 240000);
             envelope.put("test_version", "gpu-" + test + "-v1");
             envelope.put("native_build_id", BuildConfig.NATIVE_BUILD_ID);
@@ -57,14 +57,14 @@ final class GpuClient {
         externalDisplay = legacyWindow;
         CountDownLatch died = new CountDownLatch(1);
         java.util.concurrent.atomic.AtomicInteger pid = new java.util.concurrent.atomic.AtomicInteger();
-        WorkerRequest pending = new WorkerRequest(failure("cancelled", "GPU 测试已取消"));
+        WorkerRequest pending = new WorkerRequest(failure("cancelled", I18n.t(context, "GPU 测试已取消", "GPU test cancelled")));
         AtomicBoolean closed = new AtomicBoolean();
         java.util.concurrent.atomic.AtomicInteger hudUpdates = new java.util.concurrent.atomic.AtomicInteger();
         AtomicReference<Messenger> remote = new AtomicReference<>();
         AtomicReference<IBinder> binder = new AtomicReference<>();
         IBinder.DeathRecipient death = () -> {
             died.countDown();
-            pending.complete(failure("failed", "GPU 进程退出（驱动崩溃或系统回收）"));
+            pending.complete(failure("failed", I18n.t(context, "GPU 进程退出（驱动崩溃或系统回收）", "GPU worker exited (driver crash or reclaimed)")));
         };
         Messenger reply = new Messenger(new Handler(Looper.getMainLooper()) {
             @Override public void handleMessage(Message message) {
@@ -79,7 +79,7 @@ final class GpuClient {
                     JSONObject parsed = parse(raw, test);
                     long swaps = message.getData().getLong("window_swaps");
                     if (!test.endsWith("_off") && "completed".equals(parsed.optString("status")) && swaps < 1)
-                        parsed = failure("failed", "屏上测试未成功交换窗口缓冲区");
+                        parsed = failure("failed", I18n.t(context, "屏上测试未成功交换窗口缓冲区", "On-screen test did not swap any window buffers"));
                     parsed.put("successful_window_swaps", swaps);
                     String eglConfig = message.getData().getString("egl_config");
                     parsed.put("egl_config", new JSONObject(eglConfig == null ? "{}" : eglConfig));
@@ -122,14 +122,14 @@ final class GpuClient {
         try {
             if (!pending.isComplete()) {
                 bound = context.bindService(new Intent(context, GpuService.class), connection, Context.BIND_AUTO_CREATE);
-                if (!bound) pending.complete(failure("failed", "无法绑定 GPU 进程"));
+                if (!bound) pending.complete(failure("failed", I18n.t(context, "无法绑定 GPU 进程", "Unable to bind GPU worker service")));
             }
-            JSONObject value = pending.await(SystemClock.elapsedRealtime() + timeoutMs, failure("timeout", "GPU 测试超时"));
+            JSONObject value = pending.await(SystemClock.elapsedRealtime() + timeoutMs, failure("timeout", I18n.t(context, "GPU 测试超时", "GPU test timeout")));
             if (pid.get() > 0) value.put("worker_pid", pid.get());
             return value;
         } finally {
             // Seal an exceptional/interrupted request before any late Binder callback.
-            pending.complete(failure("failed", "GPU 请求已关闭"));
+            pending.complete(failure("failed", I18n.t(context, "GPU 请求已关闭", "GPU request closed")));
             cancellation.detach(pending);
             externalDisplay = false;
             try {
@@ -146,7 +146,7 @@ final class GpuClient {
         if (raw != null && raw.startsWith("CANCELLED:")) return failure("cancelled", raw.substring(10).trim());
         if (raw != null && raw.startsWith("INTERRUPTED:")) return failure("interrupted", raw.substring(12).trim());
         if (raw != null && raw.startsWith("SKIP:")) return failure("skipped", raw.substring(5).trim());
-        if (raw == null || raw.startsWith("ERROR:")) return failure("failed", raw == null ? "GPU 无结果" : raw);
+        if (raw == null || raw.startsWith("ERROR:")) return failure("failed", raw == null ? I18n.t("GPU 无结果", "GPU returned no result") : raw);
         JSONObject original = new JSONObject(raw);
         JSONObject measurement = original.getJSONArray("results").getJSONObject(0);
         JSONObject result = new JSONObject().put("raw_result", original).put("completed_metrics", 0);
@@ -159,14 +159,14 @@ final class GpuClient {
             return result.put("status", unsupported ? "skipped" : "failed").put("error_stage", error);
         }
         if (!test.equals(measurement.getString("test_id")))
-            return result.put("status", "failed").put("error_stage", "GPU 返回了不同测试的结果");
+            return result.put("status", "failed").put("error_stage", I18n.t("GPU 返回了不同测试的结果", "GPU returned result for a different test"));
         double score = measurement.getDouble("score");
         if (score <= 0 || Double.isNaN(score) || Double.isInfinite(score))
             return result.put("status", "failed").put("error_stage", "Invalid GPU score: " + score);
         JSONObject gfx = measurement.getJSONObject("gfx_result");
         int width = gfx.getInt("surface_width"), height = gfx.getInt("surface_height");
         if (width < 1 || height < 1 || test.endsWith("_off") && (width != 1920 || height != 1080))
-            return result.put("status", "failed").put("error_stage", "GPU 实际渲染分辨率不是 1920×1080");
+            return result.put("status", "failed").put("error_stage", I18n.t("GPU 实际渲染分辨率不是 1920×1080", "GPU offscreen render size is not 1920x1080"));
         if (gfx.optDouble("fps", -1) > 0) result.put("fps", gfx.getDouble("fps"));
         if (gfx.optInt("frame_count", -1) > 0) result.put("frames", gfx.getInt("frame_count"));
         return result.put("status", "completed").put("completed_metrics", 1).put("score", score)

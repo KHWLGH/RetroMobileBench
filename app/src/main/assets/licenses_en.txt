@@ -1,0 +1,59 @@
+RetroMobileBench Open-Source Components & Attribution Notices
+
+Project License:
+- RetroMobileBench original code and original content are licensed under the Apache License 2.0 (see the "Benchmark Notices" tab and the LICENSE file at the repository root for the full text).
+- Third-party benchmark components, toolchain runtimes, and CC BY 3.0 / CC BY 4.0 media assets remain under their respective original licenses and attribution terms.
+
+Multimedia Component:
+- FFmpeg 4.4.6 (LGPL-2.1-or-later; built with only the required local decoders and SHA-256 verification enabled, and with GPL / nonfree / network / encoders disabled)
+
+Complete original license texts, source build details, and LGPL shared-library replacement instructions are included in the "Benchmark Notices" tab.
+Video test clips and large JPEG images for the web feed originate from the Sintel trailer (© Blender Foundation, CC BY 3.0: https://durian.blender.org/sharing/), trimmed, scaled, re-encoded, and stripped of audio tracks; PNG test images are synthetic transparent assets.
+The memory Triad test implements a variant of STREAM using a shared fixed 24 MiB working set (3 × 8 MiB).
+
+────────────────
+SQLite 3.53.1 — https://sqlite.org
+Uses the official amalgamation source for standalone synchronized database transaction benchmarks.
+SQLite is in the Public Domain: https://sqlite.org/copyright.html
+
+The author disclaims copyright to this source code. In place of
+ a legal notice, here is a blessing:
+
+    May you do good and not evil.
+    May you find forgiveness for yourself and forgive others.
+    May you share freely, never taking more than you give.
+
+────────────────
+CoreMark® 1.0 — https://github.com/eembc/coremark
+Pinned commit: 1f483d5b8316753a742cbf5590caf5bd0a4e4777
+Copyright 2018 Embedded Microprocessor Benchmark Consortium (EEMBC).
+CoreMark® is a registered trademark of EEMBC.
+Core source is unmodified, with a custom core_portme Android porting layer. Follows two-seed validation and the >= 10-second formal timing rule; see the appended original files for the full Apache 2.0 license and trademark terms.
+
+────────────────
+SciMark 2.0 (C) — https://math.nist.gov/scimark2/
+Authors: Roldan Pozo and Bruce Miller, National Institute of Standards and Technology.
+NIST Public Domain numerical benchmark (original archive scimark2c.zip).
+Local changes add allocation failure checks and thread-safe static constant initialization in Random.c / MonteCarlo.c without altering core math; times single-thread and multi-thread kernels separately and reports composite MFLOPS.
+
+────────────────
+TinyMemBench — https://github.com/ssvb/tinymembench
+Pinned commit: a2cf6d7e382e3aea1eb39173174d9fa28cad15f3
+Copyright © 2011 Siarhei Siamashka <siarhei.siamashka@gmail.com>.
+Uses the C memory copy and fill kernels from util.c; random pointer-chasing latency is implemented by this project. See the appended util.h header for the full MIT license.
+
+────────────────
+STREAM — https://www.cs.virginia.edu/stream/
+Reference mirror: https://github.com/jeffhammond/STREAM
+Pinned commit: 6703f7504a38a8da96b353cadafa64d3c2d7a2d3
+Copyright 1991-2003: John D. McCalpin.
+Based on a variant of the STREAM benchmark code.
+Uses pthreads and a shared fixed 24 MiB working set (3 × 8 MiB) partitioned along cache-line boundaries with no overlap; computes bandwidth (MB/s) from completed elements × 24 bytes / elapsed time. See the appended LICENSE.txt for the full license statement.
+
+────────────────
+GFXBench ES2 — https://github.com/Kishonti-Opensource/gfxbench
+Pinned commit: 89aa956f43836798d1eaaab8ec32d3dc8b02eead
+Copyright (c) 2005-2025 Kishonti Ltd.
+Engine code is licensed under BSD 3-Clause; scene assets are licensed under CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/).
+Local adaptation: extracted the OpenGL ES 2.0 scene subset with an Android EGL host and disposable worker process scheduling; retains ETC1 textures only, removes reference images, and adds a fragment precision fallback in ui.fs.
+Includes libpng, zlib, TinyXML, TinyXML2, libetc1, and Xiph Ogg/Theora notices in the appended files.

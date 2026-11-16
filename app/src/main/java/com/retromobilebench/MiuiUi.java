@@ -889,14 +889,14 @@ final class MiuiUi {
     }
 
     static String formatBytes(long bytes) {
-        if (bytes <= 0) return "未知";
+        if (bytes <= 0) return I18n.t("未知", "Unknown");
         double mib = bytes / (1024.0 * 1024.0);
         if (mib >= 1024.0) return String.format(java.util.Locale.US, "%.2f\u00A0GiB (%.0f\u00A0MiB)", mib / 1024.0, mib);
         return String.format(java.util.Locale.US, "%.1f\u00A0MiB", mib);
     }
 
     static String formatBytesShort(long bytes) {
-        if (bytes <= 0) return "未知";
+        if (bytes <= 0) return I18n.t("未知", "Unknown");
         double mib = bytes / (1024.0 * 1024.0);
         if (mib >= 1024.0) return String.format(java.util.Locale.US, "%.2f\u00A0GiB", mib / 1024.0);
         return String.format(java.util.Locale.US, "%.0f\u00A0MiB", mib);
@@ -908,12 +908,15 @@ final class MiuiUi {
         double totalSeconds = ms / 1000.0;
         int minutes = (int) (totalSeconds / 60);
         double seconds = totalSeconds - minutes * 60;
-        if (minutes > 0) return String.format(java.util.Locale.US, "%d\u00A0分\u00A0%.1f\u00A0秒", minutes, seconds);
-        return String.format(java.util.Locale.US, "%.2f\u00A0秒", totalSeconds);
+        if (minutes > 0) {
+            return String.format(java.util.Locale.US,
+                    I18n.t("%d\u00A0分\u00A0%.1f\u00A0秒", "%d\u00A0min\u00A0%.1f\u00A0s"), minutes, seconds);
+        }
+        return String.format(java.util.Locale.US, I18n.t("%.2f\u00A0秒", "%.2f\u00A0s"), totalSeconds);
     }
 
     static String formatKhz(String khzText) {
-        if (khzText == null || "unknown".equals(khzText) || khzText.length() == 0) return "未知";
+        if (khzText == null || "unknown".equals(khzText) || khzText.length() == 0) return I18n.t("未知", "Unknown");
         try {
             long khz = Long.parseLong(khzText.trim());
             if (khz <= 0) return khzText;
@@ -985,7 +988,7 @@ final class MiuiUi {
         actions.setPadding(dp(context, 16), 0, dp(context, 16), dp(context, 16));
 
         int btnHeight = dp(context, 42);
-        Button cancelBtn = styledButton(context, "取消", false, false, () -> {
+        Button cancelBtn = styledButton(context, I18n.t(context, "取消", "Cancel"), false, false, () -> {
             if (onDismiss != null) onDismiss.run();
         });
         cancelBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
@@ -1038,8 +1041,9 @@ final class MiuiUi {
         cardBg.setStroke(dp(context, 1), BORDER_CARD);
         setBackground(card, cardBg);
 
+        boolean zh = I18n.isZh(context);
         TextView titleView = new TextView(context);
-        titleView.setText("导出完整测试数据");
+        titleView.setText(zh ? "导出完整测试数据" : "Export Complete Report");
         titleView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
         titleView.setTypeface(Typeface.DEFAULT_BOLD);
         titleView.setTextColor(TEXT_PRIMARY);
@@ -1047,7 +1051,9 @@ final class MiuiUi {
         card.addView(titleView);
 
         TextView subView = new TextView(context);
-        subView.setText("导出文件包含全部原始采样、硬件快照与温升/电量时间序列曲线，适配下载目录保存、USB/MTP 读取与系统分享。");
+        subView.setText(zh
+                ? "导出文件包含全部原始采样、硬件快照与温升/电量时间序列曲线，适配下载目录保存、USB/MTP 读取与系统分享。"
+                : "Export includes all raw samples, hardware snapshot, and thermal/battery curves for Downloads storage, USB/MTP transfer, and sharing.");
         subView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         subView.setTextColor(TEXT_SECONDARY);
         subView.setLineSpacing(dp(context, 1.5f), 1.05f);
@@ -1067,7 +1073,7 @@ final class MiuiUi {
         fmtBox.setPadding(dp(context, 16), dp(context, 12), dp(context, 16), dp(context, 8));
 
         TextView fmtLabel = new TextView(context);
-        fmtLabel.setText("选择导出格式");
+        fmtLabel.setText(zh ? "选择导出格式" : "Select Export Format");
         fmtLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         fmtLabel.setTypeface(Typeface.DEFAULT_BOLD);
         fmtLabel.setTextColor(TEXT_MUTED);
@@ -1079,12 +1085,20 @@ final class MiuiUi {
         fmtHint.setTextColor(TEXT_SECONDARY);
         fmtHint.setPadding(0, dp(context, 6), 0, 0);
 
-        String[] shortLabels = {"完整 JSON", "表格 CSV", "文本报告"};
-        String[] hints = {
-                "完整 JSON (.json)：含顶部摘要与 100% 原始 raw_report 数据",
-                "表格 CSV (.csv)：UTF-8 BOM 编码，Excel 可直接打开查看全量明细与曲线",
-                "文本报告 (.txt)：可读中文报告与完整温升/电量采样时间线"
-        };
+        String[] shortLabels = zh
+                ? new String[]{"完整 JSON", "表格 CSV", "文本报告"}
+                : new String[]{"Full JSON", "Table CSV", "Text Report"};
+        String[] hints = zh
+                ? new String[]{
+                        "完整 JSON (.json)：含顶部摘要与 100% 原始 raw_report 数据",
+                        "表格 CSV (.csv)：UTF-8 BOM 编码，Excel 可直接打开查看全量明细与曲线",
+                        "文本报告 (.txt)：可读中文报告与完整温升/电量采样时间线"
+                }
+                : new String[]{
+                        "Full JSON (.json): summary header plus complete raw_report payload",
+                        "Table CSV (.csv): UTF-8 BOM encoded for Excel with full samples & curves",
+                        "Text Report (.txt): human-readable summary and full thermal/battery timeline"
+                };
 
         LinearLayout segRow = new LinearLayout(context);
         segRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -1118,7 +1132,7 @@ final class MiuiUi {
         btnCol.setOrientation(LinearLayout.VERTICAL);
         btnCol.setPadding(dp(context, 16), dp(context, 6), dp(context, 16), dp(context, 14));
 
-        Button saveBtn = styledButton(context, "保存文件到下载目录", true, false, () -> {
+        Button saveBtn = styledButton(context, zh ? "保存文件到下载目录" : "Save to Downloads", true, false, () -> {
             if (onDismiss != null) onDismiss.run();
             if (listener != null) listener.onSaveLocal(formats[selectedIndex[0]]);
         });
@@ -1132,14 +1146,14 @@ final class MiuiUi {
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         sRowLp.topMargin = dp(context, 8);
 
-        Button shareBtn = styledButton(context, "保存并分享文件", false, false, () -> {
+        Button shareBtn = styledButton(context, zh ? "保存并分享文件" : "Save & Share", false, false, () -> {
             if (onDismiss != null) onDismiss.run();
             if (listener != null) listener.onSaveAndShare(formats[selectedIndex[0]]);
         });
         secondRow.addView(shareBtn, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
 
         if (Build.VERSION.SDK_INT >= 19) {
-            Button safBtn = styledButton(context, "另存为…", false, false, () -> {
+            Button safBtn = styledButton(context, zh ? "另存为…" : "Save As...", false, false, () -> {
                 if (onDismiss != null) onDismiss.run();
                 if (listener != null) listener.onSaveAsSaf(formats[selectedIndex[0]]);
             });
@@ -1157,7 +1171,7 @@ final class MiuiUi {
         tRowLp.topMargin = dp(context, 8);
 
         if (hasQuickSummary) {
-            Button copyBtn = styledButton(context, "复制文本摘要", false, false, () -> {
+            Button copyBtn = styledButton(context, zh ? "复制文本摘要" : "Copy Summary", false, false, () -> {
                 if (onDismiss != null) onDismiss.run();
                 if (listener != null) listener.onCopySummary();
             });
@@ -1166,7 +1180,7 @@ final class MiuiUi {
             thirdRow.addView(copyBtn, cLp);
         }
 
-        Button cancelBtn = styledButton(context, "取消", false, false, () -> {
+        Button cancelBtn = styledButton(context, zh ? "取消" : "Cancel", false, false, () -> {
             if (onDismiss != null) onDismiss.run();
         });
         thirdRow.addView(cancelBtn, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
@@ -1201,8 +1215,9 @@ final class MiuiUi {
         cardBg.setStroke(dp(context, 1), BORDER_CARD);
         setBackground(card, cardBg);
 
+        boolean zh = I18n.isZh(context);
         TextView titleView = new TextView(context);
-        titleView.setText("导出成功");
+        titleView.setText(zh ? "导出成功" : "Export Complete");
         titleView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
         titleView.setTypeface(Typeface.DEFAULT_BOLD);
         titleView.setTextColor(TEXT_PRIMARY);
@@ -1214,7 +1229,8 @@ final class MiuiUi {
         card.addView(divider, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1));
 
         TextView msgView = new TextView(context);
-        msgView.setText("文件名：" + fileName + "\n保存位置：" + displayPath
+        msgView.setText((zh ? "文件名：" : "File: ") + fileName
+                + (zh ? "\n保存位置：" : "\nSaved to: ") + displayPath
                 + (note != null && note.length() > 0 ? "\n\n" + note : ""));
         msgView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f);
         msgView.setTextColor(TEXT_SECONDARY);
@@ -1227,12 +1243,12 @@ final class MiuiUi {
         actions.setBaselineAligned(false);
         actions.setPadding(dp(context, 16), 0, dp(context, 16), dp(context, 14));
 
-        Button copyBtn = styledButton(context, "复制路径", false, false, () -> {
+        Button copyBtn = styledButton(context, zh ? "复制路径" : "Copy Path", false, false, () -> {
             if (onCopyPath != null) onCopyPath.run();
         });
         actions.addView(copyBtn, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
 
-        Button shareBtn = styledButton(context, "分享文件", true, false, () -> {
+        Button shareBtn = styledButton(context, zh ? "分享文件" : "Share File", true, false, () -> {
             if (onDismiss != null) onDismiss.run();
             if (onShare != null) onShare.run();
         });
@@ -1240,7 +1256,7 @@ final class MiuiUi {
         sLp.leftMargin = dp(context, 8);
         actions.addView(shareBtn, sLp);
 
-        Button doneBtn = styledButton(context, "完成", false, false, () -> {
+        Button doneBtn = styledButton(context, zh ? "完成" : "Done", false, false, () -> {
             if (onDismiss != null) onDismiss.run();
         });
         LinearLayout.LayoutParams dLp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
@@ -1248,6 +1264,92 @@ final class MiuiUi {
         actions.addView(doneBtn, dLp);
 
         card.addView(actions);
+        FrameLayout.LayoutParams cardLp = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER);
+        scrim.addView(card, cardLp);
+        return scrim;
+    }
+
+    interface LanguageChoiceListener {
+        void onSelect(String mode);
+    }
+
+    /** In-app MIUI V5 language selector overlay (Follow System / Simplified Chinese / English). */
+    static FrameLayout buildLanguageOverlay(Context context, String currentMode,
+                                            Runnable onDismiss, LanguageChoiceListener listener) {
+        boolean zh = I18n.isZh(context);
+        FrameLayout scrim = new FrameLayout(context);
+        scrim.setBackgroundColor(0x73000000);
+        scrim.setClickable(true);
+        scrim.setFocusable(true);
+        int hMargin = dp(context, 24);
+        int vMargin = dp(context, 24);
+        scrim.setPadding(hMargin, vMargin, hMargin, vMargin);
+        scrim.setOnClickListener(v -> { if (onDismiss != null) onDismiss.run(); });
+
+        LinearLayout card = new LinearLayout(context);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setClickable(true);
+        GradientDrawable cardBg = new GradientDrawable();
+        cardBg.setColor(BG_CARD);
+        cardBg.setCornerRadius(dp(context, 10));
+        cardBg.setStroke(dp(context, 1), BORDER_CARD);
+        setBackground(card, cardBg);
+
+        TextView titleView = new TextView(context);
+        titleView.setText(zh ? "界面语言 / Language" : "Language / 界面语言");
+        titleView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+        titleView.setTypeface(Typeface.DEFAULT_BOLD);
+        titleView.setTextColor(TEXT_PRIMARY);
+        titleView.setPadding(dp(context, 18), dp(context, 16), dp(context, 18), dp(context, 10));
+        card.addView(titleView);
+
+        View divider = new View(context);
+        divider.setBackgroundColor(DIVIDER_ROW);
+        card.addView(divider, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1));
+
+        String[] modes = {I18n.MODE_AUTO, I18n.MODE_ZH, I18n.MODE_EN};
+        String[] subtitles = {
+                zh ? "自动匹配 Android 系统语言设置" : "Follow Android system locale setting",
+                "Simplified Chinese UI & reports",
+                "英文界面、测试报告与导出文件"
+        };
+
+        for (int i = 0; i < modes.length; i++) {
+            final String mode = modes[i];
+            boolean selected = mode.equals(currentMode);
+            if (i > 0) {
+                View rowDiv = new View(context);
+                rowDiv.setBackgroundColor(DIVIDER_ROW);
+                LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1);
+                dlp.leftMargin = dp(context, 16);
+                card.addView(rowDiv, dlp);
+            }
+            MiuiRowLayout row = kvRow(context,
+                    I18n.modeLabel(context, mode),
+                    subtitles[i],
+                    null,
+                    selected ? (zh ? "当前" : "Active") : null,
+                    selected ? TONE_ACTIVE : TONE_NEUTRAL);
+            row.setClickable(true);
+            setBackground(row, rowClickDrawable());
+            row.setOnClickListener(v -> {
+                if (onDismiss != null) onDismiss.run();
+                if (listener != null) listener.onSelect(mode);
+            });
+            card.addView(row);
+        }
+
+        LinearLayout actions = new LinearLayout(context);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        actions.setPadding(dp(context, 16), dp(context, 10), dp(context, 16), dp(context, 14));
+        Button cancelBtn = styledButton(context, zh ? "取消" : "Cancel", false, false, () -> {
+            if (onDismiss != null) onDismiss.run();
+        });
+        actions.addView(cancelBtn, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        card.addView(actions);
+
         FrameLayout.LayoutParams cardLp = new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER);
         scrim.addView(card, cardLp);
@@ -1325,10 +1427,11 @@ final class MiuiUi {
                 if (p.optBoolean("plugged", false)) anyPlug = true;
 
                 String stage = p.optString("stage");
-                if (i > 0 && stage.length() > 0 && !"阶段间隔".equals(stage) && !stage.equals(prevStage)) {
+                boolean isPause = "阶段间隔".equals(stage) || "Stage pause".equals(stage);
+                if (i > 0 && stage.length() > 0 && !isPause && !stage.equals(prevStage)) {
                     if (breakCount < breaksTmp.length) breaksTmp[breakCount++] = i;
                 }
-                if (stage.length() > 0 && !"阶段间隔".equals(stage)) prevStage = stage;
+                if (stage.length() > 0 && !isPause) prevStage = stage;
 
                 if (p.has("tenths_c")) {
                     double c = p.optInt("tenths_c") / 10.0;
@@ -1471,7 +1574,8 @@ final class MiuiUi {
             if (!hasTempCurve && !hasBatCurve) {
                 labelPaint.setColor(TEXT_SECONDARY);
                 labelPaint.setTextAlign(Paint.Align.LEFT);
-                canvas.drawText("采样点不足（需至少 2 次采样），暂无法绘制曲线", padH, h * 0.5f + dp(ctx, 4), labelPaint);
+                canvas.drawText(I18n.t(ctx, "采样点不足（需至少 2 次采样），暂无法绘制曲线",
+                        "Insufficient samples (need >= 2) to plot curve"), padH, h * 0.5f + dp(ctx, 4), labelPaint);
                 return;
             }
 
@@ -1504,14 +1608,15 @@ final class MiuiUi {
             float line1Y = top + dp(ctx, 14);
             float line2Y = top + dp(ctx, 30);
 
-            canvas.drawText("电池温度", left, line1Y, titlePaint);
-            canvas.drawText("温升曲线", left, line2Y, subPaint);
+            canvas.drawText(I18n.t(ctx, "电池温度", "Battery Temp"), left, line1Y, titlePaint);
+            canvas.drawText(I18n.t(ctx, "温升曲线", "Thermal Rise"), left, line2Y, subPaint);
 
             rightMainPaint.setColor(ORANGE_DARK);
             canvas.drawText(String.format(Locale.US, "%.1f → %.1f °C (%+.1f °C)",
                     startTempC, endTempC, deltaTempC), right, line1Y, rightMainPaint);
             rightLabelPaint.setColor(TEXT_SECONDARY);
-            canvas.drawText(String.format(Locale.US, "最低 %.1f · 峰值 %.1f °C", minTempC, peakTempC),
+            canvas.drawText(String.format(Locale.US,
+                    I18n.t(ctx, "最低 %.1f · 峰值 %.1f °C", "Min %.1f · Peak %.1f °C"), minTempC, peakTempC),
                     right, line2Y, rightLabelPaint);
 
             double span = Math.max(1.0, maxTempC - minTempC);
@@ -1539,8 +1644,8 @@ final class MiuiUi {
             float line1Y = top + dp(ctx, 14);
             float line2Y = top + dp(ctx, 30);
 
-            canvas.drawText("电池电量", left, line1Y, titlePaint);
-            canvas.drawText("耗电曲线", left, line2Y, subPaint);
+            canvas.drawText(I18n.t(ctx, "电池电量", "Battery Level"), left, line1Y, titlePaint);
+            canvas.drawText(I18n.t(ctx, "耗电曲线", "Drain Curve"), left, line2Y, subPaint);
 
             int accent = pluggedAny ? 0xFF188AE2 : GREEN;
             rightMainPaint.setColor(accent);
@@ -1550,9 +1655,9 @@ final class MiuiUi {
             String subRight;
             if (hasVoltage) {
                 subRight = String.format(Locale.US, "%.2f → %.2f V%s",
-                        startVoltV, endVoltV, pluggedAny ? " · 含供电" : "");
+                        startVoltV, endVoltV, pluggedAny ? I18n.t(ctx, " · 含供电", " · Plugged") : "");
             } else {
-                subRight = pluggedAny ? "含外接供电" : "纯电池供电";
+                subRight = pluggedAny ? I18n.t(ctx, "含外接供电", "External Power") : I18n.t(ctx, "纯电池供电", "Battery Only");
             }
             canvas.drawText(subRight, right, line2Y, rightLabelPaint);
 

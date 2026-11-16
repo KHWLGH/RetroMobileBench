@@ -65,7 +65,9 @@ class ResultStore extends SQLiteOpenHelper {
                     report.put("status", "interrupted");
                     report.remove("median");
                     report.put("ended_ms", System.currentTimeMillis());
-                    report.put("message", "进程退出，测试中断；已完成的轮次已保留");
+                    report.put("message", I18n.t(
+                            "进程退出，测试中断；已完成的轮次已保留",
+                            "Process exited and interrupted the run; completed rounds retained"));
                     JSONObject active = report.optJSONObject("active_report");
                     if (active != null) {
                         active.put("status", "interrupted").put("ended_ms", System.currentTimeMillis());

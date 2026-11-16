@@ -70,7 +70,9 @@ final class GpuBackendChecks {
         GpuClient.resetCancellation();
         pack = GpuDataPack.ensure(context, "gl_egypt_off", () -> false);
         JSONObject timeout = GpuClient.invoke(context, pack, "gl_egypt_off", 10000, 400);
-        check("timeout".equals(timeout.getString("status")) && timeout.getString("error_stage").contains("超时"), "GPU timeout");
+        String errStage = timeout.getString("error_stage");
+        check("timeout".equals(timeout.getString("status"))
+                && (errStage.contains("超时") || errStage.toLowerCase(java.util.Locale.US).contains("timeout")), "GPU timeout");
         check("completed".equals(new JSONObject(GpuClient.run(context, "gl_egypt_off", 5000)).getString("status")), "GPU restart after kill");
         check("failed".equals(GpuClient.parse("ERROR: init failed", "gl_fill_off").getString("status")), "GPU native failure");
     }

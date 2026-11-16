@@ -37,7 +37,8 @@ final class FixedSuiteChecks {
             check(saved.getLong("id") == id && "interrupted".equals(saved.getString("status")) && saved.getJSONArray("results").length() == 1, "interrupted session keeps all completed stages");
             JSONObject active = saved.getJSONObject("active_report");
             check("interrupted".equals(active.getString("status")) && active.getJSONArray("samples").length() == 1 && !active.has("median"), "active completed rounds retained without normal median");
-            check(BenchmarkReport.format(saved).contains("本次固定套件"), "session readable");
+            String formattedSession = BenchmarkReport.format(saved);
+            check(formattedSession.contains("本次固定套件") || formattedSession.contains("Fixed Suite Run"), "session readable");
         } finally { store.close(); }
     }
     private static void check(boolean ok, String reason) { if (!ok) throw new AssertionError(reason); }

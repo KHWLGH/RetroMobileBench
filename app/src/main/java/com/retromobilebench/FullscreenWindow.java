@@ -20,7 +20,7 @@ final class FullscreenWindow {
         if (Build.VERSION.SDK_INT >= 19) Api19.hideBars(activity.getWindow().getDecorView());
     }
     static void cancel(Activity activity, FrameLayout frame, Runnable action) {
-        Button cancel = new Button(activity); cancel.setText("取消测试");
+        Button cancel = new Button(activity); cancel.setText(I18n.t(activity, "取消测试", "Cancel"));
         cancel.setOnClickListener(view -> action.run());
         FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.RIGHT);
         frame.addView(cancel, params);

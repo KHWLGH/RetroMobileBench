@@ -1,6 +1,8 @@
 # 许可与分发
 
-RetroMobileBench 以 APK 形式直接分发。第三方组件的锁定版本与源码来源见[开发与构建 - 第三方依赖](development.md#第三方依赖共-7-项)，各组件的原始许可证文本随源码保留，并在应用内的“许可”页面集中展示。
+RetroMobileBench 的原创代码与原创内容采用 **Apache-2.0** 许可证发布（见根目录 [LICENSE](../../LICENSE)）。`third_party/` 下的第三方组件以及 CC BY 3.0 / CC BY 4.0 媒体与 3D 场景素材仍适用其各自的原始许可与署名要求。
+
+RetroMobileBench 以 APK 形式直接分发。第三方组件的锁定版本与源码来源见[开发与构建 - 第三方依赖](development.md#第三方依赖共-7-项)，各组件的原始许可证文本随源码保留，并在应用内的“开源许可协议全文”页面集中展示。
 
 ## 第三方组件与素材许可
 
@@ -27,7 +29,7 @@ RetroMobileBench 以 APK 形式直接分发。第三方组件的锁定版本与�
 - **GFXBench 场景素材**：源自 [Kishonti 开源仓库](https://github.com/Kishonti-Opensource/gfxbench)（© 2005–2025 Kishonti Ltd，采用 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) 许可发布）。本项目仅打包 ETC1 纹理子集，移除了画质参考图，并为 `ui.fs` 添加了片元精度回退适配。测试结果在应用中标注为基于 GFXBench 开源场景的移植成绩。
 - **Sintel 媒体素材**：视频与 JPEG 测试图像源自 Blender Foundation 的 *Sintel* 预告片（采用 [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/) 许可发布，详见[官方分享说明](https://durian.blender.org/sharing/)）。测试素材经过时长截取、缩放、重编码并移除了音轨；PNG 透明测试图则由 FFmpeg `testsrc2` 滤镜生成。
 
-构建时，Gradle 的 `generateBenchmarkNotices` 任务会自动汇总各组件的原始许可证文本、工具链运行时许可、媒体清单及本文档，并与 `licenses.txt`、`xiph-notices.txt` 一并在应用的“许可”页面中展示。
+构建时，Gradle 的 `generateBenchmarkNotices` 任务会自动汇总各组件的原始许可证文本、工具链运行时许可、媒体清单及本文档，并与 `licenses.txt`、`licenses_en.txt`、`xiph-notices.txt` 一并在应用的“开源许可协议全文”页面中展示。
 
 ## FFmpeg 构建与 LGPL 源码交付
 
@@ -41,4 +43,4 @@ RetroMobileBench 以 APK 形式直接分发。第三方组件的锁定版本与�
 .\gradlew.bat :app:correspondingSource --console=plain
 ```
 
-归档文件将输出至 `app/build/distributions/RetroMobileBench-corresponding-source-fixed-suite-v1.zip`。完整的 [LGPL-2.1 文本](../third_party/ffmpeg/COPYING.LGPLv2.1) 随源码树一并保留。
+归档文件将输出至 `app/build/distributions/RetroMobileBench-corresponding-source-fixed-suite-v1.zip`。完整的 [LGPL-2.1 文本](../../third_party/ffmpeg/COPYING.LGPLv2.1) 随源码树一并保留。

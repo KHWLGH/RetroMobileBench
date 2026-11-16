@@ -1,5 +1,9 @@
 RetroMobileBench 开源组件与署名声明
 
+主项目许可：
+- RetroMobileBench 原创代码与原创内容采用 Apache License 2.0（完整原文见「基准组件声明」页与仓库根目录 LICENSE）。
+- 第三方基准组件、工具链运行时与 CC BY 3.0 / CC BY 4.0 素材保留其各自原始许可证与署名要求。
+
 多媒体组件：
 - FFmpeg 4.4.6（LGPL-2.1-or-later，仅启用必要本地解码器与 SHA-256 校验，禁用 GPL / nonfree / 网络 / 编码器）
 

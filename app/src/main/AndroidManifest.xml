@@ -15,7 +15,7 @@
         android:theme="@style/AppTheme">
         <provider
             android:name=".ExportFileProvider"
-            android:authorities="com.retromobilebench.export"
+            android:authorities="${applicationId}.export"
             android:exported="false"
             android:grantUriPermissions="true" />
         <service

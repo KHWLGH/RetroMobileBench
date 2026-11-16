@@ -305,7 +305,7 @@ public final class BackendInstrumentation extends Instrumentation {
         BenchmarkReport.summarize(report);
         for (String key : BenchmarkSuite.SCIMARK.metrics)
             check(report.getJSONObject("median").getDouble(key) == 9, "SciMark median " + key);
-        check(BenchmarkReport.format(report).contains("CPU 浮点测试"), "SciMark history label");
+        check(BenchmarkReport.format(report).contains(BenchmarkSuite.SCIMARK.label()), "SciMark history label");
         JSONObject changed = samples.getJSONObject(2);
         for (String key : BenchmarkSuite.SCIMARK.parameters) {
             Object original = changed.get(key);
@@ -321,7 +321,8 @@ public final class BackendInstrumentation extends Instrumentation {
         BenchmarkReport.summarize(report);
         check(!report.has("median"), "cancelled SciMark round not aggregated");
         report.put("suite_version", "future-suite");
-        check(BenchmarkReport.format(report).contains("未知测试版本"), "unknown history stays readable");
+        String unknownFormatted = BenchmarkReport.format(report);
+        check(unknownFormatted.contains("未知测试版本") || unknownFormatted.contains("Unknown suite version"), "unknown history stays readable");
     }
 
     private static void testPreflight() throws Exception {
@@ -388,8 +389,8 @@ public final class BackendInstrumentation extends Instrumentation {
             store = new ResultStore(context, name);
             history = store.latest(20);
             check(history.length() == 3, "mixed suite history survives reopen");
-            check(BenchmarkReport.format(history.getJSONObject(0)).contains("CPU 浮点测试"), "SciMark history formatting");
-            check(BenchmarkReport.format(history.getJSONObject(1)).contains("存储读写测试"), "storage history formatting");
+            check(BenchmarkReport.format(history.getJSONObject(0)).contains(BenchmarkSuite.SCIMARK.label()), "SciMark history formatting");
+            check(BenchmarkReport.format(history.getJSONObject(1)).contains(BenchmarkSuite.STORAGE.label()), "storage history formatting");
         } finally {
             store.close();
             context.deleteDatabase(name); // Only the uniquely named test database.

@@ -17,6 +17,7 @@ MainActivity → BenchmarkRunner → BenchmarkSuite.DEFAULT (12 阶段 fixed-sui
 ### 执行与状态管理
 
 - **单工作线程调度**：`BenchmarkRunner` 作为应用级单串行工作线程运行，仅持有 `Application` 上下文。`MainActivity` 通过订阅状态更新界面，常规界面重建不会重复触发测试。
+- **双语本地化与统计说明**：`I18n` 管理 `auto` / `zh` / `en` 三种界面语言模式，应用界面、测试报告详情以及 `.csv` / `.txt` 导出文件均随语言设置切换（保留英文 JSON 原始键名与 `fixed-suite-v1` 协议标识符）。“更多”页直接平铺列出语言切换、测试套件说明（含结果统计规则说明）、底层硬件探针、内置开源项目、开源许可协议全文与关于软件（含项目 GitHub 链接）。
 - **检查点与恢复**：会话启动时生成唯一 UUID 并校验解压内置资源。每轮测试完成后同步写入数据库检查点，再更新界面轮次进度；测试全部结束后格式化生成完整报告与 JSON。若应用启动时检测到遗留的 `running` 会话，会自动将其标记为 `interrupted` 并保留已完成的轮次数据。
 - **进程隔离与取消机制**：媒体、Web 和 GPU 阶段分别在独立的 `:media`、`:web`、`:gpu` 一次性子进程中执行。父进程通过事件唤醒机制等待结果、取消、进程死亡或超时信号，测量期间不轮询 Binder。用户点击取消后立即反馈并阻止后续阶段启动：CPU 与同步 I/O 在安全检查点退出，媒体、Web 与 GPU 则通知子进程停止并等待进程回收确认。
 - **温升与电量采样**：测试期间由单个后台优先级的 `HandlerThread`（`TemperatureTrace`）每 2 秒读取一次系统 `ACTION_BATTERY_CHANGED` 广播，记录电池温度、剩余电量百分比、电压、供电状态与当前阶段名，各阶段共享同一采样流，在结束后汇总并在报告详情中通过 `TelemetryCurveView` 绘制为双曲线图表。
@@ -105,5 +106,5 @@ $env:JAVA_HOME = 'C:/Program Files/Android/Android Studio/jbr'
 ## 内置资源打包与校验
 
 - **GPU 场景包（`generateGpuPack`）**：构建时自动筛选 `gl_egypt_off`、`gl_egypt`、`gl_trex_off`、`gl_trex`、`gl_fill_off` 的 ETC1 纹理与着色器，按固定文件顺序与零时间戳生成包含文件大小和 SHA-256 的清单，并以不压缩（`STORED`）方式打包为 `gpu-data.zip`。
-- **视频语料（`assets/media`）**：7 段固定视频素材清单位于 [`manifest.json`](../app/src/main/assets/media/manifest.json)。运行时视频文件经 SHA-256 哈希校验后缓存在内部私有目录。
+- **视频语料（`assets/media`）**：7 段固定视频素材清单位于 [`manifest.json`](../../app/src/main/assets/media/manifest.json)。运行时视频文件经 SHA-256 哈希校验后缓存在内部私有目录。
 - **Web 竖屏信息流与高清大图语料（`generateWebCorpus`）**：构建时生成 `assets/web/manifest.json`，锁定 `index.html`、`bench.js` 以及 6 张 480p/720p/1080p 高清 JPEG/PNG 测试图的字节大小与 SHA-256 校验值，运行时在启动 WebView 前逐一校验。

@@ -50,6 +50,7 @@ final class ExportManager {
 
     @SuppressWarnings("deprecation")
     static ExportResult exportToFile(Context context, JSONObject report, ReportExporter.Format format) {
+        boolean zh = I18n.isZh(context);
         String fileName = ReportExporter.defaultFileName(report, format);
         try {
             byte[] data = ReportExporter.exportBytes(report, format);
@@ -61,7 +62,8 @@ final class ExportManager {
                 if (msUri != null) {
                     return new ExportResult(true, fileName,
                             "Download/" + EXPORT_SUBDIR + "/" + fileName,
-                            "已保存至系统下载目录（Android 10+ MediaStore）",
+                            zh ? "已保存至系统下载目录（Android 10+ MediaStore）"
+                                    : "Saved to system Downloads folder (Android 10+ MediaStore)",
                             providerUri, format.mimeType, null);
                 }
             }
@@ -76,7 +78,8 @@ final class ExportManager {
                                 new String[]{target.getAbsolutePath()}, new String[]{format.mimeType}, null);
                         Uri shareUri = Build.VERSION.SDK_INT >= 24 ? providerUri : Uri.fromFile(target);
                         return new ExportResult(true, fileName, target.getAbsolutePath(),
-                                "已保存至公共下载目录，可通过文件管理或 USB/MTP 直接读取",
+                                zh ? "已保存至公共下载目录，可通过文件管理或 USB/MTP 直接读取"
+                                        : "Saved to public Downloads directory; accessible via file manager or USB/MTP",
                                 shareUri, format.mimeType, null);
                     }
                 } catch (IOException | SecurityException ignored) {
@@ -95,7 +98,8 @@ final class ExportManager {
                                     new String[]{target.getAbsolutePath()}, new String[]{format.mimeType}, null);
                             Uri shareUri = Build.VERSION.SDK_INT >= 24 ? providerUri : Uri.fromFile(target);
                             return new ExportResult(true, fileName, target.getAbsolutePath(),
-                                    "公共目录不可写，已保存至应用外部存储目录",
+                                    zh ? "公共目录不可写，已保存至应用外部存储目录"
+                                            : "Public folder unavailable; saved to app external files directory",
                                     shareUri, format.mimeType, null);
                         }
                     }
@@ -105,7 +109,8 @@ final class ExportManager {
             }
 
             return new ExportResult(true, fileName, shareCopy.getAbsolutePath(),
-                    "外部存储不可用（如 U 盘挂载中或无权限），已保存至应用导出缓存，建议立即通过系统分享发送",
+                    zh ? "外部存储不可用（如 U 盘挂载中或无权限），已保存至应用导出缓存，建议立即通过系统分享发送"
+                            : "External storage unavailable; saved to internal export cache—share immediately via system chooser",
                     providerUri, format.mimeType, null);
         } catch (Exception e) {
             return new ExportResult(false, fileName, "", "", null, format.mimeType, e.toString());
@@ -115,25 +120,27 @@ final class ExportManager {
     static void writeToUri(Context context, Uri uri, JSONObject report, ReportExporter.Format format) throws Exception {
         byte[] data = ReportExporter.exportBytes(report, format);
         try (OutputStream out = context.getContentResolver().openOutputStream(uri)) {
-            if (out == null) throw new IOException("无法打开目标文件输出流");
+            if (out == null) throw new IOException(I18n.t(context, "无法打开目标文件输出流", "Unable to open output stream for destination file"));
             out.write(data);
             out.flush();
         }
     }
 
     static Intent buildShareIntent(ExportResult result) {
+        boolean zh = I18n.isZh();
         Intent send = new Intent(Intent.ACTION_SEND);
         send.setType(result.mimeType);
-        send.putExtra(Intent.EXTRA_SUBJECT, "RetroMobileBench 测试报告 - " + result.fileName);
+        send.putExtra(Intent.EXTRA_SUBJECT,
+                (zh ? "RetroMobileBench 测试报告 - " : "RetroMobileBench Report - ") + result.fileName);
         send.putExtra(Intent.EXTRA_STREAM, result.shareUri);
         send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-        return Intent.createChooser(send, "发送或分享导出文件");
+        return Intent.createChooser(send, zh ? "发送或分享导出文件" : "Send or Share Exported File");
     }
 
     private static File writeFile(File target, byte[] data) throws IOException {
         File parent = target.getParentFile();
         if (parent != null && !parent.exists() && !parent.mkdirs()) {
-            throw new IOException("无法创建导出目录：" + parent);
+            throw new IOException(I18n.t("无法创建导出目录：", "Unable to create export directory: ") + parent);
         }
         try (FileOutputStream out = new FileOutputStream(target)) {
             out.write(data);

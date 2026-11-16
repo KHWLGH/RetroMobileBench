@@ -8,7 +8,6 @@ import org.json.JSONObject;
 
 import java.text.SimpleDateFormat;
 import java.util.Date;
-import java.util.Iterator;
 import java.util.Locale;
 
 /**
@@ -17,18 +16,24 @@ import java.util.Locale;
  */
 final class ReportExporter {
     enum Format {
-        JSON(".json", "application/json", "完整 JSON (.json)"),
-        CSV(".csv", "text/csv", "完整表格 CSV (.csv)"),
-        TXT(".txt", "text/plain", "完整文本报告 (.txt)");
+        JSON(".json", "application/json", "完整 JSON (.json)", "Full JSON (.json)"),
+        CSV(".csv", "text/csv", "完整表格 CSV (.csv)", "Full Table CSV (.csv)"),
+        TXT(".txt", "text/plain", "完整文本报告 (.txt)", "Full Text Report (.txt)");
 
         final String extension;
         final String mimeType;
-        final String label;
+        private final String labelZh;
+        private final String labelEn;
 
-        Format(String extension, String mimeType, String label) {
+        Format(String extension, String mimeType, String labelZh, String labelEn) {
             this.extension = extension;
             this.mimeType = mimeType;
-            this.label = label;
+            this.labelZh = labelZh;
+            this.labelEn = labelEn;
+        }
+
+        String label() {
+            return I18n.t(labelZh, labelEn);
         }
     }
 
@@ -106,49 +111,59 @@ final class ReportExporter {
 
     /** Complete CSV export: overview, core summary, every stage/round/video path, and full telemetry curve. */
     static String buildCompleteCsv(JSONObject report) throws JSONException {
+        boolean zh = I18n.isZh();
         StringBuilder sb = new StringBuilder(16384);
         boolean isSession = BenchmarkSuite.isSession(report.optString("suite_version"));
         JSONObject dev = extractDevice(report);
 
         // 1. Overview & Device
-        appendCsvRow(sb, "[概览与设备信息]");
-        appendCsvRow(sb, "字段", "值");
-        appendCsvRow(sb, "导出格式", "retromobilebench-full-csv-v1");
-        appendCsvRow(sb, "导出时间", formatHuman(System.currentTimeMillis()));
-        appendCsvRow(sb, "测试套件", report.optString("suite_version"));
-        if (report.has("session_id")) appendCsvRow(sb, "会话 ID", report.optString("session_id"));
-        appendCsvRow(sb, "状态", BenchmarkReport.statusLabel(report.optString("status")) + " (" + report.optString("status") + ")");
-        if (report.has("started_ms")) appendCsvRow(sb, "开始时间", formatHuman(report.optLong("started_ms")));
-        if (report.has("ended_ms")) appendCsvRow(sb, "结束时间", formatHuman(report.optLong("ended_ms")));
+        appendCsvRow(sb, zh ? "[概览与设备信息]" : "[Overview & Device]");
+        appendCsvRow(sb, zh ? "字段" : "Field", zh ? "值" : "Value");
+        appendCsvRow(sb, zh ? "导出格式" : "Export Format", "retromobilebench-full-csv-v1");
+        appendCsvRow(sb, zh ? "导出时间" : "Exported At", formatHuman(System.currentTimeMillis()));
+        appendCsvRow(sb, zh ? "测试套件" : "Suite Version", report.optString("suite_version"));
+        if (report.has("session_id")) appendCsvRow(sb, zh ? "会话 ID" : "Session ID", report.optString("session_id"));
+        appendCsvRow(sb, zh ? "状态" : "Status", BenchmarkReport.statusLabel(report.optString("status")) + " (" + report.optString("status") + ")");
+        if (report.has("started_ms")) appendCsvRow(sb, zh ? "开始时间" : "Started At", formatHuman(report.optLong("started_ms")));
+        if (report.has("ended_ms")) appendCsvRow(sb, zh ? "结束时间" : "Ended At", formatHuman(report.optLong("ended_ms")));
         long wallMs = report.optLong("wall_ms", report.optLong("ended_ms", 0) - report.optLong("started_ms", 0));
-        if (wallMs > 0) appendCsvRow(sb, "总耗时(ms)", String.valueOf(wallMs));
-        appendCsvRow(sb, "软件版本", BuildConfig.VERSION_NAME + " (" + BuildConfig.VERSION_CODE + ")");
+        if (wallMs > 0) appendCsvRow(sb, zh ? "总耗时(ms)" : "Wall Time (ms)", String.valueOf(wallMs));
+        appendCsvRow(sb, zh ? "软件版本" : "App Version", BuildConfig.VERSION_NAME + " (" + BuildConfig.VERSION_CODE + ")");
         appendCsvRow(sb, "NATIVE_BUILD_ID", report.optString("native_build_id", BuildConfig.NATIVE_BUILD_ID));
         appendCsvRow(sb, "WEB_BUILD_ID", BuildConfig.WEB_BUILD_ID);
         if (dev != null) {
             CpuSocResolver.Result soc = CpuSocResolver.resolve(dev);
-            appendCsvRow(sb, "设备型号", dev.optString("manufacturer") + " " + dev.optString("model") + " (" + dev.optString("device") + ")");
-            appendCsvRow(sb, "系统版本", "Android " + dev.optString("android_release") + " (API " + dev.optInt("sdk") + ")");
-            appendCsvRow(sb, "指令集 ABI", dev.optString("abi") + (dev.optString("abi2").length() > 0 ? "/" + dev.optString("abi2") : ""));
-            appendCsvRow(sb, "处理器(SoC)", soc.socName);
-            appendCsvRow(sb, "核心微架构", soc.cpuArch);
-            appendCsvRow(sb, "逻辑核心数", String.valueOf(CpuTopology.workers(dev)));
-            if (dev.has("total_memory_bytes")) appendCsvRow(sb, "总内存(bytes)", String.valueOf(dev.optLong("total_memory_bytes")));
-            appendCsvRow(sb, "运行环境", dev.optBoolean("emulator") ? "模拟器" : "物理设备");
-            if (dev.has("native_library")) appendCsvRow(sb, "原生库", dev.optString("native_library"));
+            appendCsvRow(sb, zh ? "设备型号" : "Device Model", dev.optString("manufacturer") + " " + dev.optString("model") + " (" + dev.optString("device") + ")");
+            appendCsvRow(sb, zh ? "系统版本" : "OS Version", "Android " + dev.optString("android_release") + " (API " + dev.optInt("sdk") + ")");
+            appendCsvRow(sb, zh ? "指令集 ABI" : "ABI", dev.optString("abi") + (dev.optString("abi2").length() > 0 ? "/" + dev.optString("abi2") : ""));
+            appendCsvRow(sb, zh ? "处理器(SoC)" : "Processor (SoC)", soc.socName);
+            appendCsvRow(sb, zh ? "核心微架构" : "CPU Microarchitecture", soc.cpuArch);
+            appendCsvRow(sb, zh ? "逻辑核心数" : "CPU Workers", String.valueOf(CpuTopology.workers(dev)));
+            if (dev.has("total_memory_bytes")) appendCsvRow(sb, zh ? "总内存(bytes)" : "Total Memory (bytes)", String.valueOf(dev.optLong("total_memory_bytes")));
+            appendCsvRow(sb, zh ? "运行环境" : "Environment", dev.optBoolean("emulator") ? (zh ? "模拟器" : "Emulator") : (zh ? "物理设备" : "Physical Device"));
+            if (dev.has("native_library")) appendCsvRow(sb, zh ? "原生库" : "Native Library", dev.optString("native_library"));
         }
         sb.append('\n');
 
         // 2. Stage summary table
-        appendCsvRow(sb, "[核心指标汇总]");
-        appendCsvRow(sb, "阶段序号", "阶段标识", "阶段名称", "状态", "统计来源", "指标键", "指标名称", "数值", "单位");
+        appendCsvRow(sb, zh ? "[核心指标汇总]" : "[Core Metrics Summary]");
+        appendCsvRow(sb,
+                zh ? "阶段序号" : "Stage #",
+                zh ? "阶段标识" : "Stage ID",
+                zh ? "阶段名称" : "Stage Name",
+                zh ? "状态" : "Status",
+                zh ? "统计来源" : "Source",
+                zh ? "指标键" : "Metric Key",
+                zh ? "指标名称" : "Metric Label",
+                zh ? "数值" : "Value",
+                zh ? "单位" : "Unit");
         JSONArray stageList = collectStages(report, isSession);
         for (int sIdx = 0; sIdx < stageList.length(); sIdx++) {
             JSONObject st = stageList.optJSONObject(sIdx);
             if (st == null) continue;
             BenchmarkSuite suite = BenchmarkSuite.fromReport(st);
             String stId = st.optString("suite_version");
-            String stLabel = suite != null ? suite.label : stId;
+            String stLabel = suite != null ? suite.label() : stId;
             String stStatus = BenchmarkReport.statusLabel(st.optString("status"));
             if (suite == BenchmarkSuite.VIDEO) {
                 JSONArray samples = st.optJSONArray("samples");
@@ -162,26 +177,28 @@ final class ReportExporter {
                         if (isPathCompleted(item, "system")) sys++;
                         if (isPathCompleted(item, "playback")) play++;
                     }
-                    appendCsvRow(sb, String.valueOf(sIdx + 1), stId, stLabel, stStatus, "单轮实测", "software_passed", "软件解码通过数", String.valueOf(sw), "/ " + clips.length());
-                    appendCsvRow(sb, String.valueOf(sIdx + 1), stId, stLabel, stStatus, "单轮实测", "system_passed", "系统解码通过数", String.valueOf(sys), "/ " + clips.length());
-                    appendCsvRow(sb, String.valueOf(sIdx + 1), stId, stLabel, stStatus, "单轮实测", "playback_passed", "实时播放通过数", String.valueOf(play), "/ " + clips.length());
+                    String singleRun = zh ? "单轮实测" : "Single Run";
+                    appendCsvRow(sb, String.valueOf(sIdx + 1), stId, stLabel, stStatus, singleRun, "software_passed", zh ? "软件解码通过数" : "Software Decode Passed", String.valueOf(sw), "/ " + clips.length());
+                    appendCsvRow(sb, String.valueOf(sIdx + 1), stId, stLabel, stStatus, singleRun, "system_passed", zh ? "系统解码通过数" : "System Decode Passed", String.valueOf(sys), "/ " + clips.length());
+                    appendCsvRow(sb, String.valueOf(sIdx + 1), stId, stLabel, stStatus, singleRun, "playback_passed", zh ? "实时播放通过数" : "Real-time Playback Passed", String.valueOf(play), "/ " + clips.length());
                 }
                 continue;
             }
             JSONObject median = st.optJSONObject("median");
             JSONArray samples = st.optJSONArray("samples");
             JSONObject src = median != null ? median : (samples != null && samples.length() > 0 ? samples.optJSONObject(0) : null);
-            String srcType = median != null ? "三轮中位数" : "单轮/原始";
+            String srcType = median != null ? (zh ? "三轮中位数" : "3-Round Median") : (zh ? "单轮/原始" : "Single / Raw");
             if (suite != null && src != null) {
                 for (int m = 0; m < suite.metrics.length; m++) {
                     String key = suite.metrics[m];
                     if (!src.has(key)) continue;
-                    appendCsvRow(sb, String.valueOf(sIdx + 1), stId, stLabel, stStatus, srcType, key, suite.labels[m],
+                    appendCsvRow(sb, String.valueOf(sIdx + 1), stId, stLabel, stStatus, srcType, key, suite.metricLabel(m),
                             formatNum(src.optDouble(key)), suite.units[m]);
                 }
                 if (suite.isGpu() && suite != BenchmarkSuite.GPU_FILL && src.has("fps")) {
+                    String mode = suite.gpuTest().endsWith("_off") ? (zh ? "离屏" : "Offscreen") : (zh ? "屏上" : "Onscreen");
                     appendCsvRow(sb, String.valueOf(sIdx + 1), stId, stLabel, stStatus, srcType, "fps",
-                            "平均帧率(" + (suite.gpuTest().endsWith("_off") ? "离屏" : "屏上") + ")",
+                            zh ? "平均帧率(" + mode + ")" : "Average FPS (" + mode + ")",
                             formatNum(src.optDouble("fps")), "FPS");
                 }
             } else {
@@ -191,18 +208,28 @@ final class ReportExporter {
         sb.append('\n');
 
         // 3. Complete per-stage, per-round & parameter details
-        appendCsvRow(sb, "[各阶段各轮次完整明细]");
-        appendCsvRow(sb, "阶段序号", "阶段标识", "阶段名称", "轮次", "状态", "项目/指标键", "项目/指标名称", "值", "单位", "附加参数与环境");
+        appendCsvRow(sb, zh ? "[各阶段各轮次完整明细]" : "[Per-Stage & Per-Round Details]");
+        appendCsvRow(sb,
+                zh ? "阶段序号" : "Stage #",
+                zh ? "阶段标识" : "Stage ID",
+                zh ? "阶段名称" : "Stage Name",
+                zh ? "轮次" : "Round",
+                zh ? "状态" : "Status",
+                zh ? "项目/指标键" : "Item / Metric Key",
+                zh ? "项目/指标名称" : "Item / Metric Name",
+                zh ? "值" : "Value",
+                zh ? "单位" : "Unit",
+                zh ? "附加参数与环境" : "Parameters & Environment");
         for (int sIdx = 0; sIdx < stageList.length(); sIdx++) {
             JSONObject st = stageList.optJSONObject(sIdx);
             if (st == null) continue;
             BenchmarkSuite suite = BenchmarkSuite.fromReport(st);
             String stId = st.optString("suite_version");
-            String stLabel = suite != null ? suite.label : stId;
+            String stLabel = suite != null ? suite.label() : stId;
             JSONArray samples = st.optJSONArray("samples");
             if (samples == null || samples.length() == 0) {
                 appendCsvRow(sb, String.valueOf(sIdx + 1), stId, stLabel, "0",
-                        st.optString("status"), "message", "说明", st.optString("message"), "", "");
+                        st.optString("status"), "message", zh ? "说明" : "Note", st.optString("message"), "", "");
                 continue;
             }
             for (int r = 0; r < samples.length(); r++) {
@@ -238,17 +265,17 @@ final class ReportExporter {
                         String key = suite.metrics[m];
                         if (!sample.has(key)) continue;
                         appendCsvRow(sb, String.valueOf(sIdx + 1), stId, stLabel, roundStr, roundStatus,
-                                key, suite.labels[m], formatNum(sample.optDouble(key)), suite.units[m],
+                                key, suite.metricLabel(m), formatNum(sample.optDouble(key)), suite.units[m],
                                 wroteMetric ? "" : paramsNote);
                         wroteMetric = true;
                     }
                     if (suite.isGpu() && suite != BenchmarkSuite.GPU_FILL && sample.has("fps")) {
                         appendCsvRow(sb, String.valueOf(sIdx + 1), stId, stLabel, roundStr, roundStatus,
-                                "fps", "平均帧率", formatNum(sample.optDouble("fps")), "FPS", "");
+                                "fps", zh ? "平均帧率" : "Average FPS", formatNum(sample.optDouble("fps")), "FPS", "");
                     }
                     if (!wroteMetric) {
                         appendCsvRow(sb, String.valueOf(sIdx + 1), stId, stLabel, roundStr, roundStatus,
-                                "error_stage", "停止位置", sample.optString("error_stage"), "", paramsNote);
+                                "error_stage", zh ? "停止位置" : "Stopped At", sample.optString("error_stage"), "", paramsNote);
                     }
                 }
             }
@@ -263,44 +290,54 @@ final class ReportExporter {
                         stTrace.optDouble("battery_delta_percent"))
                         : "";
                 appendCsvRow(sb, String.valueOf(sIdx + 1), stId, stLabel, "-", st.optString("status"),
-                        "stage_telemetry", "阶段温升与电量", tSummary, "", bSummary);
+                        "stage_telemetry", zh ? "阶段温升与电量" : "Stage Thermal & Battery", tSummary, "", bSummary);
             }
         }
         sb.append('\n');
 
         // 4. Telemetry summary & complete curve
         JSONObject trace = report.optJSONObject("temperature");
-        appendCsvRow(sb, "[温升与电量消耗汇总]");
-        appendCsvRow(sb, "项目", "值");
+        appendCsvRow(sb, zh ? "[温升与电量消耗汇总]" : "[Thermal & Battery Summary]");
+        appendCsvRow(sb, zh ? "项目" : "Item", zh ? "值" : "Value");
         if (trace != null && trace.optBoolean("available")) {
-            appendCsvRow(sb, "起始电池温度(°C)", String.format(Locale.US, "%.1f", trace.optInt("start_tenths_c") / 10.0));
-            appendCsvRow(sb, "结束电池温度(°C)", String.format(Locale.US, "%.1f", trace.optInt("end_tenths_c") / 10.0));
-            appendCsvRow(sb, "峰值电池温度(°C)", String.format(Locale.US, "%.1f", trace.optInt("sampled_max_tenths_c") / 10.0));
+            appendCsvRow(sb, zh ? "起始电池温度(°C)" : "Start Battery Temp (°C)", String.format(Locale.US, "%.1f", trace.optInt("start_tenths_c") / 10.0));
+            appendCsvRow(sb, zh ? "结束电池温度(°C)" : "End Battery Temp (°C)", String.format(Locale.US, "%.1f", trace.optInt("end_tenths_c") / 10.0));
+            appendCsvRow(sb, zh ? "峰值电池温度(°C)" : "Peak Battery Temp (°C)", String.format(Locale.US, "%.1f", trace.optInt("sampled_max_tenths_c") / 10.0));
             if (trace.has("sampled_min_tenths_c")) {
-                appendCsvRow(sb, "最低电池温度(°C)", String.format(Locale.US, "%.1f", trace.optInt("sampled_min_tenths_c") / 10.0));
+                appendCsvRow(sb, zh ? "最低电池温度(°C)" : "Min Battery Temp (°C)", String.format(Locale.US, "%.1f", trace.optInt("sampled_min_tenths_c") / 10.0));
             }
-            appendCsvRow(sb, "总温升(°C)", String.format(Locale.US, "%+.1f", trace.optInt("delta_tenths_c") / 10.0));
+            appendCsvRow(sb, zh ? "总温升(°C)" : "Total Temp Rise (°C)", String.format(Locale.US, "%+.1f", trace.optInt("delta_tenths_c") / 10.0));
         } else {
-            appendCsvRow(sb, "电池温度", "不可用");
+            appendCsvRow(sb, zh ? "电池温度" : "Battery Temp", zh ? "不可用" : "Unavailable");
         }
         if (trace != null && trace.optBoolean("battery_available")) {
-            appendCsvRow(sb, "起始电量(%)", String.format(Locale.US, "%.1f", trace.optDouble("battery_start_percent")));
-            appendCsvRow(sb, "结束电量(%)", String.format(Locale.US, "%.1f", trace.optDouble("battery_end_percent")));
-            appendCsvRow(sb, "电量净变化(%)", String.format(Locale.US, "%+.1f", trace.optDouble("battery_delta_percent")));
-            appendCsvRow(sb, "电量消耗(%)", String.format(Locale.US, "%.1f", trace.optDouble("battery_consumed_percent")));
-            appendCsvRow(sb, "测试期间供电状态", trace.optBoolean("plugged_any") ? "曾接入外部电源" : "全程电池供电");
+            appendCsvRow(sb, zh ? "起始电量(%)" : "Start Battery (%)", String.format(Locale.US, "%.1f", trace.optDouble("battery_start_percent")));
+            appendCsvRow(sb, zh ? "结束电量(%)" : "End Battery (%)", String.format(Locale.US, "%.1f", trace.optDouble("battery_end_percent")));
+            appendCsvRow(sb, zh ? "电量净变化(%)" : "Battery Delta (%)", String.format(Locale.US, "%+.1f", trace.optDouble("battery_delta_percent")));
+            appendCsvRow(sb, zh ? "电量消耗(%)" : "Battery Consumed (%)", String.format(Locale.US, "%.1f", trace.optDouble("battery_consumed_percent")));
+            appendCsvRow(sb, zh ? "测试期间供电状态" : "Power State",
+                    trace.optBoolean("plugged_any") ? (zh ? "曾接入外部电源" : "External power connected") : (zh ? "全程电池供电" : "Battery only"));
             if (trace.has("voltage_start_mv")) {
-                appendCsvRow(sb, "起始电压(mV)", String.valueOf(trace.optInt("voltage_start_mv")));
-                appendCsvRow(sb, "结束电压(mV)", String.valueOf(trace.optInt("voltage_end_mv")));
-                appendCsvRow(sb, "最低/最高电压(mV)", trace.optInt("voltage_min_mv") + " / " + trace.optInt("voltage_max_mv"));
+                appendCsvRow(sb, zh ? "起始电压(mV)" : "Start Voltage (mV)", String.valueOf(trace.optInt("voltage_start_mv")));
+                appendCsvRow(sb, zh ? "结束电压(mV)" : "End Voltage (mV)", String.valueOf(trace.optInt("voltage_end_mv")));
+                appendCsvRow(sb, zh ? "最低/最高电压(mV)" : "Min / Max Voltage (mV)", trace.optInt("voltage_min_mv") + " / " + trace.optInt("voltage_max_mv"));
             }
         } else {
-            appendCsvRow(sb, "电池电量", "无电量采样数据");
+            appendCsvRow(sb, zh ? "电池电量" : "Battery Level", zh ? "无电量采样数据" : "No battery level samples");
         }
         sb.append('\n');
 
-        appendCsvRow(sb, "[温升与电量时间序列曲线]");
-        appendCsvRow(sb, "序号", "经过时间(s)", "时间戳(ms)", "日期时间", "当前阶段", "电池温度(°C)", "电池电量(%)", "电池电压(mV)", "供电状态");
+        appendCsvRow(sb, zh ? "[温升与电量时间序列曲线]" : "[Thermal & Battery Time-Series]");
+        appendCsvRow(sb,
+                zh ? "序号" : "#",
+                zh ? "经过时间(s)" : "Elapsed (s)",
+                zh ? "时间戳(ms)" : "Timestamp (ms)",
+                zh ? "日期时间" : "Date Time",
+                zh ? "当前阶段" : "Stage",
+                zh ? "电池温度(°C)" : "Battery Temp (°C)",
+                zh ? "电池电量(%)" : "Battery (%)",
+                zh ? "电池电压(mV)" : "Voltage (mV)",
+                zh ? "供电状态" : "Power");
         JSONArray samples = trace != null ? trace.optJSONArray("samples") : null;
         if (samples != null && samples.length() > 0) {
             long firstTs = samples.optJSONObject(0).optLong("timestamp_ms", 0);
@@ -318,7 +355,7 @@ final class ReportExporter {
                         formatHuman(ts),
                         p.optString("stage"),
                         tempStr, pctStr, mvStr,
-                        p.optBoolean("plugged") ? "充电/供电中" : "电池放电");
+                        p.optBoolean("plugged") ? (zh ? "充电/供电中" : "Plugged") : (zh ? "电池放电" : "Discharging"));
             }
         }
         return sb.toString();
@@ -326,17 +363,18 @@ final class ReportExporter {
 
     /** Complete text report: formatted human report + complete sampled temperature/battery timeline. */
     static String buildCompleteText(JSONObject report) throws JSONException {
+        boolean zh = I18n.isZh();
         StringBuilder sb = new StringBuilder();
         JSONObject dev = extractDevice(report);
         if (dev != null) {
             CpuSocResolver.Result soc = CpuSocResolver.resolve(dev);
-            sb.append("设备：").append(dev.optString("manufacturer")).append(' ').append(dev.optString("model"))
+            sb.append(zh ? "设备：" : "Device: ").append(dev.optString("manufacturer")).append(' ').append(dev.optString("model"))
                     .append(" (").append(dev.optString("device")).append(")\n");
-            sb.append("系统：Android ").append(dev.optString("android_release"))
+            sb.append(zh ? "系统：" : "OS: ").append("Android ").append(dev.optString("android_release"))
                     .append(" (API ").append(dev.optInt("sdk")).append(") · ABI ").append(dev.optString("abi")).append('\n');
             if (soc.matched) {
-                sb.append("处理器：").append(soc.socName);
-                if (soc.cpuArch.length() > 0 && !"未知".equals(soc.cpuArch)) sb.append(" · ").append(soc.cpuArch);
+                sb.append(zh ? "处理器：" : "SoC: ").append(soc.socName);
+                if (CpuSocResolver.isKnownArch(soc.cpuArch)) sb.append(" · ").append(soc.cpuArch);
                 sb.append('\n');
             }
             sb.append("────────────────\n");
@@ -346,7 +384,9 @@ final class ReportExporter {
         JSONObject trace = report.optJSONObject("temperature");
         JSONArray samples = trace != null ? trace.optJSONArray("samples") : null;
         if (samples != null && samples.length() > 0) {
-            sb.append("\n────────────────\n[温升与电量采样时间线（共 ").append(samples.length()).append(" 点）]\n");
+            sb.append(zh
+                    ? "\n────────────────\n[温升与电量采样时间线（共 " + samples.length() + " 点）]\n"
+                    : "\n────────────────\n[Thermal & Battery Timeline (" + samples.length() + " samples)]\n");
             long firstTs = samples.optJSONObject(0).optLong("timestamp_ms", 0);
             for (int i = 0; i < samples.length(); i++) {
                 JSONObject p = samples.optJSONObject(i);
@@ -357,7 +397,7 @@ final class ReportExporter {
                 if (p.has("tenths_c")) sb.append(String.format(Locale.US, " | %.1f°C", p.optInt("tenths_c") / 10.0));
                 if (p.has("battery_percent")) sb.append(String.format(Locale.US, " | %.1f%%", p.optDouble("battery_percent")));
                 if (p.has("voltage_mv")) sb.append(" | ").append(p.optInt("voltage_mv")).append("mV");
-                sb.append(p.optBoolean("plugged") ? " | 供电" : " | 放电");
+                sb.append(p.optBoolean("plugged") ? (zh ? " | 供电" : " | Plugged") : (zh ? " | 放电" : " | Discharging"));
                 String st = p.optString("stage");
                 if (st.length() > 0) sb.append(" | ").append(st);
                 sb.append('\n');
@@ -407,7 +447,7 @@ final class ReportExporter {
             BenchmarkSuite suite = BenchmarkSuite.fromReport(st);
             String key = suite != null ? suite.version : st.optString("suite_version");
             JSONObject item = new JSONObject();
-            item.put("label", suite != null ? suite.label : key);
+            item.put("label", suite != null ? suite.label() : key);
             item.put("status", st.optString("status"));
             if (suite == BenchmarkSuite.VIDEO) {
                 JSONArray samples = st.optJSONArray("samples");

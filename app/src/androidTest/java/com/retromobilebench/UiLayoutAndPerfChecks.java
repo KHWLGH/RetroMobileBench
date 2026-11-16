@@ -22,181 +22,229 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Verifies zero orphan/truncated units across 320dp+ viewports and virtualized UI performance
- * for the license reader, raw report viewer, and full 12-stage report detail page.
+ * Verifies zero orphan/truncated units across 320dp+ viewports in both Chinese and English,
+ * virtualized UI performance for the license reader and raw report viewer,
+ * and locale-aware multi-format report exports.
  */
 final class UiLayoutAndPerfChecks {
     private static final List<String> UNITS = Arrays.asList(
             "iterations/s", "iter/s", "MTexels/s", "MFLOPS", "MB/s", "IOPS",
             "FPS", "TPS", "ms", "ns", "MiB", "GiB", "MHz", "°C", "px", "dp", "dpi", "Hz",
-            "frames", "次", "核", "线程", "秒"
+            "frames", "min", "ops", "blocks", "cores", "threads", "rounds", "swaps",
+            "次", "核", "线程", "秒"
     );
 
     static String run(Instrumentation test) throws Exception {
         Context context = test.getTargetContext();
+        String prevMode = I18n.getMode(context);
+        try {
+            String zhSummary = runForMode(test, context, I18n.MODE_ZH);
+            String enSummary = runForMode(test, context, I18n.MODE_EN);
+            return "zh={" + zhSummary + "}, en={" + enSummary + "}";
+        } finally {
+            I18n.setMode(context, prevMode);
+        }
+    }
+
+    private static String runForMode(Instrumentation test, Context context, String mode) throws Exception {
+        I18n.setMode(context, mode);
         MainActivity activity = (MainActivity) test.startActivitySync(
-                new Intent(context, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                new Intent(context, MainActivity.class)
+                        .putExtra("initial_tab", 3)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP));
         test.waitForIdleSync();
 
-        LegacyCompatibilityChecks.verifyCpuSocResolver(context);
+        try {
+            LegacyCompatibilityChecks.verifyCpuSocResolver(context);
 
-        JSONObject session = buildRealisticSession();
-        int widthPx = Math.round(320 * context.getResources().getDisplayMetrics().density);
-        int heightPx = Math.round(533 * context.getResources().getDisplayMetrics().density);
-        int wSpec = View.MeasureSpec.makeMeasureSpec(widthPx, View.MeasureSpec.EXACTLY);
-        int hSpec = View.MeasureSpec.makeMeasureSpec(heightPx, View.MeasureSpec.AT_MOST);
+            JSONObject session = buildRealisticSession();
+            int widthPx = Math.round(320 * context.getResources().getDisplayMetrics().density);
+            int heightPx = Math.round(533 * context.getResources().getDisplayMetrics().density);
+            int wSpec = View.MeasureSpec.makeMeasureSpec(widthPx, View.MeasureSpec.EXACTLY);
+            int hSpec = View.MeasureSpec.makeMeasureSpec(heightPx, View.MeasureSpec.AT_MOST);
 
-        MiuiSubPages.Navigator noopNav = new MiuiSubPages.Navigator() {
-            @Override public void openSubPage(String title, View content) { }
-            @Override public void copyText(String label, String content) { }
-            @Override public void exportReport(JSONObject report) { }
-            @Override public void deleteRun(JSONObject report) { }
-        };
+            MiuiSubPages.Navigator noopNav = new MiuiSubPages.Navigator() {
+                @Override public void openSubPage(String title, View content) { }
+                @Override public void copyText(String label, String content) { }
+                @Override public void exportReport(JSONObject report) { }
+                @Override public void deleteRun(JSONObject report) { }
+            };
 
-        final AtomicReference<String> summary = new AtomicReference<>("");
-        final AtomicReference<Throwable> error = new AtomicReference<>();
+            final AtomicReference<String> summary = new AtomicReference<>("");
+            final AtomicReference<Throwable> error = new AtomicReference<>();
 
-        test.runOnMainSync(() -> {
-            try {
-                // 1. Deferred JSON/raw serialization timing on full 12-stage session (cold & warm)
-                long t0 = SystemClock.uptimeMillis();
-                View reportPage = MiuiSubPages.buildReportDetailPage(activity, session, false, noopNav);
-                long coldReportBuildMs = SystemClock.uptimeMillis() - t0;
-                check(coldReportBuildMs < 400, "cold buildReportDetailPage must not stall UI thread (took " + coldReportBuildMs + "ms)");
+            test.runOnMainSync(() -> {
+                try {
+                    // 1. Deferred JSON/raw serialization timing on full 12-stage session (cold & warm)
+                    long t0 = SystemClock.uptimeMillis();
+                    View reportPage = MiuiSubPages.buildReportDetailPage(activity, session, false, noopNav);
+                    long coldReportBuildMs = SystemClock.uptimeMillis() - t0;
+                    check(coldReportBuildMs < 400, mode + ": cold buildReportDetailPage must not stall UI thread (took " + coldReportBuildMs + "ms)");
 
-                long t1 = SystemClock.uptimeMillis();
-                MiuiSubPages.buildReportDetailPage(activity, session, false, noopNav);
-                long warmReportBuildMs = SystemClock.uptimeMillis() - t1;
-                check(warmReportBuildMs < 150, "warm buildReportDetailPage must be fast (took " + warmReportBuildMs + "ms)");
+                    long t1 = SystemClock.uptimeMillis();
+                    MiuiSubPages.buildReportDetailPage(activity, session, false, noopNav);
+                    long warmReportBuildMs = SystemClock.uptimeMillis() - t1;
+                    check(warmReportBuildMs < 150, mode + ": warm buildReportDetailPage must be fast (took " + warmReportBuildMs + "ms)");
 
-                layoutAtSize(reportPage, wSpec, hSpec);
-                int checkedTexts = verifyNoOrphanUnitsOrValueEllipsis(reportPage, "reportDetail");
-                int flatChecks = verifyFlatCardsAndNoRedundantRootBg(activity, reportPage);
+                    layoutAtSize(reportPage, wSpec, hSpec);
+                    int checkedTexts = verifyNoOrphanUnitsOrValueEllipsis(reportPage, mode + "/reportDetail");
+                    int flatChecks = verifyFlatCardsAndNoRedundantRootBg(activity, reportPage);
 
-                // 2. Check all 12 stage detail pages at narrow 320dp width
-                JSONArray results = session.getJSONArray("results");
-                for (int i = 0; i < results.length(); i++) {
-                    JSONObject st = results.getJSONObject(i);
-                    BenchmarkSuite suite = BenchmarkSuite.DEFAULT[i];
-                    View stagePage = MiuiSubPages.buildStageDetailPage(activity, suite, st, noopNav, true);
-                    layoutAtSize(stagePage, wSpec, hSpec);
-                    checkedTexts += verifyNoOrphanUnitsOrValueEllipsis(stagePage, "stage-" + suite.name());
+                    // 2. Check all 12 stage detail pages at narrow 320dp width
+                    JSONArray results = session.getJSONArray("results");
+                    for (int i = 0; i < results.length(); i++) {
+                        JSONObject st = results.getJSONObject(i);
+                        BenchmarkSuite suite = BenchmarkSuite.DEFAULT[i];
+                        View stagePage = MiuiSubPages.buildStageDetailPage(activity, suite, st, noopNav, true);
+                        layoutAtSize(stagePage, wSpec, hSpec);
+                        checkedTexts += verifyNoOrphanUnitsOrValueEllipsis(stagePage, mode + "/stage-" + suite.name());
+                    }
+
+                    // 3. Check secondary pages (Suite Protocol, About, Projects, CPU Probe) at 320dp
+                    View suiteProtocolPage = MiuiSubPages.buildSuiteProtocolPage(activity);
+                    layoutAtSize(suiteProtocolPage, wSpec, hSpec);
+                    checkedTexts += verifyNoOrphanUnitsOrValueEllipsis(suiteProtocolPage, mode + "/suiteProtocol");
+
+                    View aboutPage = MiuiSubPages.buildAboutPage(activity, noopNav);
+                    layoutAtSize(aboutPage, wSpec, hSpec);
+                    checkedTexts += verifyNoOrphanUnitsOrValueEllipsis(aboutPage, mode + "/about");
+
+                    View projectsPage = MiuiSubPages.buildOpenSourceProjectsPage(activity, noopNav);
+                    layoutAtSize(projectsPage, wSpec, hSpec);
+                    checkedTexts += verifyNoOrphanUnitsOrValueEllipsis(projectsPage, mode + "/projects");
+
+                    JSONObject dev = DeviceSnapshot.collect(activity, false);
+                    dev.put("ui_extra", DeviceHardwareExtra.collect(activity));
+                    View probePage = MiuiSubPages.buildCpuProbePage(activity, dev, NativeBridge.probeReport(), noopNav);
+                    layoutAtSize(probePage, wSpec, hSpec);
+                    checkedTexts += verifyNoOrphanUnitsOrValueEllipsis(probePage, mode + "/cpuProbe");
+
+                    // 4. Check Activity root (More tab + Run tab)
+                    View decor = activity.getWindow().getDecorView();
+                    layoutAtSize(decor, wSpec, hSpec);
+                    checkedTexts += verifyNoOrphanUnitsOrValueEllipsis(decor, mode + "/mainActivity");
+
+                    // 5. License reader virtualization + build timing
+                    long l0 = SystemClock.uptimeMillis();
+                    View licensePage = MiuiSubPages.buildLicenseReaderPage(activity, noopNav);
+                    long licenseBuildMs = SystemClock.uptimeMillis() - l0;
+                    check(licenseBuildMs < 150, mode + ": buildLicenseReaderPage must build immediately (took " + licenseBuildMs + "ms)");
+                    ListView lv = findListView(licensePage);
+                    check(lv != null, mode + ": license reader must use virtualized ListView");
+
+                    summary.set("coldReportBuildMs=" + coldReportBuildMs + ", warmReportBuildMs=" + warmReportBuildMs
+                            + ", licenseBuildMs=" + licenseBuildMs
+                            + ", checkedTextViews=" + checkedTexts + ", flatCards=" + flatChecks);
+                } catch (Throwable t) {
+                    error.set(t);
                 }
+            });
+            if (error.get() != null) throw new AssertionError(error.get());
 
-                // 3. Check Activity root (Run tab + lazy-built tabs)
-                View decor = activity.getWindow().getDecorView();
-                layoutAtSize(decor, wSpec, hSpec);
-                checkedTexts += verifyNoOrphanUnitsOrValueEllipsis(decor, "mainActivity");
+            // 6. Exercise all 3 license tabs asynchronously and verify chunking & StaticLayout (non-selectable)
+            final View[] licenseHolder = new View[1];
+            test.runOnMainSync(() -> licenseHolder[0] = MiuiSubPages.buildLicenseReaderPage(activity, noopNav));
+            ListView lv = findListView(licenseHolder[0]);
+            List<Button> tabButtons = findButtons(licenseHolder[0]);
+            check(tabButtons.size() >= 3, mode + ": license reader has 3 tab buttons");
 
-                // 4. License reader virtualization + build timing
-                long l0 = SystemClock.uptimeMillis();
-                View licensePage = MiuiSubPages.buildLicenseReaderPage(activity, noopNav);
-                long licenseBuildMs = SystemClock.uptimeMillis() - l0;
-                check(licenseBuildMs < 150, "buildLicenseReaderPage must build immediately (took " + licenseBuildMs + "ms)");
-                ListView lv = findListView(licensePage);
-                check(lv != null, "license reader must use virtualized ListView");
+            StringBuilder tabStats = new StringBuilder();
+            for (int t = 0; t < 3; t++) {
+                final int tabIdx = t;
+                test.runOnMainSync(() -> tabButtons.get(tabIdx).performClick());
+                long deadline = SystemClock.uptimeMillis() + 5000;
+                int count = 0;
+                while (SystemClock.uptimeMillis() < deadline) {
+                    final int[] c = new int[1];
+                    final String[] first = new String[1];
+                    test.runOnMainSync(() -> {
+                        c[0] = lv.getAdapter().getCount();
+                        first[0] = c[0] > 0 ? String.valueOf(lv.getAdapter().getItem(0)) : "";
+                    });
+                    if (c[0] > 1 || (c[0] == 1 && !first[0].startsWith("正在") && !first[0].startsWith("Loading"))) {
+                        count = c[0];
+                        break;
+                    }
+                    SystemClock.sleep(25);
+                }
+                check(count > 0, mode + ": license tab " + t + " finished loading");
+                if (t == 1) check(count >= 15, mode + ": benchmark-notices.txt must be virtualized into >=15 chunks, got " + count);
 
-                summary.set("coldReportBuildMs=" + coldReportBuildMs + ", warmReportBuildMs=" + warmReportBuildMs
-                        + ", licenseBuildMs=" + licenseBuildMs
-                        + ", checkedTextViews=" + checkedTexts + ", flatCards=" + flatChecks);
-            } catch (Throwable t) {
-                error.set(t);
+                final int finalCount = count;
+                test.runOnMainSync(() -> {
+                    layoutAtSize(licenseHolder[0], wSpec, View.MeasureSpec.makeMeasureSpec(heightPx, View.MeasureSpec.EXACTLY));
+                    for (int i = 0; i < Math.min(3, finalCount); i++) {
+                        View itemView = lv.getAdapter().getView(i, null, lv);
+                        check(itemView instanceof TextView, mode + ": chunk item is TextView");
+                        TextView tv = (TextView) itemView;
+                        if (Build.VERSION.SDK_INT >= 11) {
+                            check(!Api11.isSelectable(tv), mode + ": chunk TextView must NOT use expensive selectable DynamicLayout");
+                        }
+                        tv.measure(View.MeasureSpec.makeMeasureSpec(widthPx - 40, View.MeasureSpec.EXACTLY),
+                                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+                        tv.layout(0, 0, tv.getMeasuredWidth(), tv.getMeasuredHeight());
+                        Layout layout = tv.getLayout();
+                        check(layout != null && layout.getLineCount() <= 45,
+                                mode + ": chunk lines bounded to keep GPU texture tiny, got " + (layout == null ? -1 : layout.getLineCount()));
+                    }
+                });
+                tabStats.append(t == 0 ? "" : ",").append(count);
             }
-        });
-        if (error.get() != null) throw new AssertionError(error.get());
 
-        // 5. Exercise all 3 license tabs asynchronously and verify chunking & StaticLayout (non-selectable)
-        final View[] licenseHolder = new View[1];
-        test.runOnMainSync(() -> licenseHolder[0] = MiuiSubPages.buildLicenseReaderPage(activity, noopNav));
-        ListView lv = findListView(licenseHolder[0]);
-        List<Button> tabButtons = findButtons(licenseHolder[0]);
-        check(tabButtons.size() >= 3, "license reader has 3 tab buttons");
-
-        StringBuilder tabStats = new StringBuilder();
-        for (int t = 0; t < 3; t++) {
-            final int tabIdx = t;
-            test.runOnMainSync(() -> tabButtons.get(tabIdx).performClick());
-            long deadline = SystemClock.uptimeMillis() + 5000;
-            int count = 0;
-            while (SystemClock.uptimeMillis() < deadline) {
+            // 7. Verify Raw Report page virtualization
+            final View[] rawHolder = new View[1];
+            test.runOnMainSync(() -> rawHolder[0] = MiuiSubPages.buildRawReportPage(activity, session, noopNav));
+            ListView rawLv = findListView(rawHolder[0]);
+            check(rawLv != null, mode + ": raw report page must use virtualized ListView");
+            long rawDeadline = SystemClock.uptimeMillis() + 5000;
+            int rawCount = 0;
+            while (SystemClock.uptimeMillis() < rawDeadline) {
                 final int[] c = new int[1];
                 final String[] first = new String[1];
                 test.runOnMainSync(() -> {
-                    c[0] = lv.getAdapter().getCount();
-                    first[0] = c[0] > 0 ? String.valueOf(lv.getAdapter().getItem(0)) : "";
+                    c[0] = rawLv.getAdapter().getCount();
+                    first[0] = c[0] > 0 ? String.valueOf(rawLv.getAdapter().getItem(0)) : "";
                 });
-                if (c[0] > 1 || (c[0] == 1 && !first[0].startsWith("正在"))) {
-                    count = c[0];
+                if (c[0] > 1 || (c[0] == 1 && !first[0].startsWith("正在") && !first[0].startsWith("Loading"))) {
+                    rawCount = c[0];
                     break;
                 }
                 SystemClock.sleep(25);
             }
-            check(count > 0, "license tab " + t + " finished loading");
-            if (t == 1) check(count >= 15, "benchmark-notices.txt must be virtualized into >=15 chunks, got " + count);
+            check(rawCount >= 5, mode + ": raw report virtualized into chunks, got " + rawCount);
 
-            final int finalCount = count;
-            test.runOnMainSync(() -> {
-                layoutAtSize(licenseHolder[0], wSpec, View.MeasureSpec.makeMeasureSpec(heightPx, View.MeasureSpec.EXACTLY));
-                for (int i = 0; i < Math.min(3, finalCount); i++) {
-                    View itemView = lv.getAdapter().getView(i, null, lv);
-                    check(itemView instanceof TextView, "chunk item is TextView");
-                    TextView tv = (TextView) itemView;
-                    if (Build.VERSION.SDK_INT >= 11) {
-                        check(!Api11.isSelectable(tv), "chunk TextView must NOT use expensive selectable DynamicLayout");
-                    }
-                    tv.measure(View.MeasureSpec.makeMeasureSpec(widthPx - 40, View.MeasureSpec.EXACTLY),
-                            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
-                    tv.layout(0, 0, tv.getMeasuredWidth(), tv.getMeasuredHeight());
-                    Layout layout = tv.getLayout();
-                    check(layout != null && layout.getLineCount() <= 45,
-                            "chunk lines bounded to keep GPU texture tiny, got " + (layout == null ? -1 : layout.getLineCount()));
-                }
-            });
-            tabStats.append(t == 0 ? "" : ",").append(count);
-        }
+            // 8. Verify complete multi-format export (JSON / CSV with UTF-8 BOM / TXT) follows active language
+            String exportedJson = ReportExporter.buildCompleteJson(session);
+            JSONObject parsedExport = new JSONObject(exportedJson);
+            check("retromobilebench-full-v1".equals(parsedExport.getString("export_format")), "complete JSON export format tag");
+            check(parsedExport.getJSONObject("raw_report").getJSONArray("results").length() == 12, "complete JSON keeps all 12 stages in raw_report");
+            check(parsedExport.getJSONObject("telemetry_summary").getInt("sample_count") >= 12, "telemetry summary counts samples");
 
-        // 6. Verify Raw Report page virtualization
-        final View[] rawHolder = new View[1];
-        test.runOnMainSync(() -> rawHolder[0] = MiuiSubPages.buildRawReportPage(activity, session, noopNav));
-        ListView rawLv = findListView(rawHolder[0]);
-        check(rawLv != null, "raw report page must use virtualized ListView");
-        long rawDeadline = SystemClock.uptimeMillis() + 5000;
-        int rawCount = 0;
-        while (SystemClock.uptimeMillis() < rawDeadline) {
-            final int[] c = new int[1];
-            final String[] first = new String[1];
-            test.runOnMainSync(() -> {
-                c[0] = rawLv.getAdapter().getCount();
-                first[0] = c[0] > 0 ? String.valueOf(rawLv.getAdapter().getItem(0)) : "";
-            });
-            if (c[0] > 1 || (c[0] == 1 && !first[0].startsWith("正在"))) {
-                rawCount = c[0];
-                break;
+            byte[] csvBytes = ReportExporter.exportBytes(session, ReportExporter.Format.CSV);
+            check(csvBytes.length > 500 && csvBytes[0] == (byte) 0xEF && csvBytes[1] == (byte) 0xBB && csvBytes[2] == (byte) 0xBF,
+                    "CSV export includes UTF-8 BOM");
+            String csvText = ReportExporter.buildCompleteCsv(session);
+            String txtText = ReportExporter.buildCompleteText(session);
+            if (I18n.MODE_ZH.equals(mode)) {
+                check(csvText.contains("[核心指标汇总]") && csvText.contains("[各阶段各轮次完整明细]") && csvText.contains("[温升与电量时间序列曲线]"),
+                        "zh CSV export contains full sections and curve");
+                check(txtText.contains("[温升与电量采样时间线"), "zh TXT export contains telemetry timeline");
+            } else {
+                check(csvText.contains("[Core Metrics Summary]") && csvText.contains("[Per-Stage & Per-Round Details]") && csvText.contains("[Thermal & Battery Time-Series]"),
+                        "en CSV export contains full sections and curve");
+                check(txtText.contains("[Thermal & Battery Timeline"), "en TXT export contains telemetry timeline");
             }
-            SystemClock.sleep(25);
+
+            ExportManager.ExportResult fileRes = ExportManager.exportToFile(activity, session, ReportExporter.Format.CSV);
+            check(fileRes.success && fileRes.shareUri != null && fileRes.fileName.endsWith(".csv"), "ExportManager creates CSV file");
+
+            return summary.get() + ", licenseChunks=[" + tabStats + "], rawChunks=" + rawCount + ", export=" + fileRes.fileName;
+        } finally {
+            test.runOnMainSync(() -> {
+                if (!activity.isFinishing()) activity.finish();
+            });
+            test.waitForIdleSync();
         }
-        check(rawCount >= 5, "raw report virtualized into chunks, got " + rawCount);
-
-        // 7. Verify complete multi-format export (JSON / CSV with UTF-8 BOM / TXT) & file creation
-        String exportedJson = ReportExporter.buildCompleteJson(session);
-        JSONObject parsedExport = new JSONObject(exportedJson);
-        check("retromobilebench-full-v1".equals(parsedExport.getString("export_format")), "complete JSON export format tag");
-        check(parsedExport.getJSONObject("raw_report").getJSONArray("results").length() == 12, "complete JSON keeps all 12 stages in raw_report");
-        check(parsedExport.getJSONObject("telemetry_summary").getInt("sample_count") >= 12, "telemetry summary counts samples");
-
-        byte[] csvBytes = ReportExporter.exportBytes(session, ReportExporter.Format.CSV);
-        check(csvBytes.length > 500 && csvBytes[0] == (byte) 0xEF && csvBytes[1] == (byte) 0xBB && csvBytes[2] == (byte) 0xBF,
-                "CSV export includes UTF-8 BOM");
-        String csvText = ReportExporter.buildCompleteCsv(session);
-        check(csvText.contains("[核心指标汇总]") && csvText.contains("[各阶段各轮次完整明细]") && csvText.contains("[温升与电量时间序列曲线]"),
-                "CSV export contains full sections and curve");
-        String txtText = ReportExporter.buildCompleteText(session);
-        check(txtText.contains("[温升与电量采样时间线"), "TXT export contains telemetry timeline");
-
-        ExportManager.ExportResult fileRes = ExportManager.exportToFile(activity, session, ReportExporter.Format.CSV);
-        check(fileRes.success && fileRes.shareUri != null && fileRes.fileName.endsWith(".csv"), "ExportManager creates CSV file");
-
-        return summary.get() + ", licenseChunks=[" + tabStats + "], rawChunks=" + rawCount + ", export=" + fileRes.fileName;
     }
 
     private static void layoutAtSize(View view, int wSpec, int hSpec) {
@@ -221,12 +269,14 @@ final class UiLayoutAndPerfChecks {
             for (int line = 0; line < lines; line++) {
                 // Check for value truncation (ellipsis) on numeric/unit values
                 if (layout.getEllipsisCount(line) > 0 && containsUnit(full)) {
-                    // Only allow ellipsis on long single-line labels/titles, never on right-aligned metric values
                     if ((tv.getGravity() & android.view.Gravity.RIGHT) == android.view.Gravity.RIGHT
                             || full.contains("\u00A0")) {
-                        // Metric bar left titles may have MiB in "(8MiB读+8MiB写)" - ignore left labels with parens
                         if (!full.contains("复制带宽") && !full.contains("填充带宽") && !full.contains("延迟")
-                                && !full.contains("顺序") && !full.contains("随机") && !full.contains("综合平均")) {
+                                && !full.contains("顺序") && !full.contains("随机") && !full.contains("综合平均")
+                                && !full.contains("Copy (") && !full.contains("Fill (") && !full.contains("Latency (")
+                                && !full.contains("Seq Write") && !full.contains("Seq Read")
+                                && !full.contains("Rand Write") && !full.contains("Rand Read")
+                                && !full.contains("Composite Avg")) {
                             throw new AssertionError(tag + " truncated unit text: [" + full + "]");
                         }
                     }
@@ -346,7 +396,7 @@ final class UiLayoutAndPerfChecks {
                     .put("tenths_c", 255 + i * 6)
                     .put("battery_percent", 92.0 - i * 0.5)
                     .put("voltage_mv", 4120 - i * 12)
-                    .put("stage", BenchmarkSuite.DEFAULT[i].label));
+                    .put("stage", BenchmarkSuite.DEFAULT[i].label()));
         }
         JSONObject trace = new JSONObject()
                 .put("available", true)

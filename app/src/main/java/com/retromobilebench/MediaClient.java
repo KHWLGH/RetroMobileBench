@@ -22,7 +22,7 @@ final class MediaClient {
         JSONObject value = new JSONObject(); try { value.put("status", status).put("error_stage", reason); } catch (Exception ignored) { } return value;
     }
     static JSONObject run(Context context, JSONObject clip, String path, String mode, int threads) throws Exception {
-        if (cleanupFailed) return failure("failed", "此前媒体工作进程未能回收；请重启应用后再测");
+        if (cleanupFailed) return failure("failed", I18n.t(context, "此前媒体工作进程未能回收；请重启应用后再测", "Previous media worker failed cleanup; please restart app"));
         JSONArray attempts = new JSONArray(); JSONObject result = null;
         int count = Build.VERSION.SDK_INT >= 16 && !"software".equals(mode) ? 2 : 1;
         for (int candidate = 0; candidate < count; candidate++) {
@@ -58,10 +58,10 @@ final class MediaClient {
         CountDownLatch died = new CountDownLatch(1);
         java.util.concurrent.atomic.AtomicInteger pid = new java.util.concurrent.atomic.AtomicInteger();
         AtomicReference<JSONObject> identity = new AtomicReference<>();
-        WorkerRequest pending = new WorkerRequest(failure("cancelled", "用户停止或 Surface 丢失"));
+        WorkerRequest pending = new WorkerRequest(failure("cancelled", I18n.t(context, "用户停止或 Surface 丢失", "Stopped by user or Surface lost")));
         AtomicBoolean closed = new AtomicBoolean();
         AtomicReference<Messenger> remote = new AtomicReference<>(); AtomicReference<IBinder> binder = new AtomicReference<>();
-        IBinder.DeathRecipient death = () -> { died.countDown(); pending.complete(failure("failed", "媒体进程退出或解码器崩溃")); };
+        IBinder.DeathRecipient death = () -> { died.countDown(); pending.complete(failure("failed", I18n.t(context, "媒体进程退出或解码器崩溃", "Media worker exited or decoder crashed"))); };
         Messenger reply = new Messenger(new Handler(Looper.getMainLooper()) {
             @Override public void handleMessage(Message message) {
                 if (message.what == 4 && !closed.get()) {
@@ -102,10 +102,10 @@ final class MediaClient {
         try {
             if (!pending.isComplete()) {
                 bound = context.bindService(new Intent(context, MediaService.class), connection, Context.BIND_AUTO_CREATE);
-                if (!bound) pending.complete(failure("failed", "媒体进程绑定失败"));
+                if (!bound) pending.complete(failure("failed", I18n.t(context, "媒体进程绑定失败", "Failed to bind media worker service")));
             }
             long limit = "software".equals(mode) ? 15000 : 12000;
-            JSONObject value = pending.await(start + limit, failure("timeout", "媒体路径超过独立进程时限"));
+            JSONObject value = pending.await(start + limit, failure("timeout", I18n.t(context, "媒体路径超过独立进程时限", "Media path exceeded worker timeout")));
             JSONObject known = identity.get();
             if (known != null) {
                 java.util.Iterator<String> keys = known.keys();
@@ -116,7 +116,7 @@ final class MediaClient {
                     .put("physical_width", DisplaySurface.width()).put("physical_height", DisplaySurface.height());
             value.put("path_wall_ms", SystemClock.elapsedRealtime() - start); return value;
         } finally {
-            pending.complete(failure("failed", "媒体请求已关闭"));
+            pending.complete(failure("failed", I18n.t(context, "媒体请求已关闭", "Media request closed")));
             cancellation.detach(pending);
             try {
                 if (bound) {

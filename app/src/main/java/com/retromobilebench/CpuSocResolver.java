@@ -117,7 +117,8 @@ final class CpuSocResolver {
     /** Resolves SoC marketing/silicon name & CPU microarchitecture from a collected device snapshot. */
     static Result resolve(JSONObject device) {
         if (device == null) {
-            return new Result("未知", "", "未知", "", "", false);
+            String unk = I18n.t("未知", "Unknown");
+            return new Result(unk, "", unk, "", "", false);
         }
         JSONObject cpuId = device.optJSONObject("cpu_identity");
         JSONObject extra = device.optJSONObject("ui_extra");
@@ -227,9 +228,13 @@ final class CpuSocResolver {
 
         // Fallback to raw strings
         String raw = firstNonEmpty(sysChipname, procHardware, procModelName, sysBoardPlatform, buildHardware, procProcessor);
-        if (raw.length() == 0) raw = "未知";
+        if (raw.length() == 0) raw = I18n.t("未知", "Unknown");
         String note = buildSourceNote(raw, procHardware, sysBoardPlatform, sysChipname, sysProductBoard);
         return new Result(raw, "", cpuArch, cpuArchDetail, note, false);
+    }
+
+    static boolean isKnownArch(String arch) {
+        return arch != null && arch.length() > 0 && !"未知".equals(arch) && !"Unknown".equals(arch);
     }
 
     private static Result resolveX86Soc(String modelName, String vendorId, String boardPlatform,
@@ -242,10 +247,10 @@ final class CpuSocResolver {
                 || "goldfish".equalsIgnoreCase(buildHw) || "goldfish".equalsIgnoreCase(procHw)) {
             String plat = firstNonEmpty(boardPlatform, buildHw, procHw, "emulator");
             String soc = cleanedModel.length() > 0
-                    ? cleanedModel + " (模拟器 " + plat + ")"
-                    : "Android x86 模拟器 (" + plat + ")";
+                    ? cleanedModel + " (" + I18n.t("模拟器 ", "Emulator ") + plat + ")"
+                    : I18n.t("Android x86 模拟器 (", "Android x86 Emulator (") + plat + ")";
             return new Result(soc, vendor, cpuArch, cpuArchDetail,
-                    "运行平台：" + plat + (cleanedModel.length() > 0 ? " · " + cleanedModel : ""), true);
+                    I18n.t("运行平台：", "Platform: ") + plat + (cleanedModel.length() > 0 ? " · " + cleanedModel : ""), true);
         }
         // Physical x86 Android (e.g. Intel Atom phones/tablets)
         String intelPlatform = mapIntelAndroidPlatform(firstNonEmpty(boardPlatform, buildBoard, buildHw));
@@ -254,11 +259,11 @@ final class CpuSocResolver {
                     ? cleanedModel + " (" + intelPlatform + ")"
                     : cleanedModel;
             return new Result(soc, vendor, cpuArch, cpuArchDetail,
-                    intelPlatform != null ? "平台：" + firstNonEmpty(boardPlatform, buildBoard) : "", true);
+                    intelPlatform != null ? I18n.t("平台：", "Platform: ") + firstNonEmpty(boardPlatform, buildBoard) : "", true);
         }
         if (intelPlatform != null) {
             return new Result(intelPlatform, vendor, cpuArch, cpuArchDetail,
-                    "平台：" + firstNonEmpty(boardPlatform, buildBoard, buildHw), true);
+                    I18n.t("平台：", "Platform: ") + firstNonEmpty(boardPlatform, buildBoard, buildHw), true);
         }
         return null;
     }
@@ -281,7 +286,7 @@ final class CpuSocResolver {
         if (abi.startsWith("x86") || "GenuineIntel".equals(vendorId) || "AuthenticAMD".equals(vendorId)) {
             String arch = "GenuineIntel".equals(vendorId) ? "Intel x86"
                     : ("AuthenticAMD".equals(vendorId) ? "AMD x86" : "x86");
-            if (isEmulator) arch += " (虚拟化)";
+            if (isEmulator) arch += I18n.t(" (虚拟化)", " (Virtualized)");
             String detail = modelName.length() > 0 ? modelName : "";
             return new String[]{arch, detail};
         }
@@ -338,7 +343,7 @@ final class CpuSocResolver {
         }
 
         String proc = cpuId != null ? cpuId.optString("Processor", "") : "";
-        return new String[]{proc.length() > 0 ? proc : "未知", ""};
+        return new String[]{proc.length() > 0 ? proc : I18n.t("未知", "Unknown"), ""};
     }
 
     /** Maps ARM MIDR implementer + part (+ variant for Qualcomm Krait) from pytorch/cpuinfo uarch.c. */
@@ -1153,13 +1158,13 @@ final class CpuSocResolver {
             parts.add("Hardware: " + procHw);
         }
         if (platform.length() > 0 && !resolvedName.toLowerCase(Locale.US).contains(platform.toLowerCase(Locale.US))) {
-            parts.add("平台: " + platform);
+            parts.add(I18n.t("平台: ", "Platform: ") + platform);
         }
         if (chipname.length() > 0 && !resolvedName.toLowerCase(Locale.US).contains(chipname.toLowerCase(Locale.US))) {
-            parts.add("芯片: " + chipname);
+            parts.add(I18n.t("芯片: ", "Chip: ") + chipname);
         }
         if (parts.isEmpty() && board.length() > 0 && !resolvedName.toLowerCase(Locale.US).contains(board.toLowerCase(Locale.US))) {
-            parts.add("主板: " + board);
+            parts.add(I18n.t("主板: ", "Board: ") + board);
         }
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < parts.size(); i++) {

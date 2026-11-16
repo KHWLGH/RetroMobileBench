@@ -93,7 +93,7 @@ final class WebRegressionChecks {
         JSONObject changed = new JSONObject(original.toString()); changed.getJSONArray("samples").getJSONObject(1).put("status", "timeout");
         BenchmarkReport.summarize(changed); check(!changed.has("median"), "failed round cannot be zero");
         JSONObject session = new JSONObject().put("suite_version", BenchmarkSuite.SESSION_VERSION).put("status", "partial").put("results", new JSONArray().put(original));
-        check(BenchmarkReport.format(session).contains("Web 竖屏信息流与大图"), "session readable");
+        check(BenchmarkReport.format(session).contains(BenchmarkSuite.WEB.label()), "session readable");
     }
     private static boolean nativeMapped() throws Exception {
         try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.FileReader("/proc/self/maps"))) {

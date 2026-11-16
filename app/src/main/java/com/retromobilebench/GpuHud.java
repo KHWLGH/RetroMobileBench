@@ -36,6 +36,7 @@ final class GpuHud {
 
     GpuHud(Activity activity, FrameLayout frame) {
         this.activity = activity;
+        I18n.init(activity);
         text = new TextView(activity); text.setTag("rmb_gpu_hud");
         text.setTextSize(14); text.setTextColor(Color.WHITE); text.setBackgroundColor(0xb0000000);
         int padding = Math.max(1, (int)(6 * activity.getResources().getDisplayMetrics().density + 0.5f));
@@ -70,9 +71,14 @@ final class GpuHud {
         render();
     }
     private void render() {
-        String rate = Double.isNaN(fps) || Double.isInfinite(fps) || fps < 0 ? "等待渲染" : String.format(Locale.US, "%.1f", fps);
-        String degrees = TemperatureTrace.validTemperature(temperature) ? String.format(Locale.US, "%.1f °C", temperature / 10.0) : "不可用";
-        text.setText("FPS（提交） " + rate + "\n电池温度 " + degrees);
+        String rate = Double.isNaN(fps) || Double.isInfinite(fps) || fps < 0
+                ? I18n.t(activity, "等待渲染", "Waiting")
+                : String.format(Locale.US, "%.1f", fps);
+        String degrees = TemperatureTrace.validTemperature(temperature)
+                ? String.format(Locale.US, "%.1f °C", temperature / 10.0)
+                : I18n.t(activity, "不可用", "N/A");
+        text.setText(I18n.t(activity, "FPS（提交） ", "FPS (Submit) ") + rate
+                + I18n.t(activity, "\n电池温度 ", "\nBattery Temp ") + degrees);
     }
     static boolean publish(double fps) {
         GpuHud hud = active.get();

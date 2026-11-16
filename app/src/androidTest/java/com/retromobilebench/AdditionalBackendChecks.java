@@ -195,7 +195,7 @@ final class AdditionalBackendChecks {
         }
         BenchmarkReport.summarize(report);
         for (String key : BenchmarkReport.metricKeys(suite, sample)) check(report.getJSONObject("median").getDouble(key) == 7, "median " + key);
-        check(BenchmarkReport.format(report).contains(suite.label), "suite formatting");
+        check(BenchmarkReport.format(report).contains(suite.label()), "suite formatting");
         JSONObject last = samples.getJSONObject(2);
         for (String key : BenchmarkReport.parameterKeys(suite)) {
             Object original = last.get(key);

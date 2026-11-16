@@ -180,14 +180,14 @@ android {
 
 
     defaultConfig {
-        applicationId = "com.retromobilebench"
+        applicationId = "io.github.khwlgh.retromobilebench"
         minSdk = 8
         buildConfigField("String", "NATIVE_BUILD_ID", "\"${nativeBuildId.get()}\"")
         buildConfigField("String", "WEB_BUILD_ID", "\"${webBuildId.get()}\"")
         // 23: lowest target Android 14+ will install; no behaviour change on 4.x (README "发布方式").
         targetSdk = 23
         versionCode = 1
-        versionName = "0.0.1"
+        versionName = "0.1.0"
         // Framework Instrumentation avoids newer AndroidX runtime requirements.
         testInstrumentationRunner = "com.retromobilebench.BackendInstrumentation"
 
@@ -237,8 +237,15 @@ abstract class BenchmarkNotices : DefaultTask() {
     fun generate() {
         val destination = outputDirectory.get().asFile.resolve("benchmark-notices.txt")
         destination.parentFile.mkdirs()
-        destination.writeText(noticeFiles.files.sortedBy { it.parentFile.name }.joinToString("\n\n────────────────\n\n") {
-            it.parentFile.name + " / " + it.name + "\n\n" + it.readText()
+        destination.writeText(noticeFiles.files.sortedBy {
+            if (it.name == "LICENSE" && it.parentFile.resolve("settings.gradle.kts").isFile) "00-RetroMobileBench"
+            else if (it.parentFile.parentFile?.name == "docs") "01-docs-" + it.parentFile.name
+            else it.parentFile.name
+        }.joinToString("\n\n────────────────\n\n") {
+            val label = if (it.name == "LICENSE" && it.parentFile.resolve("settings.gradle.kts").isFile) "RetroMobileBench"
+            else if (it.parentFile.parentFile?.name == "docs") "docs/" + it.parentFile.name
+            else it.parentFile.name
+            label + " / " + it.name + "\n\n" + it.readText()
         })
     }
 }
@@ -246,9 +253,11 @@ abstract class BenchmarkNotices : DefaultTask() {
 val benchmarkNotices = tasks.register<BenchmarkNotices>("generateBenchmarkNotices") {
     mustRunAfter(prepareLegacyNdk)
     noticeFiles.from(
+        rootProject.file("LICENSE"),
         rootProject.file("third_party/coremark/LICENSE.md"),
         rootProject.file("third_party/ffmpeg/COPYING.LGPLv2.1"),
-        rootProject.file("docs/licenses.md"),
+        rootProject.file("docs/zh/licenses.md"),
+        rootProject.file("docs/en/licenses.md"),
         rootProject.file("app/src/main/assets/media/manifest.json"),
         legacyNdkDirectory.file("build/tools/toolchain-licenses/COPYING3"),
         legacyNdkDirectory.file("build/tools/toolchain-licenses/COPYING.RUNTIME"),

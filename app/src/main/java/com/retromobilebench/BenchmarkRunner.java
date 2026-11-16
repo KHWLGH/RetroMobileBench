@@ -67,7 +67,7 @@ final class BenchmarkRunner {
     private long sessionRow = -1;
     private volatile boolean nativeReady;
     private Listener listener;
-    private State state = new State(true, "正在读取本地记录", "", "");
+    private State state;
 
     static synchronized BenchmarkRunner get(Context context) {
         if (instance == null) instance = new BenchmarkRunner((Application) context.getApplicationContext());
@@ -79,6 +79,8 @@ final class BenchmarkRunner {
     // Package-private store injection exercises real measurement when history writes fail.
     BenchmarkRunner(Application context, ResultStore resultStore) {
         this.context = context;
+        I18n.init(context);
+        this.state = new State(true, I18n.t("正在读取本地记录", "Loading local history"), "", "");
         store = resultStore;
         worker.execute(() -> {
             try {
@@ -87,7 +89,7 @@ final class BenchmarkRunner {
                 store.recoverInterrupted();
                 showHistory();
             } catch (Exception e) {
-                publish(false, "读取记录失败", e.toString(), "");
+                publish(false, I18n.t("读取记录失败", "Failed to load history"), e.toString(), "");
             }
         });
     }
@@ -111,7 +113,7 @@ final class BenchmarkRunner {
     void start(BenchmarkSuite suite, boolean full) {
         if (state.busy || refuseUnsafeRestart()) return;
         cancelRequested = interrupted = false; cancelRequestedElapsed = -1; currentSession = null;
-        update(new State(true, "准备" + suite.label, "", ""));
+        update(new State(true, I18n.t("准备" + suite.label(), "Preparing " + suite.label()), "", ""));
         worker.execute(() -> run(suite, full ? 3 : 1, null));
     }
 
@@ -119,7 +121,11 @@ final class BenchmarkRunner {
         if (state.busy || refuseUnsafeRestart()) return;
         cancelRequested = interrupted = false; cancelRequestedElapsed = -1; currentSession = null;
         sessionStartedElapsed = SystemClock.elapsedRealtime();
-        update(new State(true, "正在准备固定套件", "自动完成 12 项固定套件；CPU、内存、存储、SQLite 与 Web 三轮采样。请保持前台；GPU 配置时长 6 分 38 秒。", ""));
+        update(new State(true,
+                I18n.t("正在准备固定套件", "Preparing Fixed Suite"),
+                I18n.t("自动完成 12 项固定套件；CPU、内存、存储、SQLite 与 Web 三轮采样。请保持前台；GPU 配置时长 6 分 38 秒。",
+                        "Running 12 fixed stages automatically; 3 rounds for CPU, Memory, Storage, SQLite & Web. Keep foreground; configured GPU time is 6m 38s."),
+                ""));
         worker.execute(() -> {
             TemperatureTrace trace = new TemperatureTrace(context);
             try {
@@ -141,9 +147,9 @@ final class BenchmarkRunner {
                     BenchmarkSuite suite = BenchmarkSuite.DEFAULT[i];
                     currentSession.put("active_suite", suite.version);
                     checkpointSession();
-                    trace.setStage(suite.label);
+                    trace.setStage(suite.label());
                     results.put(run(suite, suite.repetitions(), trace));
-                    trace.setStage("阶段间隔");
+                    trace.setStage(I18n.t("阶段间隔", "Stage pause"));
                     currentSession.remove("active_report"); checkpointSession();
                     if (i + 1 < BenchmarkSuite.DEFAULT.length && !cancelRequested) {
                         long until = SystemClock.elapsedRealtime() + 1000;
@@ -166,10 +172,14 @@ final class BenchmarkRunner {
                                 .put("cancel_request_elapsed_ms", cancelRequestedElapsed - sessionStartedElapsed)
                                 .put("cancel_stop_latency_ms", SystemClock.elapsedRealtime() - cancelRequestedElapsed);
                         currentSession.remove("active_suite"); checkpointSession();
-                        publish(false, "本次测试 · " + BenchmarkReport.statusLabel(currentSession.optString("status")),
+                        publish(false,
+                                I18n.t("本次测试 · ", "Run · ") + BenchmarkReport.statusLabel(currentSession.optString("status")),
                                 "", currentSession.toString(), currentSession);
                     }
-                } catch (Exception e) { publish(false, "结果处理失败", e.toString(), currentSession == null ? "" : currentSession.toString(), currentSession); }
+                } catch (Exception e) {
+                    publish(false, I18n.t("结果处理失败", "Result processing failed"), e.toString(),
+                            currentSession == null ? "" : currentSession.toString(), currentSession);
+                }
                 trace.close();
                 DisplaySurface.hide();
             }
@@ -178,7 +188,8 @@ final class BenchmarkRunner {
 
     private boolean refuseUnsafeRestart() {
         if (!WebClient.cleanupFailed()) return false;
-        publish(false, "工作进程回收未确认，请重启应用", state.text, state.exportJson, state.latestReport);
+        publish(false, I18n.t("工作进程回收未确认，请重启应用", "Worker cleanup unconfirmed; please restart the app"),
+                state.text, state.exportJson, state.latestReport);
         return true;
     }
 
@@ -188,8 +199,10 @@ final class BenchmarkRunner {
             else store.save(sessionRow, currentSession);
             return true;
         } catch (Exception e) {
-            try { currentSession.put("persistence_warning", "保存失败，内存结果仍可导出：" + e); }
-            catch (JSONException ignored) { }
+            try {
+                currentSession.put("persistence_warning",
+                        I18n.t("保存失败，内存结果仍可导出：", "Save failed; in-memory results can still be exported: ") + e);
+            } catch (JSONException ignored) { }
             return false;
         }
     }
@@ -201,7 +214,8 @@ final class BenchmarkRunner {
         if (!cancelRequested) cancelRequestedElapsed = SystemClock.elapsedRealtime();
         cancelRequested = true;
         Runnable feedback = () -> {
-            if (state.busy) update(new State(true, "正在停止：等待当前安全边界", state.text, "",
+            if (state.busy) update(new State(true,
+                    I18n.t("正在停止：等待当前安全边界", "Stopping: waiting for safe boundary"), state.text, "",
                     state.suiteVersion, state.stageIndex, state.completedStages, state.round, state.repetitions, state.savedRounds));
         };
         if (Looper.myLooper() == Looper.getMainLooper()) feedback.run(); else main.post(feedback);
@@ -283,14 +297,18 @@ final class BenchmarkRunner {
     private JSONObject run(BenchmarkSuite suite, int repetitions, TemperatureTrace sessionTrace) {
         boolean batch = sessionTrace != null;
         TemperatureTrace trace = batch ? sessionTrace.beginStage() : new TemperatureTrace(context);
-        if (!batch) trace.setStage(suite.label);
+        if (!batch) trace.setStage(suite.label());
         JSONObject report = new JSONObject();
         int savedRounds = 0;
         long id = -1;
         String persistenceProblem = "";
         if (suite == BenchmarkSuite.WEB) WebClient.beginStage();
         try {
-            if (WebClient.cleanupFailed()) throw new IllegalStateException("Web 进程回收未确认，禁止后续负载；请重启应用");
+            if (WebClient.cleanupFailed()) {
+                throw new IllegalStateException(I18n.t(
+                        "Web 进程回收未确认，禁止后续负载；请重启应用",
+                        "Web worker cleanup unconfirmed; blocking further runs—please restart the app"));
+            }
             if (!batch || suite.isGpu()) report.put("memory_preparation", MemoryPreparation.collect(context));
             report.put("schema_version", 1);
             report.put("suite_version", suite.version);
@@ -305,11 +323,15 @@ final class BenchmarkRunner {
             report.put("device", device);
             if (!batch) {
                 try { id = store.begin(report); report.put("id", id); }
-                catch (Exception e) { persistenceProblem = "创建记录失败，结果保留在内存：" + e; }
+                catch (Exception e) {
+                    persistenceProblem = I18n.t("创建记录失败，结果保留在内存：", "Create record failed; keeping results in memory: ") + e;
+                }
             }
             if (suite != BenchmarkSuite.WEB) {
                 nativeReady = NativeLoader.load() != null;
-                if (!nativeReady) throw new IllegalStateException("原生库加载失败：" + NativeLoader.error());
+                if (!nativeReady) {
+                    throw new IllegalStateException(I18n.t("原生库加载失败：", "Native library load failed: ") + NativeLoader.error());
+                }
             }
             suite.resetCancellation();
             // Cancel may have arrived before loading the library or during reset.
@@ -332,7 +354,8 @@ final class BenchmarkRunner {
                         break;
                     }
                     publishProgress(suite, round + 1, repetitions, savedRounds,
-                            "正在运行" + suite.label + "，第 " + (round + 1) + " / " + repetitions + " 轮");
+                            I18n.t("正在运行" + suite.label() + "，第 " + (round + 1) + " / " + repetitions + " 轮",
+                                    "Running " + suite.label() + " · Round " + (round + 1) + " / " + repetitions));
                     JSONObject sample = new JSONObject(suite.run(context, parameter));
                     if (suite != BenchmarkSuite.WEB) {
                         sample.put("native_build_id", BuildConfig.NATIVE_BUILD_ID);
@@ -346,7 +369,7 @@ final class BenchmarkRunner {
                     String status = sample.getString("status");
                     if (!"completed".equals(status)) {
                         report.put("status", status);
-                        report.put("message", "本轮未完成，仅保留已完成的分项");
+                        report.put("message", I18n.t("本轮未完成，仅保留已完成的分项", "Round incomplete; keeping completed sub-metrics only"));
                     }
                     if (parameter == 1 && (suite == BenchmarkSuite.COREMARK || suite == BenchmarkSuite.SCIMARK || suite == BenchmarkSuite.MEMORY)) {
                         for (String metric : suite.metrics) if (metric.startsWith("parallel_")) sample.remove(metric);
@@ -356,9 +379,13 @@ final class BenchmarkRunner {
                     if (batch) {
                         if (checkpointSession()) savedRounds = samples.length();
                     } else if (id >= 0) try { store.save(id, report); savedRounds = samples.length(); }
-                    catch (Exception e) { persistenceProblem = "保存失败，结果保留在内存：" + e; }
+                    catch (Exception e) {
+                        persistenceProblem = I18n.t("保存失败，结果保留在内存：", "Save failed; keeping results in memory: ") + e;
+                    }
                     publishProgress(suite, round + 1, repetitions, savedRounds,
-                            round + 1 < repetitions && "completed".equals(status) ? "轮次间间隔 1 秒" : "本轮结束");
+                            round + 1 < repetitions && "completed".equals(status)
+                                    ? I18n.t("轮次间间隔 1 秒", "1s pause between rounds")
+                                    : I18n.t("本轮结束", "Round finished"));
                     if (!"completed".equals(status)) break;
                     if (round + 1 < repetitions) {
                         long until = SystemClock.elapsedRealtime() + 1000;
@@ -384,14 +411,17 @@ final class BenchmarkRunner {
         try {
             report.put("temperature", trace.finish());
             if (!batch && id >= 0) store.save(id, report);
-            else if (!batch && persistenceProblem.length() == 0) persistenceProblem = "本次结果未写入数据库。";
+            else if (!batch && persistenceProblem.length() == 0) {
+                persistenceProblem = I18n.t("本次结果未写入数据库。", "Result was not written to the database.");
+            }
             if (persistenceProblem.length() > 0) report.put("persistence_warning", persistenceProblem);
         } catch (Exception e) {
-            persistenceProblem = "保存失败，可先导出数据：" + e;
+            persistenceProblem = I18n.t("保存失败，可先导出数据：", "Save failed; export data if needed: ") + e;
             try { report.put("persistence_warning", persistenceProblem); } catch (JSONException ignored) { }
         } finally { trace.close(); }
         String message = persistenceProblem.length() == 0
-                ? "结果已保存 · " + BenchmarkReport.statusLabel(report.optString("status")) : persistenceProblem;
+                ? I18n.t("结果已保存 · ", "Saved · ") + BenchmarkReport.statusLabel(report.optString("status"))
+                : persistenceProblem;
         if (!batch) publish(false, message, "", report.toString(), report);
         Log.i("RMB", suite.name() + "_DONE status=" + report.optString("status") + " id=" + id);
         return report;
@@ -403,33 +433,38 @@ final class BenchmarkRunner {
 
     static String preflight(JSONObject device, int fileMiB) {
         if (fileMiB < 4 || device.optLong("available_storage_bytes") < fileMiB * MIB + RESERVE_BYTES)
-            return "剩余空间不足；至少保留 16 MiB 空间，测试文件至少需要 4 MiB。";
+            return I18n.t("剩余空间不足；至少保留 16 MiB 空间，测试文件至少需要 4 MiB。",
+                    "Insufficient storage; at least 16 MiB reserve and 4 MiB test file space required.");
         return batteryPreflight(device);
     }
 
     static String cpuPreflight(JSONObject device) {
         if (device.optBoolean("low_memory")
                 || (device.has("available_memory_bytes") && device.optLong("available_memory_bytes") < 32 * MIB))
-            return "可用内存不足，请关闭其他应用后再运行 CPU 测试。";
+            return I18n.t("可用内存不足，请关闭其他应用后再运行 CPU 测试。",
+                    "Low available memory; close other apps before running CPU tests.");
         return batteryPreflight(device);
     }
 
     static String gpuPreflight(JSONObject device, int requiredMiB) {
         if (device.optBoolean("low_memory") || device.optLong("available_memory_bytes") < requiredMiB * MIB)
-            return "GPU 测试需要至少 " + requiredMiB + " MiB 可用内存，请关闭其他应用后重试。";
+            return I18n.t("GPU 测试需要至少 " + requiredMiB + " MiB 可用内存，请关闭其他应用后重试。",
+                    "GPU test requires at least " + requiredMiB + " MiB available memory; close other apps and retry.");
         return batteryPreflight(device);
     }
 
     static String memoryPreflight(JSONObject device) {
         if (device.optBoolean("low_memory")
                 || (device.has("available_memory_bytes") && device.optLong("available_memory_bytes") < 64 * MIB))
-            return "内存测试需要至少 64 MiB 可用内存；请关闭其他应用后重试。";
+            return I18n.t("内存测试需要至少 64 MiB 可用内存；请关闭其他应用后重试。",
+                    "Memory test requires at least 64 MiB available memory; close other apps and retry.");
         return batteryPreflight(device);
     }
 
     static String sqlitePreflight(JSONObject device) {
         if (device.optLong("available_storage_bytes") < 20 * MIB)
-            return "SQLite 测试需要至少 20 MiB 可用空间（包含 16 MiB 预留）。";
+            return I18n.t("SQLite 测试需要至少 20 MiB 可用空间（包含 16 MiB 预留）。",
+                    "SQLite test requires at least 20 MiB available storage (including 16 MiB reserve).");
         return cpuPreflight(device);
     }
 
@@ -443,25 +478,33 @@ final class BenchmarkRunner {
 
     private static String batteryPreflight(JSONObject device) {
         if (device.optInt("battery_percent", 100) < 30 && !device.optBoolean("plugged"))
-            return "电量低于 30%，请充电后再运行。";
+            return I18n.t("电量低于 30%，请充电后再运行。", "Battery below 30%; please connect charger before running.");
         return null;
     }
 
     private void showHistory() throws JSONException {
         JSONArray reports = store.latest(1);
         JSONObject latest = reports.length() > 0 ? reports.optJSONObject(0) : null;
-        publish(false, reports.length() == 0 ? "就绪" : "本地记录（最近 " + reports.length() + " 次）", "", "", latest);
+        publish(false,
+                reports.length() == 0
+                        ? I18n.t("就绪", "Ready")
+                        : I18n.t("本地记录（最近 " + reports.length() + " 次）", "Local history (latest " + reports.length() + ")"),
+                "", "", latest);
     }
 
     private void publishProgress(BenchmarkSuite suite, int round, int repetitions, int savedRounds, String message) {
         JSONArray completed = currentSession == null ? null : currentSession.optJSONArray("results");
         int count = completed == null ? 0 : completed.length();
-        String text = (completed == null ? "" : "已完成 " + count + " / " + BenchmarkSuite.DEFAULT.length + " 个阶段\n")
-                + "当前阶段已保存 " + savedRounds + " / " + repetitions + " 轮";
+        String text = (completed == null ? "" : I18n.t("已完成 " + count + " / " + BenchmarkSuite.DEFAULT.length + " 个阶段\n",
+                "Completed " + count + " / " + BenchmarkSuite.DEFAULT.length + " stages\n"))
+                + I18n.t("当前阶段已保存 " + savedRounds + " / " + repetitions + " 轮",
+                "Saved " + savedRounds + " / " + repetitions + " rounds in current stage");
         State next = new State(true, message, text, "", suite.version, completed == null ? -1 : count,
                 count, round, repetitions, savedRounds);
-        main.post(() -> update(cancelRequested ? new State(true, "正在停止：等待当前安全边界", next.text, "",
-                next.suiteVersion, next.stageIndex, next.completedStages, next.round, next.repetitions, next.savedRounds) : next));
+        main.post(() -> update(cancelRequested
+                ? new State(true, I18n.t("正在停止：等待当前安全边界", "Stopping: waiting for safe boundary"),
+                next.text, "", next.suiteVersion, next.stageIndex, next.completedStages, next.round, next.repetitions, next.savedRounds)
+                : next));
     }
 
     private void publish(boolean busy, String message, String text, String exportJson) {

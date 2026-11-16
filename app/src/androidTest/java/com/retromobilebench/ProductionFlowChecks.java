@@ -29,7 +29,7 @@ final class ProductionFlowChecks {
                 check(SystemClock.elapsedRealtime() < foregroundDeadline, "unlock device and bring MainActivity to foreground"); SystemClock.sleep(50);
             } while (true);
             instrumentation.waitForIdleSync();
-            instrumentation.runOnMainSync(() -> { click(activity(windows).getWindow().getDecorView(), "开始测试"); check(runner.isBusy(), "one click starts fixed suite"); });
+            instrumentation.runOnMainSync(() -> { clickAny(activity(windows).getWindow().getDecorView(), "开始测试", "Start Test"); check(runner.isBusy(), "one click starts fixed suite"); });
             long deadline = SystemClock.elapsedRealtime() + 30 * 60 * 1000; String last = "";
             BenchmarkRunner.State state;
             while ((state = state(instrumentation, runner)).busy) {
@@ -97,7 +97,14 @@ final class ProductionFlowChecks {
         do { instrumentation.runOnMainSync(() -> busy.set(runner.isBusy())); if (!busy.get()) return; SystemClock.sleep(100); } while (SystemClock.elapsedRealtime() < deadline);
         throw new AssertionError("runner idle timeout");
     }
-    private static void click(View view, String label) { Button button = find(view, label); check(button != null && button.isEnabled() && button.performClick(), "click " + label); }
+    private static void clickAny(View view, String... labels) {
+        Button button = null;
+        for (String label : labels) {
+            button = find(view, label);
+            if (button != null) break;
+        }
+        check(button != null && button.isEnabled() && button.performClick(), "click start button");
+    }
     private static Button find(View view, String label) {
         if (view instanceof Button && label.contentEquals(((Button)view).getText())) return (Button)view;
         if (view instanceof ViewGroup) for (int i = 0; i < ((ViewGroup)view).getChildCount(); i++) { Button b = find(((ViewGroup)view).getChildAt(i), label); if (b != null) return b; }

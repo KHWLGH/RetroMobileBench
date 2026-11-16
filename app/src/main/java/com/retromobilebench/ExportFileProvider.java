@@ -16,7 +16,7 @@ import java.util.List;
 
 /** Zero-dependency read-only ContentProvider for sharing exported files on API 24+ and internal fallback. */
 public final class ExportFileProvider extends ContentProvider {
-    static final String AUTHORITY = "com.retromobilebench.export";
+    static final String AUTHORITY = BuildConfig.APPLICATION_ID + ".export";
 
     static File shareDir(Context context) {
         File dir = new File(context.getCacheDir(), "exports");

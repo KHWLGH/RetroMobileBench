@@ -173,7 +173,7 @@ final class LegacyCompatibilityChecks {
         JSONObject live = DeviceSnapshot.collect(context, false);
         live.put("ui_extra", DeviceHardwareExtra.collect(context));
         CpuSocResolver.Result rLive = CpuSocResolver.resolve(live);
-        check(rLive.socName != null && rLive.socName.length() > 0 && !"未知".equals(rLive.socName),
+        check(rLive.socName != null && rLive.socName.length() > 0 && CpuSocResolver.isKnownArch(rLive.socName),
                 "live device SoC resolved: " + rLive.socName);
     }
 
