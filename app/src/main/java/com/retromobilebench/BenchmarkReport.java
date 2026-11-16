@@ -215,11 +215,28 @@ final class BenchmarkReport {
         else text.append(" · 硬件类型未确认");
     }
 
-    private static void appendTemperature(StringBuilder text, JSONObject trace) {
-        if (trace == null || !trace.optBoolean("available")) { text.append("电池温度：不可获得\n"); return; }
-        text.append(String.format(Locale.US, "电池温度 %.1f → %.1f°C；采样峰值 %.1f°C；温升 %+.1f°C%n",
-                trace.optInt("start_tenths_c") / 10.0, trace.optInt("end_tenths_c") / 10.0,
-                trace.optInt("sampled_max_tenths_c") / 10.0, trace.optInt("delta_tenths_c") / 10.0));
+    static void appendTemperature(StringBuilder text, JSONObject trace) {
+        if (trace == null || !trace.optBoolean("available")) {
+            text.append("电池温度：不可获得\n");
+        } else {
+            text.append(String.format(Locale.US, "电池温度 %.1f → %.1f°C；采样峰值 %.1f°C；温升 %+.1f°C%n",
+                    trace.optInt("start_tenths_c") / 10.0, trace.optInt("end_tenths_c") / 10.0,
+                    trace.optInt("sampled_max_tenths_c") / 10.0, trace.optInt("delta_tenths_c") / 10.0));
+        }
+        if (trace != null && trace.optBoolean("battery_available")) {
+            double startPct = trace.optDouble("battery_start_percent", -1);
+            double endPct = trace.optDouble("battery_end_percent", -1);
+            double deltaPct = trace.optDouble("battery_delta_percent", 0);
+            boolean pluggedAny = trace.optBoolean("plugged_any", false);
+            text.append(String.format(Locale.US, "电池电量 %.1f%% → %.1f%%（变化 %+.1f%%%s）",
+                    startPct, endPct, deltaPct, pluggedAny ? "，期间曾接入电源" : "，纯电池放电"));
+            if (trace.has("voltage_start_mv") && trace.has("voltage_end_mv")) {
+                text.append(String.format(Locale.US, "；电压 %.3f → %.3f V",
+                        trace.optInt("voltage_start_mv") / 1000.0,
+                        trace.optInt("voltage_end_mv") / 1000.0));
+            }
+            text.append('\n');
+        }
     }
 
     static String statusLabel(String status) {

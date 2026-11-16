@@ -44,6 +44,7 @@ final class MiuiSubPages {
     interface Navigator {
         void openSubPage(String title, View content);
         void copyText(String label, String content);
+        void exportReport(JSONObject report);
         void deleteRun(JSONObject report);
     }
 
@@ -83,6 +84,67 @@ final class MiuiSubPages {
                 trace.optInt("end_tenths_c") / 10.0,
                 trace.optInt("sampled_max_tenths_c") / 10.0,
                 trace.optInt("delta_tenths_c") / 10.0);
+    }
+
+    static String formatBatteryShort(JSONObject trace) {
+        if (trace == null || !trace.optBoolean("battery_available")) return "不可用";
+        double start = trace.optDouble("battery_start_percent", -1);
+        double end = trace.optDouble("battery_end_percent", -1);
+        double delta = trace.optDouble("battery_delta_percent", 0);
+        boolean pluggedAny = trace.optBoolean("plugged_any", false);
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format(Locale.US, "%.0f%% → %.0f%% (%+.1f%%)", start, end, delta));
+        if (trace.has("voltage_start_mv") && trace.has("voltage_end_mv")) {
+            sb.append(String.format(Locale.US, "\n%.2f → %.2f\u00A0V%s",
+                    trace.optInt("voltage_start_mv") / 1000.0,
+                    trace.optInt("voltage_end_mv") / 1000.0,
+                    pluggedAny ? " · 含供电" : ""));
+        } else if (pluggedAny) {
+            sb.append("\n含外接供电");
+        }
+        return sb.toString();
+    }
+
+    private static void appendTelemetryRowsAndCurve(Context context, LinearLayout card, JSONObject trace) {
+        JSONArray samples = trace != null ? trace.optJSONArray("samples") : null;
+        MiuiUi.TelemetryCurveView curveView = (samples != null && samples.length() >= 2)
+                ? new MiuiUi.TelemetryCurveView(context, trace) : null;
+        boolean hasTempCurve = curveView != null && curveView.hasTempCurve;
+        boolean hasBatCurve = curveView != null && curveView.hasBatCurve;
+
+        if (!hasTempCurve) {
+            MiuiUi.addDivider(context, card);
+            card.addView(MiuiUi.kvRow(context, "电池温度", null,
+                    formatTemperatureShort(trace), null, 0));
+        }
+        if (!hasBatCurve && trace != null && trace.optBoolean("battery_available")) {
+            MiuiUi.addDivider(context, card);
+            card.addView(MiuiUi.kvRow(context, "电池电量", null,
+                    formatBatteryShort(trace), null, 0));
+        }
+        if (hasTempCurve || hasBatCurve) {
+            MiuiUi.addDivider(context, card);
+            card.addView(curveView, new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        }
+    }
+
+    private static JSONObject[] collectSessionStages(JSONArray results) {
+        JSONObject[] byStage = new JSONObject[BenchmarkSuite.DEFAULT.length];
+        if (results != null) {
+            for (int i = 0; i < results.length(); i++) {
+                JSONObject item = results.optJSONObject(i);
+                if (item == null) continue;
+                BenchmarkSuite s = BenchmarkSuite.fromReport(item);
+                for (int k = 0; k < BenchmarkSuite.DEFAULT.length; k++) {
+                    if (BenchmarkSuite.DEFAULT[k] == s && byStage[k] == null) {
+                        byStage[k] = item;
+                        break;
+                    }
+                }
+            }
+        }
+        return byStage;
     }
 
     private static JSONObject stageSource(JSONObject stageReport) {
@@ -235,6 +297,11 @@ final class MiuiSubPages {
         return "离屏 " + offStr + " · 屏上 " + onStr;
     }
 
+    static String buildQuickComparisonText(JSONObject report) {
+        JSONArray results = report != null ? report.optJSONArray("results") : null;
+        return buildQuickComparisonText(report, collectSessionStages(results));
+    }
+
     private static String buildQuickComparisonText(JSONObject report, JSONObject[] byStage) {
         StringBuilder sb = new StringBuilder();
         JSONObject dev = null;
@@ -264,7 +331,11 @@ final class MiuiSubPages {
         sb.append("8. GPU Egypt HD：").append(formatPairedGpuFps(byStage[7], byStage[8])).append('\n');
         sb.append("9. GPU T-Rex：").append(formatPairedGpuFps(byStage[9], byStage[10])).append('\n');
         sb.append("10. GPU 纹理填充率：").append(stageHeadlineSummary(BenchmarkSuite.GPU_FILL, byStage[11])).append('\n');
-        sb.append("电池温度：").append(formatTemperatureShort(report.optJSONObject("temperature")).replace('\n', ' '));
+        JSONObject trace = report.optJSONObject("temperature");
+        sb.append("电池温度：").append(formatTemperatureShort(trace).replace('\n', ' '));
+        if (trace != null && trace.optBoolean("battery_available")) {
+            sb.append("\n电池电量：").append(formatBatteryShort(trace).replace('\n', ' '));
+        }
         return sb.toString().replace('\u00A0', ' ');
     }
 
@@ -300,9 +371,7 @@ final class MiuiSubPages {
             MiuiUi.addDivider(context, summaryCard);
             summaryCard.addView(MiuiUi.kvRow(context, "总耗时", null, MiuiUi.formatDuration(wallMs), null, 0));
         }
-        MiuiUi.addDivider(context, summaryCard);
-        summaryCard.addView(MiuiUi.kvRow(context, "电池温度", null,
-                formatTemperatureShort(report.optJSONObject("temperature")), null, 0));
+        appendTelemetryRowsAndCurve(context, summaryCard, report.optJSONObject("temperature"));
 
         for (String warnKey : new String[]{"persistence_warning", "preparation_warning", "media_preparation_warning", "message"}) {
             String warn = report.optString(warnKey);
@@ -319,8 +388,8 @@ final class MiuiSubPages {
         int pad = MiuiUi.dp(context, 12);
         btnRow.setPadding(pad, MiuiUi.dp(context, 10), pad, pad);
 
-        Button exportBtn = MiuiUi.styledButton(context, "导出 JSON", true, false,
-                () -> copyJsonAsync("结果 JSON", report, nav));
+        Button exportBtn = MiuiUi.styledButton(context, "导出完整数据", true, false,
+                () -> nav.exportReport(report));
         exportBtn.setEnabled(!isBusy);
         btnRow.addView(exportBtn, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
 
@@ -334,23 +403,10 @@ final class MiuiSubPages {
 
         if (isSession) {
             JSONArray results = report.optJSONArray("results");
-            JSONObject[] byStage = new JSONObject[BenchmarkSuite.DEFAULT.length];
-            if (results != null) {
-                for (int i = 0; i < results.length(); i++) {
-                    JSONObject item = results.optJSONObject(i);
-                    if (item == null) continue;
-                    BenchmarkSuite s = BenchmarkSuite.fromReport(item);
-                    for (int k = 0; k < BenchmarkSuite.DEFAULT.length; k++) {
-                        if (BenchmarkSuite.DEFAULT[k] == s && byStage[k] == null) {
-                            byStage[k] = item;
-                            break;
-                        }
-                    }
-                }
-            }
+            JSONObject[] byStage = collectSessionStages(results);
 
-            // One-screen summary card for video creators & device comparisons
-            col.addView(MiuiUi.sectionTitle(context, "核心指标速览（横评总结）"));
+            // One-screen summary card for key metrics
+            col.addView(MiuiUi.sectionTitle(context, "核心指标速览"));
             LinearLayout quickCard = MiuiUi.cardGroup(context);
             quickCard.addView(MiuiUi.summaryRow(context, "CPU 整数 (CoreMark®)",
                     stageQuickLines(BenchmarkSuite.COREMARK, byStage[0]),
@@ -393,8 +449,8 @@ final class MiuiSubPages {
                     "1080p 离屏四层多纹理混合"));
             MiuiUi.addDivider(context, quickCard);
             final JSONObject[] finalByStage = byStage;
-            quickCard.addView(MiuiUi.navRow(context, "复制横评总结文本", "一键复制以上 10 项核心指标与工作量说明",
-                    "复制", null, 0, () -> nav.copyText("横评总结", buildQuickComparisonText(report, finalByStage))));
+            quickCard.addView(MiuiUi.navRow(context, "复制核心指标摘要", "一键复制以上 10 项核心指标与工作量说明",
+                    "复制", null, 0, () -> nav.copyText("核心指标摘要", buildQuickComparisonText(report, finalByStage))));
             col.addView(quickCard);
 
             String[] groupTitles = {"处理器算力 (CPU)", "内存与存储 (Memory & I/O)", "Web 与视频 (Daily & Media)", "OpenGL ES 2.0 (GPU)"};
@@ -478,9 +534,7 @@ final class MiuiSubPages {
         int doneRounds = samples == null ? 0 : samples.length();
         overview.addView(MiuiUi.kvRow(context, "采样轮次", null,
                 doneRounds + " / " + reps + " 轮" + (report.has("median") ? "（中位数）" : ""), null, 0));
-        MiuiUi.addDivider(context, overview);
-        overview.addView(MiuiUi.kvRow(context, "电池温度", null,
-                formatTemperatureShort(report.optJSONObject("temperature")), null, 0));
+        appendTelemetryRowsAndCurve(context, overview, report.optJSONObject("temperature"));
 
         String msg = report.optString("message");
         if (msg.length() > 0) {
@@ -508,8 +562,8 @@ final class MiuiSubPages {
                 nav.openSubPage((suite != null ? suite.label : "阶段") + " · 文本",
                         buildRawReportPage(context, report, nav))));
         MiuiUi.addDivider(context, actions);
-        actions.addView(MiuiUi.navRow(context, "复制 JSON", null, null, null, 0,
-                () -> copyJsonAsync("阶段 JSON", report, nav)));
+        actions.addView(MiuiUi.navRow(context, "导出完整数据", "导出为 JSON / CSV / TXT 文件", null, null, 0,
+                () -> nav.exportReport(report)));
         col.addView(actions);
 
         if (allowDelete && report.has("id")) {
@@ -1124,7 +1178,7 @@ final class MiuiSubPages {
                         });
                     }
                 },
-                () -> copyJsonAsync("结果 JSON", report, nav),
+                () -> nav.exportReport(report),
                 nav);
 
         TEXT_EXECUTOR.execute(() -> {
@@ -1157,7 +1211,7 @@ final class MiuiSubPages {
         bar.addView(copyTextBtn, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
 
         if (copyJsonAction != null) {
-            Button copyJsonBtn = MiuiUi.styledButton(context, "导出 JSON", true, false, copyJsonAction);
+            Button copyJsonBtn = MiuiUi.styledButton(context, "导出文件", true, false, copyJsonAction);
             LinearLayout.LayoutParams jLp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
             jLp.leftMargin = MiuiUi.dp(context, 8);
             bar.addView(copyJsonBtn, jLp);

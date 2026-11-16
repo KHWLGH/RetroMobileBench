@@ -6,6 +6,7 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.ColorFilter;
 import android.graphics.Paint;
+import android.graphics.Path;
 import android.graphics.PixelFormat;
 import android.graphics.Rect;
 import android.graphics.RectF;
@@ -14,6 +15,7 @@ import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.StateListDrawable;
+import android.os.Build;
 import android.text.TextUtils;
 import android.util.TypedValue;
 import android.view.Gravity;
@@ -23,6 +25,11 @@ import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.util.Locale;
 
 /**
  * Pure MIUI V5 (Android 4.1 era) system-settings & security-center visual toolkit.
@@ -1001,6 +1008,672 @@ final class MiuiUi {
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER);
         scrim.addView(card, cardLp);
         return scrim;
+    }
+
+    interface ExportChoiceListener {
+        void onSaveLocal(ReportExporter.Format format);
+        void onSaveAndShare(ReportExporter.Format format);
+        void onSaveAsSaf(ReportExporter.Format format);
+        void onCopySummary();
+    }
+
+    /** In-app MIUI V5 export format & destination selector overlay. */
+    static FrameLayout buildExportOptionsOverlay(Context context, boolean hasQuickSummary,
+                                                 Runnable onDismiss, ExportChoiceListener listener) {
+        FrameLayout scrim = new FrameLayout(context);
+        scrim.setBackgroundColor(0x73000000);
+        scrim.setClickable(true);
+        scrim.setFocusable(true);
+        int hMargin = dp(context, 22);
+        int vMargin = dp(context, 20);
+        scrim.setPadding(hMargin, vMargin, hMargin, vMargin);
+        scrim.setOnClickListener(v -> { if (onDismiss != null) onDismiss.run(); });
+
+        LinearLayout card = new LinearLayout(context);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setClickable(true);
+        GradientDrawable cardBg = new GradientDrawable();
+        cardBg.setColor(BG_CARD);
+        cardBg.setCornerRadius(dp(context, 10));
+        cardBg.setStroke(dp(context, 1), BORDER_CARD);
+        setBackground(card, cardBg);
+
+        TextView titleView = new TextView(context);
+        titleView.setText("导出完整测试数据");
+        titleView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+        titleView.setTypeface(Typeface.DEFAULT_BOLD);
+        titleView.setTextColor(TEXT_PRIMARY);
+        titleView.setPadding(dp(context, 18), dp(context, 16), dp(context, 18), dp(context, 10));
+        card.addView(titleView);
+
+        TextView subView = new TextView(context);
+        subView.setText("导出文件包含全部原始采样、硬件快照与温升/电量时间序列曲线，适配下载目录保存、USB/MTP 读取与系统分享。");
+        subView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        subView.setTextColor(TEXT_SECONDARY);
+        subView.setLineSpacing(dp(context, 1.5f), 1.05f);
+        subView.setPadding(dp(context, 18), 0, dp(context, 18), dp(context, 12));
+        card.addView(subView);
+
+        View divider = new View(context);
+        divider.setBackgroundColor(DIVIDER_ROW);
+        card.addView(divider, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1));
+
+        final ReportExporter.Format[] formats = ReportExporter.Format.values();
+        final int[] selectedIndex = {0};
+        final Button[] segButtons = new Button[formats.length];
+
+        LinearLayout fmtBox = new LinearLayout(context);
+        fmtBox.setOrientation(LinearLayout.VERTICAL);
+        fmtBox.setPadding(dp(context, 16), dp(context, 12), dp(context, 16), dp(context, 8));
+
+        TextView fmtLabel = new TextView(context);
+        fmtLabel.setText("选择导出格式");
+        fmtLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        fmtLabel.setTypeface(Typeface.DEFAULT_BOLD);
+        fmtLabel.setTextColor(TEXT_MUTED);
+        fmtLabel.setPadding(0, 0, 0, dp(context, 6));
+        fmtBox.addView(fmtLabel);
+
+        final TextView fmtHint = new TextView(context);
+        fmtHint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f);
+        fmtHint.setTextColor(TEXT_SECONDARY);
+        fmtHint.setPadding(0, dp(context, 6), 0, 0);
+
+        String[] shortLabels = {"完整 JSON", "表格 CSV", "文本报告"};
+        String[] hints = {
+                "完整 JSON (.json)：含顶部摘要与 100% 原始 raw_report 数据",
+                "表格 CSV (.csv)：UTF-8 BOM 编码，Excel 可直接打开查看全量明细与曲线",
+                "文本报告 (.txt)：可读中文报告与完整温升/电量采样时间线"
+        };
+
+        LinearLayout segRow = new LinearLayout(context);
+        segRow.setOrientation(LinearLayout.HORIZONTAL);
+        segRow.setBaselineAligned(false);
+        for (int i = 0; i < formats.length; i++) {
+            final int idx = i;
+            Button b = new Button(context);
+            b.setText(shortLabels[i]);
+            b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f);
+            b.setPadding(dp(context, 6), dp(context, 8), dp(context, 6), dp(context, 8));
+            b.setOnClickListener(v -> {
+                selectedIndex[0] = idx;
+                for (int j = 0; j < formats.length; j++) {
+                    boolean sel = (j == idx);
+                    setBackground(segButtons[j], segmentDrawable(context, sel));
+                    segButtons[j].setTextColor(sel ? Color.WHITE : TEXT_PRIMARY);
+                }
+                fmtHint.setText(hints[idx]);
+            });
+            segButtons[i] = b;
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+            if (i > 0) lp.leftMargin = dp(context, 6);
+            segRow.addView(b, lp);
+        }
+        fmtBox.addView(segRow);
+        fmtBox.addView(fmtHint);
+        card.addView(fmtBox);
+        segButtons[0].performClick();
+
+        LinearLayout btnCol = new LinearLayout(context);
+        btnCol.setOrientation(LinearLayout.VERTICAL);
+        btnCol.setPadding(dp(context, 16), dp(context, 6), dp(context, 16), dp(context, 14));
+
+        Button saveBtn = styledButton(context, "保存文件到下载目录", true, false, () -> {
+            if (onDismiss != null) onDismiss.run();
+            if (listener != null) listener.onSaveLocal(formats[selectedIndex[0]]);
+        });
+        btnCol.addView(saveBtn, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        LinearLayout secondRow = new LinearLayout(context);
+        secondRow.setOrientation(LinearLayout.HORIZONTAL);
+        secondRow.setBaselineAligned(false);
+        LinearLayout.LayoutParams sRowLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        sRowLp.topMargin = dp(context, 8);
+
+        Button shareBtn = styledButton(context, "保存并分享文件", false, false, () -> {
+            if (onDismiss != null) onDismiss.run();
+            if (listener != null) listener.onSaveAndShare(formats[selectedIndex[0]]);
+        });
+        secondRow.addView(shareBtn, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+        if (Build.VERSION.SDK_INT >= 19) {
+            Button safBtn = styledButton(context, "另存为…", false, false, () -> {
+                if (onDismiss != null) onDismiss.run();
+                if (listener != null) listener.onSaveAsSaf(formats[selectedIndex[0]]);
+            });
+            LinearLayout.LayoutParams safLp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+            safLp.leftMargin = dp(context, 8);
+            secondRow.addView(safBtn, safLp);
+        }
+        btnCol.addView(secondRow, sRowLp);
+
+        LinearLayout thirdRow = new LinearLayout(context);
+        thirdRow.setOrientation(LinearLayout.HORIZONTAL);
+        thirdRow.setBaselineAligned(false);
+        LinearLayout.LayoutParams tRowLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        tRowLp.topMargin = dp(context, 8);
+
+        if (hasQuickSummary) {
+            Button copyBtn = styledButton(context, "复制文本摘要", false, false, () -> {
+                if (onDismiss != null) onDismiss.run();
+                if (listener != null) listener.onCopySummary();
+            });
+            LinearLayout.LayoutParams cLp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+            cLp.rightMargin = dp(context, 8);
+            thirdRow.addView(copyBtn, cLp);
+        }
+
+        Button cancelBtn = styledButton(context, "取消", false, false, () -> {
+            if (onDismiss != null) onDismiss.run();
+        });
+        thirdRow.addView(cancelBtn, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        btnCol.addView(thirdRow, tRowLp);
+
+        card.addView(btnCol);
+        FrameLayout.LayoutParams cardLp = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER);
+        scrim.addView(card, cardLp);
+        return scrim;
+    }
+
+    /** Result dialog after file export with Share / Copy Path actions. */
+    static FrameLayout buildExportResultOverlay(Context context, String fileName, String displayPath,
+                                                String note, Runnable onDismiss,
+                                                Runnable onShare, Runnable onCopyPath) {
+        FrameLayout scrim = new FrameLayout(context);
+        scrim.setBackgroundColor(0x73000000);
+        scrim.setClickable(true);
+        scrim.setFocusable(true);
+        int hMargin = dp(context, 24);
+        int vMargin = dp(context, 20);
+        scrim.setPadding(hMargin, vMargin, hMargin, vMargin);
+        scrim.setOnClickListener(v -> { if (onDismiss != null) onDismiss.run(); });
+
+        LinearLayout card = new LinearLayout(context);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setClickable(true);
+        GradientDrawable cardBg = new GradientDrawable();
+        cardBg.setColor(BG_CARD);
+        cardBg.setCornerRadius(dp(context, 10));
+        cardBg.setStroke(dp(context, 1), BORDER_CARD);
+        setBackground(card, cardBg);
+
+        TextView titleView = new TextView(context);
+        titleView.setText("导出成功");
+        titleView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+        titleView.setTypeface(Typeface.DEFAULT_BOLD);
+        titleView.setTextColor(TEXT_PRIMARY);
+        titleView.setPadding(dp(context, 18), dp(context, 16), dp(context, 18), dp(context, 10));
+        card.addView(titleView);
+
+        View divider = new View(context);
+        divider.setBackgroundColor(DIVIDER_ROW);
+        card.addView(divider, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1));
+
+        TextView msgView = new TextView(context);
+        msgView.setText("文件名：" + fileName + "\n保存位置：" + displayPath
+                + (note != null && note.length() > 0 ? "\n\n" + note : ""));
+        msgView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f);
+        msgView.setTextColor(TEXT_SECONDARY);
+        msgView.setLineSpacing(dp(context, 2), 1.15f);
+        msgView.setPadding(dp(context, 18), dp(context, 14), dp(context, 18), dp(context, 16));
+        card.addView(msgView);
+
+        LinearLayout actions = new LinearLayout(context);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        actions.setBaselineAligned(false);
+        actions.setPadding(dp(context, 16), 0, dp(context, 16), dp(context, 14));
+
+        Button copyBtn = styledButton(context, "复制路径", false, false, () -> {
+            if (onCopyPath != null) onCopyPath.run();
+        });
+        actions.addView(copyBtn, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+        Button shareBtn = styledButton(context, "分享文件", true, false, () -> {
+            if (onDismiss != null) onDismiss.run();
+            if (onShare != null) onShare.run();
+        });
+        LinearLayout.LayoutParams sLp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        sLp.leftMargin = dp(context, 8);
+        actions.addView(shareBtn, sLp);
+
+        Button doneBtn = styledButton(context, "完成", false, false, () -> {
+            if (onDismiss != null) onDismiss.run();
+        });
+        LinearLayout.LayoutParams dLp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        dLp.leftMargin = dp(context, 8);
+        actions.addView(doneBtn, dLp);
+
+        card.addView(actions);
+        FrameLayout.LayoutParams cardLp = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER);
+        scrim.addView(card, cardLp);
+        return scrim;
+    }
+
+    /**
+     * API 8 Canvas dual-panel curve view displaying battery temperature rise (°C)
+     * and battery consumption (%) over test duration, with stage markers and peak annotations.
+     */
+    @SuppressLint("ViewConstructor")
+    static final class TelemetryCurveView extends View {
+        private final double[] elapsedSec;
+        private final double[] tempC;
+        private final boolean[] hasTemp;
+        private final double[] batPct;
+        private final boolean[] hasBat;
+        private final int[] stageBreakIndices;
+        private final int sampleCount;
+        final boolean hasTempCurve;
+        final boolean hasBatCurve;
+        private final double startTempC, endTempC, deltaTempC, minTempC, maxTempC, peakTempC;
+        private final int peakTempIdx;
+        private final double minBatPct, maxBatPct, startBatPct, endBatPct, deltaBatPct;
+        private final double startVoltV, endVoltV;
+        private final boolean hasVoltage;
+        private final boolean pluggedAny;
+        private final double totalDurationSec;
+
+        private final Paint linePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint fillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint gridPaint = new Paint();
+        private final Paint dividerPaint = new Paint();
+        private final Paint stagePaint = new Paint();
+        private final Paint titlePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint subPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint labelPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint rightMainPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint rightLabelPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint dotPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Path strokePath = new Path();
+        private final Path fillPath = new Path();
+
+        TelemetryCurveView(Context context, JSONObject trace) {
+            super(context);
+            JSONArray samples = trace != null ? trace.optJSONArray("samples") : null;
+            int n = samples == null ? 0 : samples.length();
+            this.sampleCount = n;
+            this.elapsedSec = new double[n];
+            this.tempC = new double[n];
+            this.hasTemp = new boolean[n];
+            this.batPct = new double[n];
+            this.hasBat = new boolean[n];
+
+            int tempValidCount = 0;
+            int batValidCount = 0;
+            double tMin = Double.MAX_VALUE, tMax = -Double.MAX_VALUE;
+            double tStart = Double.NaN, tEnd = Double.NaN;
+            int tPeakIdx = -1;
+            double bMin = Double.MAX_VALUE, bMax = -Double.MAX_VALUE;
+            double bStart = Double.NaN, bEnd = Double.NaN;
+            int vStart = -1, vEnd = -1;
+            boolean anyPlug = trace != null && trace.optBoolean("plugged_any", false);
+
+            int[] breaksTmp = new int[32];
+            int breakCount = 0;
+            String prevStage = "";
+            long firstTs = n > 0 && samples.optJSONObject(0) != null ? samples.optJSONObject(0).optLong("timestamp_ms", 0) : 0;
+
+            for (int i = 0; i < n; i++) {
+                JSONObject p = samples.optJSONObject(i);
+                if (p == null) continue;
+                long ts = p.optLong("timestamp_ms", firstTs);
+                elapsedSec[i] = Math.max(0L, ts - firstTs) / 1000.0;
+                if (p.optBoolean("plugged", false)) anyPlug = true;
+
+                String stage = p.optString("stage");
+                if (i > 0 && stage.length() > 0 && !"阶段间隔".equals(stage) && !stage.equals(prevStage)) {
+                    if (breakCount < breaksTmp.length) breaksTmp[breakCount++] = i;
+                }
+                if (stage.length() > 0 && !"阶段间隔".equals(stage)) prevStage = stage;
+
+                if (p.has("tenths_c")) {
+                    double c = p.optInt("tenths_c") / 10.0;
+                    tempC[i] = c;
+                    hasTemp[i] = true;
+                    tempValidCount++;
+                    if (Double.isNaN(tStart)) tStart = c;
+                    tEnd = c;
+                    if (c < tMin) tMin = c;
+                    if (c > tMax) {
+                        tMax = c;
+                        tPeakIdx = i;
+                    }
+                }
+                if (p.has("battery_percent")) {
+                    double pct = p.optDouble("battery_percent", -1);
+                    if (TemperatureTrace.validBatteryPercent(pct)) {
+                        batPct[i] = pct;
+                        hasBat[i] = true;
+                        batValidCount++;
+                        if (Double.isNaN(bStart)) bStart = pct;
+                        bEnd = pct;
+                        if (pct < bMin) bMin = pct;
+                        if (pct > bMax) bMax = pct;
+                    }
+                }
+                int mv = p.optInt("voltage_mv", -1);
+                if (mv > 0) {
+                    if (vStart <= 0) vStart = mv;
+                    vEnd = mv;
+                }
+            }
+
+            this.stageBreakIndices = new int[breakCount];
+            System.arraycopy(breaksTmp, 0, this.stageBreakIndices, 0, breakCount);
+            this.hasTempCurve = tempValidCount >= 2;
+            this.hasBatCurve = batValidCount >= 2;
+            if (trace != null && trace.has("start_tenths_c")) {
+                this.startTempC = trace.optInt("start_tenths_c") / 10.0;
+                this.endTempC = trace.optInt("end_tenths_c") / 10.0;
+                this.deltaTempC = trace.optInt("delta_tenths_c") / 10.0;
+                this.peakTempC = trace.optInt("sampled_max_tenths_c", tempValidCount > 0 ? (int) Math.round(tMax * 10) : 0) / 10.0;
+            } else {
+                this.startTempC = Double.isNaN(tStart) ? 0 : tStart;
+                this.endTempC = Double.isNaN(tEnd) ? 0 : tEnd;
+                this.deltaTempC = this.endTempC - this.startTempC;
+                this.peakTempC = tempValidCount > 0 ? tMax : 0;
+            }
+            this.minTempC = tempValidCount > 0 ? tMin : 0;
+            this.maxTempC = tempValidCount > 0 ? Math.max(tMax, this.peakTempC) : 0;
+            this.peakTempIdx = tPeakIdx;
+            this.minBatPct = batValidCount > 0 ? bMin : 0;
+            this.maxBatPct = batValidCount > 0 ? bMax : 100;
+            if (trace != null && trace.has("battery_start_percent")) {
+                this.startBatPct = trace.optDouble("battery_start_percent", bStart);
+                this.endBatPct = trace.optDouble("battery_end_percent", bEnd);
+                this.deltaBatPct = trace.optDouble("battery_delta_percent", this.endBatPct - this.startBatPct);
+            } else {
+                this.startBatPct = Double.isNaN(bStart) ? 0 : bStart;
+                this.endBatPct = Double.isNaN(bEnd) ? 0 : bEnd;
+                this.deltaBatPct = this.endBatPct - this.startBatPct;
+            }
+            if (trace != null && trace.has("voltage_start_mv") && trace.has("voltage_end_mv")) {
+                this.hasVoltage = true;
+                this.startVoltV = trace.optInt("voltage_start_mv") / 1000.0;
+                this.endVoltV = trace.optInt("voltage_end_mv") / 1000.0;
+            } else if (vStart > 0 && vEnd > 0) {
+                this.hasVoltage = true;
+                this.startVoltV = vStart / 1000.0;
+                this.endVoltV = vEnd / 1000.0;
+            } else {
+                this.hasVoltage = false;
+                this.startVoltV = 0;
+                this.endVoltV = 0;
+            }
+            this.pluggedAny = anyPlug;
+            this.totalDurationSec = n > 0 ? elapsedSec[n - 1] : 0;
+
+            float density = context.getResources().getDisplayMetrics().density;
+            linePaint.setStyle(Paint.Style.STROKE);
+            linePaint.setStrokeWidth(Math.max(2f, 2f * density));
+            linePaint.setStrokeCap(Paint.Cap.ROUND);
+            linePaint.setStrokeJoin(Paint.Join.ROUND);
+
+            fillPaint.setStyle(Paint.Style.FILL);
+
+            gridPaint.setStyle(Paint.Style.FILL);
+            gridPaint.setColor(0xFFE6E7EC);
+
+            dividerPaint.setStyle(Paint.Style.FILL);
+            dividerPaint.setColor(DIVIDER_ROW);
+
+            stagePaint.setStyle(Paint.Style.FILL);
+            stagePaint.setColor(0xFFDADCE2);
+
+            titlePaint.setColor(TEXT_PRIMARY);
+            titlePaint.setTypeface(Typeface.DEFAULT_BOLD);
+            titlePaint.setTextSize(14f * density);
+            titlePaint.setTextAlign(Paint.Align.LEFT);
+
+            subPaint.setColor(TEXT_MUTED);
+            subPaint.setTextSize(11f * density);
+            subPaint.setTextAlign(Paint.Align.LEFT);
+
+            labelPaint.setColor(TEXT_MUTED);
+            labelPaint.setTextSize(10f * density);
+            labelPaint.setTextAlign(Paint.Align.LEFT);
+
+            rightMainPaint.setColor(TEXT_PRIMARY);
+            rightMainPaint.setTypeface(Typeface.DEFAULT_BOLD);
+            rightMainPaint.setTextSize(12.5f * density);
+            rightMainPaint.setTextAlign(Paint.Align.RIGHT);
+
+            rightLabelPaint.setColor(TEXT_SECONDARY);
+            rightLabelPaint.setTextSize(11f * density);
+            rightLabelPaint.setTextAlign(Paint.Align.RIGHT);
+
+            dotPaint.setStyle(Paint.Style.FILL);
+        }
+
+        @Override
+        protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+            int w = resolveSize(dp(getContext(), 280), widthMeasureSpec);
+            int dpH;
+            if (hasTempCurve && hasBatCurve) dpH = 304;
+            else if (hasTempCurve || hasBatCurve) dpH = 154;
+            else dpH = 44;
+            setMeasuredDimension(w, dp(getContext(), dpH));
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            int w = getWidth(), h = getHeight();
+            if (w <= 0 || h <= 0) return;
+
+            Context ctx = getContext();
+            int padH = dp(ctx, 14);
+            int padV = dp(ctx, 12);
+
+            if (!hasTempCurve && !hasBatCurve) {
+                labelPaint.setColor(TEXT_SECONDARY);
+                labelPaint.setTextAlign(Paint.Align.LEFT);
+                canvas.drawText("采样点不足（需至少 2 次采样），暂无法绘制曲线", padH, h * 0.5f + dp(ctx, 4), labelPaint);
+                return;
+            }
+
+            float panelGap = dp(ctx, 22);
+            float availH = h - padV * 2;
+            if (hasTempCurve && hasBatCurve) {
+                float eachH = (availH - panelGap) / 2f;
+                drawTempPanel(canvas, padH, padV, w - padH, padV + eachH);
+                float divY = padV + eachH + panelGap * 0.5f;
+                canvas.drawRect(0, divY, w, divY + 1f, dividerPaint);
+                drawBatteryPanel(canvas, padH, padV + eachH + panelGap, w - padH, h - padV);
+            } else if (hasTempCurve) {
+                drawTempPanel(canvas, padH, padV, w - padH, h - padV);
+            } else {
+                drawBatteryPanel(canvas, padH, padV, w - padH, h - padV);
+            }
+        }
+
+        private void drawTempPanel(Canvas canvas, float left, float top, float right, float bottom) {
+            Context ctx = getContext();
+            float headerH = dp(ctx, 44);
+            float axisBottomH = dp(ctx, 18);
+            float axisLeftW = dp(ctx, 42);
+            float pLeft = left + axisLeftW;
+            float pTop = top + headerH;
+            float pRight = right - dp(ctx, 4);
+            float pBottom = bottom - axisBottomH;
+            if (pRight <= pLeft || pBottom <= pTop) return;
+
+            float line1Y = top + dp(ctx, 14);
+            float line2Y = top + dp(ctx, 30);
+
+            canvas.drawText("电池温度", left, line1Y, titlePaint);
+            canvas.drawText("温升曲线", left, line2Y, subPaint);
+
+            rightMainPaint.setColor(ORANGE_DARK);
+            canvas.drawText(String.format(Locale.US, "%.1f → %.1f °C (%+.1f °C)",
+                    startTempC, endTempC, deltaTempC), right, line1Y, rightMainPaint);
+            rightLabelPaint.setColor(TEXT_SECONDARY);
+            canvas.drawText(String.format(Locale.US, "最低 %.1f · 峰值 %.1f °C", minTempC, peakTempC),
+                    right, line2Y, rightLabelPaint);
+
+            double span = Math.max(1.0, maxTempC - minTempC);
+            double yMin = Math.floor((minTempC - span * 0.15) * 2.0) / 2.0;
+            double yMax = Math.ceil((maxTempC + span * 0.20) * 2.0) / 2.0;
+            if (yMax - yMin < 1.0) yMax = yMin + 1.0;
+
+            drawGridAndAxes(canvas, left, pLeft, pTop, pRight, pBottom, yMin, yMax, "%.1f°");
+            drawCurveSeries(canvas, pLeft, pTop, pRight, pBottom, tempC, hasTemp, yMin, yMax,
+                    ORANGE, 0x24FF6700, peakTempIdx);
+            drawTimeLabels(canvas, pLeft, pRight, pBottom + dp(ctx, 14));
+        }
+
+        private void drawBatteryPanel(Canvas canvas, float left, float top, float right, float bottom) {
+            Context ctx = getContext();
+            float headerH = dp(ctx, 44);
+            float axisBottomH = dp(ctx, 18);
+            float axisLeftW = dp(ctx, 42);
+            float pLeft = left + axisLeftW;
+            float pTop = top + headerH;
+            float pRight = right - dp(ctx, 4);
+            float pBottom = bottom - axisBottomH;
+            if (pRight <= pLeft || pBottom <= pTop) return;
+
+            float line1Y = top + dp(ctx, 14);
+            float line2Y = top + dp(ctx, 30);
+
+            canvas.drawText("电池电量", left, line1Y, titlePaint);
+            canvas.drawText("耗电曲线", left, line2Y, subPaint);
+
+            int accent = pluggedAny ? 0xFF188AE2 : GREEN;
+            rightMainPaint.setColor(accent);
+            canvas.drawText(String.format(Locale.US, "%.0f%% → %.0f%% (%+.1f%%)",
+                    startBatPct, endBatPct, deltaBatPct), right, line1Y, rightMainPaint);
+            rightLabelPaint.setColor(TEXT_SECONDARY);
+            String subRight;
+            if (hasVoltage) {
+                subRight = String.format(Locale.US, "%.2f → %.2f V%s",
+                        startVoltV, endVoltV, pluggedAny ? " · 含供电" : "");
+            } else {
+                subRight = pluggedAny ? "含外接供电" : "纯电池供电";
+            }
+            canvas.drawText(subRight, right, line2Y, rightLabelPaint);
+
+            double span = Math.max(2.0, maxBatPct - minBatPct);
+            double yMin = Math.max(0.0, Math.floor(minBatPct - Math.max(1.0, span * 0.2)));
+            double yMax = Math.min(100.0, Math.ceil(maxBatPct + Math.max(1.0, span * 0.2)));
+            if (yMax - yMin < 2.0) {
+                yMin = Math.max(0.0, yMax - 2.0);
+                if (yMax - yMin < 2.0) yMax = Math.min(100.0, yMin + 2.0);
+            }
+
+            drawGridAndAxes(canvas, left, pLeft, pTop, pRight, pBottom, yMin, yMax, "%.0f%%");
+            drawCurveSeries(canvas, pLeft, pTop, pRight, pBottom, batPct, hasBat, yMin, yMax,
+                    accent, pluggedAny ? 0x20188AE2 : 0x201FA650, -1);
+            drawTimeLabels(canvas, pLeft, pRight, pBottom + dp(ctx, 14));
+        }
+
+        private void drawGridAndAxes(Canvas canvas, float labelLeft, float pLeft, float pTop, float pRight, float pBottom,
+                                     double yMin, double yMax, String fmt) {
+            float pH = pBottom - pTop;
+            float pW = pRight - pLeft;
+            rightLabelPaint.setColor(TEXT_MUTED);
+            labelPaint.setColor(TEXT_MUTED);
+
+            for (int g = 0; g <= 2; g++) {
+                float frac = g / 2f;
+                float y = pBottom - frac * pH;
+                canvas.drawRect(pLeft, y, pRight, y + 1f, gridPaint);
+                double val = yMin + (yMax - yMin) * frac;
+                canvas.drawText(String.format(Locale.US, fmt, val), labelLeft, y + dp(getContext(), 3.5f), labelPaint);
+            }
+
+            if (totalDurationSec > 0) {
+                for (int idx : stageBreakIndices) {
+                    if (idx < 0 || idx >= sampleCount) continue;
+                    float x = pLeft + (float) (elapsedSec[idx] / totalDurationSec) * pW;
+                    canvas.drawRect(x, pTop, x + 1f, pBottom, stagePaint);
+                }
+            }
+        }
+
+        private void drawCurveSeries(Canvas canvas, float pLeft, float pTop, float pRight, float pBottom,
+                                     double[] values, boolean[] valid, double yMin, double yMax,
+                                     int strokeColor, int fillColor, int highlightIdx) {
+            float pW = pRight - pLeft;
+            float pH = pBottom - pTop;
+            double denom = Math.max(1e-6, yMax - yMin);
+
+            strokePath.reset();
+            fillPath.reset();
+            boolean started = false;
+            float firstX = pLeft, lastX = pLeft, lastY = pBottom;
+            float hiX = 0, hiY = 0;
+            boolean hasHi = false;
+
+            for (int i = 0; i < sampleCount; i++) {
+                if (!valid[i]) continue;
+                float xFrac = totalDurationSec > 0
+                        ? (float) (elapsedSec[i] / totalDurationSec)
+                        : (sampleCount > 1 ? i / (float) (sampleCount - 1) : 0.5f);
+                float x = pLeft + Math.min(1f, Math.max(0f, xFrac)) * pW;
+                float yFrac = (float) ((values[i] - yMin) / denom);
+                float y = pBottom - Math.min(1f, Math.max(0f, yFrac)) * pH;
+
+                if (!started) {
+                    strokePath.moveTo(x, y);
+                    fillPath.moveTo(x, pBottom);
+                    fillPath.lineTo(x, y);
+                    firstX = x;
+                    started = true;
+                } else {
+                    strokePath.lineTo(x, y);
+                    fillPath.lineTo(x, y);
+                }
+                lastX = x;
+                lastY = y;
+                if (i == highlightIdx) {
+                    hiX = x;
+                    hiY = y;
+                    hasHi = true;
+                }
+            }
+
+            if (!started) return;
+            fillPath.lineTo(lastX, pBottom);
+            fillPath.lineTo(firstX, pBottom);
+            fillPath.close();
+
+            fillPaint.setColor(fillColor);
+            canvas.drawPath(fillPath, fillPaint);
+
+            linePaint.setColor(strokeColor);
+            canvas.drawPath(strokePath, linePaint);
+
+            float r = dp(getContext(), 2.8f);
+            dotPaint.setColor(strokeColor);
+            canvas.drawCircle(lastX, lastY, r, dotPaint);
+            if (hasHi) {
+                dotPaint.setColor(Color.WHITE);
+                canvas.drawCircle(hiX, hiY, r * 1.4f, dotPaint);
+                dotPaint.setColor(strokeColor);
+                canvas.drawCircle(hiX, hiY, r, dotPaint);
+            }
+        }
+
+        private void drawTimeLabels(Canvas canvas, float pLeft, float pRight, float baselineY) {
+            labelPaint.setColor(TEXT_MUTED);
+            canvas.drawText("0:00", pLeft, baselineY, labelPaint);
+            if (totalDurationSec >= 2.0) {
+                rightLabelPaint.setColor(TEXT_MUTED);
+                canvas.drawText(formatShortTime(totalDurationSec / 2.0), (pLeft + pRight) * 0.5f + dp(getContext(), 12), baselineY, rightLabelPaint);
+                canvas.drawText(formatShortTime(totalDurationSec), pRight, baselineY, rightLabelPaint);
+            }
+        }
+
+        private static String formatShortTime(double seconds) {
+            int total = Math.max(0, (int) Math.round(seconds));
+            int mins = total / 60;
+            int secs = total % 60;
+            return String.format(Locale.US, "%d:%02d", mins, secs);
+        }
     }
 
     static String ellipsizeMiddle(String value, int keepStart, int keepEnd) {

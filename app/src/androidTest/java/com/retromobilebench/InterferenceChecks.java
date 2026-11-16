@@ -71,14 +71,19 @@ final class InterferenceChecks {
             synchronized (tids) { tids.add(Process.myTid()); }
             if (Process.getThreadPriority(Process.myTid()) < Process.THREAD_PRIORITY_BACKGROUND) background.set(false);
             int n = reads.incrementAndGet();
-            return new TemperatureTrace.Point(n, n % 2 == 0, n == 1 ? 0 : n == 2 ? 1200 : 300 + n);
+            int temp = n == 1 ? 0 : n == 2 ? 1200 : 300 + n;
+            double pct = n == 1 ? -1.0 : n == 2 ? Double.NaN : 90.0 - n * 0.5;
+            int mv = n == 1 ? -1 : n == 2 ? 0 : 4100 - n * 10;
+            return new TemperatureTrace.Point(n, n % 2 == 0, temp, pct, mv, null);
         }, 40);
         JSONObject whole;
         try {
+            session.setStage("阶段A");
             TemperatureTrace stage = session.beginStage();
             SystemClock.sleep(130);
             JSONObject part = stage.finish(); int atFinish = reads.get();
             check(stage.finish() == part && reads.get() == atFinish, "stage finish idempotent");
+            session.setStage("阶段B");
             TemperatureTrace second = session.beginStage(); SystemClock.sleep(90); JSONObject other = second.finish();
             whole = session.finish();
             JSONArray all = whole.getJSONArray("samples"), one = part.getJSONArray("samples"), two = other.getJSONArray("samples");
@@ -90,7 +95,16 @@ final class InterferenceChecks {
                 check(timestamps.contains(slice.getJSONObject(i).getLong("timestamp_ms")), "stage points come from session source");
             check(one.getJSONObject(one.length() - 1).getLong("timestamp_ms") < two.getJSONObject(0).getLong("timestamp_ms"), "adjacent stages do not include another stage's points");
             check(!all.getJSONObject(0).has("tenths_c") && !all.getJSONObject(1).has("tenths_c"), "invalid temperatures omitted");
+            check(!all.getJSONObject(0).has("battery_percent") && !all.getJSONObject(1).has("battery_percent"), "invalid battery percent omitted");
+            check(!all.getJSONObject(0).has("voltage_mv") && !all.getJSONObject(1).has("voltage_mv"), "invalid voltage omitted");
             check(whole.getInt("sampled_max_tenths_c") == 300 + reads.get() && whole.getInt("delta_tenths_c") == reads.get() - 3, "summary preserves valid start/end/max");
+            check(whole.getInt("sampled_min_tenths_c") == 303, "summary tracks min temperature");
+            check(whole.getBoolean("battery_available") && whole.getBoolean("plugged_any"), "battery summary and plugged_any recorded");
+            check(Math.abs(whole.getDouble("battery_start_percent") - 88.5) < 0.05, "battery start percent preserved");
+            check(whole.getDouble("battery_consumed_percent") > 0.0, "battery consumption calculated");
+            check(whole.getInt("voltage_start_mv") == 4070, "voltage start mv preserved");
+            check("阶段A".equals(one.getJSONObject(one.length() - 1).optString("stage")), "stage A tagged on points");
+            check("阶段B".equals(two.getJSONObject(two.length() - 1).optString("stage")), "stage B tagged on points");
             check(tids.size() == 1 && background.get(), "single low-priority source handles boundaries and ticks");
         } finally { session.close(); }
         int stopped = reads.get(); SystemClock.sleep(130);

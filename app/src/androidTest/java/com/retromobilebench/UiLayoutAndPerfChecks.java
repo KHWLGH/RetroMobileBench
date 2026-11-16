@@ -49,6 +49,7 @@ final class UiLayoutAndPerfChecks {
         MiuiSubPages.Navigator noopNav = new MiuiSubPages.Navigator() {
             @Override public void openSubPage(String title, View content) { }
             @Override public void copyText(String label, String content) { }
+            @Override public void exportReport(JSONObject report) { }
             @Override public void deleteRun(JSONObject report) { }
         };
 
@@ -176,7 +177,26 @@ final class UiLayoutAndPerfChecks {
         }
         check(rawCount >= 5, "raw report virtualized into chunks, got " + rawCount);
 
-        return summary.get() + ", licenseChunks=[" + tabStats + "], rawChunks=" + rawCount;
+        // 7. Verify complete multi-format export (JSON / CSV with UTF-8 BOM / TXT) & file creation
+        String exportedJson = ReportExporter.buildCompleteJson(session);
+        JSONObject parsedExport = new JSONObject(exportedJson);
+        check("retromobilebench-full-v1".equals(parsedExport.getString("export_format")), "complete JSON export format tag");
+        check(parsedExport.getJSONObject("raw_report").getJSONArray("results").length() == 12, "complete JSON keeps all 12 stages in raw_report");
+        check(parsedExport.getJSONObject("telemetry_summary").getInt("sample_count") >= 12, "telemetry summary counts samples");
+
+        byte[] csvBytes = ReportExporter.exportBytes(session, ReportExporter.Format.CSV);
+        check(csvBytes.length > 500 && csvBytes[0] == (byte) 0xEF && csvBytes[1] == (byte) 0xBB && csvBytes[2] == (byte) 0xBF,
+                "CSV export includes UTF-8 BOM");
+        String csvText = ReportExporter.buildCompleteCsv(session);
+        check(csvText.contains("[核心指标汇总]") && csvText.contains("[各阶段各轮次完整明细]") && csvText.contains("[温升与电量时间序列曲线]"),
+                "CSV export contains full sections and curve");
+        String txtText = ReportExporter.buildCompleteText(session);
+        check(txtText.contains("[温升与电量采样时间线"), "TXT export contains telemetry timeline");
+
+        ExportManager.ExportResult fileRes = ExportManager.exportToFile(activity, session, ReportExporter.Format.CSV);
+        check(fileRes.success && fileRes.shareUri != null && fileRes.fileName.endsWith(".csv"), "ExportManager creates CSV file");
+
+        return summary.get() + ", licenseChunks=[" + tabStats + "], rawChunks=" + rawCount + ", export=" + fileRes.fileName;
     }
 
     private static void layoutAtSize(View view, int wSpec, int hSpec) {
@@ -317,20 +337,47 @@ final class UiLayoutAndPerfChecks {
 
     private static JSONObject buildRealisticSession() throws Exception {
         long now = System.currentTimeMillis();
+        long startMs = now - 905000;
+        JSONArray traceSamples = new JSONArray();
+        for (int i = 0; i < 12; i++) {
+            traceSamples.put(new JSONObject()
+                    .put("timestamp_ms", startMs + i * 75000L)
+                    .put("plugged", false)
+                    .put("tenths_c", 255 + i * 6)
+                    .put("battery_percent", 92.0 - i * 0.5)
+                    .put("voltage_mv", 4120 - i * 12)
+                    .put("stage", BenchmarkSuite.DEFAULT[i].label));
+        }
+        JSONObject trace = new JSONObject()
+                .put("available", true)
+                .put("start_tenths_c", 255)
+                .put("end_tenths_c", 321)
+                .put("sampled_max_tenths_c", 324)
+                .put("sampled_min_tenths_c", 255)
+                .put("delta_tenths_c", 66)
+                .put("battery_available", true)
+                .put("plugged_any", false)
+                .put("battery_start_percent", 92.0)
+                .put("battery_end_percent", 86.5)
+                .put("battery_min_percent", 86.5)
+                .put("battery_max_percent", 92.0)
+                .put("battery_delta_percent", -5.5)
+                .put("battery_consumed_percent", 5.5)
+                .put("voltage_start_mv", 4120)
+                .put("voltage_end_mv", 3988)
+                .put("voltage_min_mv", 3988)
+                .put("voltage_max_mv", 4120)
+                .put("samples", traceSamples);
+
         JSONObject session = new JSONObject()
                 .put("schema_version", 2)
                 .put("suite_version", BenchmarkSuite.SESSION_VERSION)
                 .put("session_id", "ui-check-session-123456")
                 .put("status", "completed")
-                .put("started_ms", now - 905000)
+                .put("started_ms", startMs)
                 .put("ended_ms", now)
                 .put("wall_ms", 905000)
-                .put("temperature", new JSONObject()
-                        .put("available", true)
-                        .put("start_tenths_c", 255)
-                        .put("end_tenths_c", 312)
-                        .put("sampled_max_tenths_c", 324)
-                        .put("delta_tenths_c", 57));
+                .put("temperature", trace);
 
         JSONArray results = new JSONArray();
         for (BenchmarkSuite suite : BenchmarkSuite.DEFAULT) {
@@ -341,7 +388,7 @@ final class UiLayoutAndPerfChecks {
                     .put("started_ms", now - 60000)
                     .put("ended_ms", now)
                     .put("repetitions", suite.repetitions())
-                    .put("temperature", session.getJSONObject("temperature"));
+                    .put("temperature", trace);
 
             JSONArray samples = new JSONArray();
             if (suite == BenchmarkSuite.VIDEO) {

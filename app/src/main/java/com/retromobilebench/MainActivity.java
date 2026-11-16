@@ -1,8 +1,12 @@
 package com.retromobilebench;
 
+import android.annotation.TargetApi;
 import android.app.Activity;
+import android.content.ActivityNotFoundException;
+import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.net.Uri;
 import android.os.BatteryManager;
 import android.os.Build;
 import android.os.Bundle;
@@ -33,6 +37,8 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * Portrait controls and structured results in pure MIUI V5 system-utility style.
@@ -42,6 +48,9 @@ import java.util.Locale;
 public class MainActivity extends Activity implements BenchmarkRunner.Listener, MiuiSubPages.Navigator {
     private static final String[] TAB_TITLES = {"跑分", "成绩", "设备", "更多"};
     private static final String[] HEADER_TITLES = {"RetroMobileBench", "测试记录", "设备信息", "更多"};
+    private static final int REQ_WRITE_STORAGE = 1001;
+    private static final int REQ_CREATE_DOC = 1002;
+    private static final ExecutorService EXPORT_EXECUTOR = Executors.newSingleThreadExecutor();
 
     private static final class SubPageEntry {
         final String title;
@@ -64,6 +73,9 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener, 
     private boolean historyLoading;
     private boolean manageHistoryMode;
     private boolean wasBusy;
+    private JSONObject pendingExportReport;
+    private ReportExporter.Format pendingExportFormat;
+    private boolean pendingExportShare;
 
     // Top Title Bar
     private TextView backBtn;
@@ -658,12 +670,168 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener, 
                 }));
     }
 
+    @Override
+    public void exportReport(final JSONObject report) {
+        if (report == null || isFinishing()) return;
+        final boolean isSession = BenchmarkSuite.isSession(report.optString("suite_version"));
+        showModalOverlay(MiuiUi.buildExportOptionsOverlay(this, isSession, this::dismissActiveDialog,
+                new MiuiUi.ExportChoiceListener() {
+                    @Override
+                    public void onSaveLocal(ReportExporter.Format format) {
+                        startLocalExport(report, format, false);
+                    }
+
+                    @Override
+                    public void onSaveAndShare(ReportExporter.Format format) {
+                        startLocalExport(report, format, true);
+                    }
+
+                    @Override
+                    public void onSaveAsSaf(ReportExporter.Format format) {
+                        startSafExport(report, format);
+                    }
+
+                    @Override
+                    public void onCopySummary() {
+                        if (isSession) {
+                            copyText("核心指标摘要", MiuiSubPages.buildQuickComparisonText(report));
+                        } else {
+                            EXPORT_EXECUTOR.execute(() -> {
+                                try {
+                                    String text = ReportExporter.buildCompleteText(report);
+                                    runOnUiThread(() -> {
+                                        if (!isFinishing()) copyText("报告摘要", text);
+                                    });
+                                } catch (JSONException e) {
+                                    runOnUiThread(() -> {
+                                        if (!isFinishing()) showToast("生成摘要失败：" + e.getMessage());
+                                    });
+                                }
+                            });
+                        }
+                    }
+                }));
+    }
+
+    private void startLocalExport(JSONObject report, ReportExporter.Format format, boolean shareAfter) {
+        if (PlatformCompat.shouldRequestWriteExternalStorage(this)) {
+            pendingExportReport = report;
+            pendingExportFormat = format;
+            pendingExportShare = shareAfter;
+            PlatformCompat.requestWriteExternalStorage(this, REQ_WRITE_STORAGE);
+            return;
+        }
+        performLocalExport(report, format, shareAfter);
+    }
+
+    private void startSafExport(JSONObject report, ReportExporter.Format format) {
+        String fileName = ReportExporter.defaultFileName(report, format);
+        Intent intent = PlatformCompat.createDocumentIntent(format.mimeType, fileName);
+        if (intent == null) {
+            performLocalExport(report, format, false);
+            return;
+        }
+        pendingExportReport = report;
+        pendingExportFormat = format;
+        try {
+            startActivityForResult(intent, REQ_CREATE_DOC);
+        } catch (ActivityNotFoundException e) {
+            pendingExportReport = null;
+            pendingExportFormat = null;
+            showToast("系统未提供文件选择器，已改为直接保存到下载目录");
+            performLocalExport(report, format, false);
+        }
+    }
+
+    private void performLocalExport(final JSONObject report, final ReportExporter.Format format, final boolean shareAfter) {
+        showToast("正在生成导出文件...");
+        EXPORT_EXECUTOR.execute(() -> {
+            final ExportManager.ExportResult result = ExportManager.exportToFile(getApplicationContext(), report, format);
+            runOnUiThread(() -> {
+                if (isFinishing()) return;
+                if (!result.success) {
+                    showToast("导出失败：" + result.error);
+                    return;
+                }
+                if (shareAfter) {
+                    launchShare(result);
+                } else {
+                    showModalOverlay(MiuiUi.buildExportResultOverlay(
+                            MainActivity.this,
+                            result.fileName,
+                            result.displayPath,
+                            result.storageNote,
+                            MainActivity.this::dismissActiveDialog,
+                            () -> launchShare(result),
+                            () -> copyText("导出路径", result.displayPath)));
+                }
+            });
+        });
+    }
+
+    private void launchShare(ExportManager.ExportResult result) {
+        try {
+            startActivity(ExportManager.buildShareIntent(result));
+        } catch (ActivityNotFoundException e) {
+            showToast("未找到可接收分享的应用，文件已保存至：" + result.displayPath);
+        }
+    }
+
+    @Override
+    @TargetApi(23)
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        if (Build.VERSION.SDK_INT >= 23) {
+            super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        }
+        if (requestCode == REQ_WRITE_STORAGE && pendingExportReport != null && pendingExportFormat != null) {
+            JSONObject report = pendingExportReport;
+            ReportExporter.Format format = pendingExportFormat;
+            boolean shareAfter = pendingExportShare;
+            pendingExportReport = null;
+            pendingExportFormat = null;
+            pendingExportShare = false;
+            performLocalExport(report, format, shareAfter);
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQ_CREATE_DOC) {
+            final JSONObject report = pendingExportReport;
+            final ReportExporter.Format format = pendingExportFormat;
+            pendingExportReport = null;
+            pendingExportFormat = null;
+            if (resultCode == RESULT_OK && data != null && data.getData() != null && report != null && format != null) {
+                final Uri uri = data.getData();
+                final String fileName = ReportExporter.defaultFileName(report, format);
+                showToast("正在写入文件...");
+                EXPORT_EXECUTOR.execute(() -> {
+                    try {
+                        ExportManager.writeToUri(getApplicationContext(), uri, report, format);
+                        runOnUiThread(() -> {
+                            if (!isFinishing()) showToast("已保存文件：" + fileName);
+                        });
+                    } catch (Exception e) {
+                        runOnUiThread(() -> {
+                            if (!isFinishing()) showToast("保存失败：" + e.getMessage());
+                        });
+                    }
+                });
+            }
+        }
+    }
+
     private void showConfirmOverlay(String title, String message, String confirmLabel,
                                     boolean danger, Runnable onConfirm) {
-        if (overlayRoot == null || isFinishing()) return;
+        showModalOverlay(MiuiUi.buildConfirmOverlay(
+                this, title, message, confirmLabel, danger, this::dismissActiveDialog, onConfirm));
+    }
+
+    private void showModalOverlay(FrameLayout overlay) {
+        if (overlayRoot == null || overlay == null || isFinishing()) return;
         dismissActiveDialog();
-        activeDialogOverlay = MiuiUi.buildConfirmOverlay(
-                this, title, message, confirmLabel, danger, this::dismissActiveDialog, onConfirm);
+        activeDialogOverlay = overlay;
         int toastIdx = overlayRoot.indexOfChild(toastView);
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT);

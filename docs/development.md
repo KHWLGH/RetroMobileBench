@@ -19,7 +19,8 @@ MainActivity → BenchmarkRunner → BenchmarkSuite.DEFAULT (12 阶段 fixed-sui
 - **单工作线程调度**：`BenchmarkRunner` 作为应用级单串行工作线程运行，仅持有 `Application` 上下文。`MainActivity` 通过订阅状态更新界面，常规界面重建不会重复触发测试。
 - **检查点与恢复**：会话启动时生成唯一 UUID 并校验解压内置资源。每轮测试完成后同步写入数据库检查点，再更新界面轮次进度；测试全部结束后格式化生成完整报告与 JSON。若应用启动时检测到遗留的 `running` 会话，会自动将其标记为 `interrupted` 并保留已完成的轮次数据。
 - **进程隔离与取消机制**：媒体、Web 和 GPU 阶段分别在独立的 `:media`、`:web`、`:gpu` 一次性子进程中执行。父进程通过事件唤醒机制等待结果、取消、进程死亡或超时信号，测量期间不轮询 Binder。用户点击取消后立即反馈并阻止后续阶段启动：CPU 与同步 I/O 在安全检查点退出，媒体、Web 与 GPU 则通知子进程停止并等待进程回收确认。
-- **温度采样**：测试期间由单个后台优先级的 `HandlerThread` 每 2 秒监听一次系统 `ACTION_BATTERY_CHANGED` 广播，各阶段共享同一采样流，在阶段结束后汇总生成温度记录。
+- **温升与电量采样**：测试期间由单个后台优先级的 `HandlerThread`（`TemperatureTrace`）每 2 秒读取一次系统 `ACTION_BATTERY_CHANGED` 广播，记录电池温度、剩余电量百分比、电压、供电状态与当前阶段名，各阶段共享同一采样流，在结束后汇总并在报告详情中通过 `TelemetryCurveView` 绘制为双曲线图表。
+- **多系统文件导出与分享**：`ReportExporter` 负责将完整报告（含全部轮次明细、硬件环境与完整遥测样本）无损生成 `.json`、UTF-8 BOM `.csv` 或 `.txt`；`ExportManager` 与 `ExportFileProvider` 负责分级适配导出（API 8–28 写入公共 `Download/RetroMobileBench/` 并通知媒体扫描，API 29+ 写入 `MediaStore.Downloads`，API 19+ 支持 `ACTION_CREATE_DOCUMENT` 另存为；系统分享在 API 8–23 外部文件使用 `file://`，API 24+ 或内部缓存使用 `content://`）。
 
 ### 窗口与全屏切换
 

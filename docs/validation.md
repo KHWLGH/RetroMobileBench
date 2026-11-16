@@ -38,7 +38,8 @@ adb -s emulator-5554 shell am instrument -w -e production true com.retromobilebe
 | `-e webOnly true` | Web 竖屏信息流与大图解码 4 分项 × 20 单元 × 3 轮、竖屏视口记录、独立进程隔离与持久化 |
 | `-e webOnly true -e webFaults true` | 在 `webOnly` 基础上增加卡片/列表/长文/大图校验失败、时钟异常、进程崩溃、JS 卡死、超时与取消恢复测试 |
 | `-e lifecycleOnly true` | 首轮落盘后取消、GPU 切后台中断、屏幕常亮释放，以及 API 8–15 窗口返回/Home 键处理 |
-| `-e interferenceOnly true` | 并发事件等待、取消竞态、迟到回调隔离与共享温度采样源清理 |
+| `-e interferenceOnly true` | 并发事件等待、取消竞态、迟到回调隔离与共享温升/电量采样源（含电池百分比/电压/阶段标记）清理 |
+| `-e uiOnly true` | 320dp 窄屏排版防截断检查、温升/电量双曲线绘制、虚拟化长文性能及完整 JSON/CSV/TXT 文件导出校验 |
 | `-e fixedOnly true` | 固定 12 阶段拓扑、SciMark 多核、会话恢复与 7 段视频三路径解码矩阵 |
 | `-e mediaOnly true` | API 16+ 严格媒体测试，要求 7 段素材 × 3 条路径（共 21 项）全部通过，并核对 EOS、帧数与时间戳 |
 | `-e mediaTimestamps true` | API 16+ 对比系统 `MediaExtractor` 与容器原始时间戳及样本哈希（仅预检，不执行解码） |

@@ -141,13 +141,16 @@ final class BenchmarkRunner {
                     BenchmarkSuite suite = BenchmarkSuite.DEFAULT[i];
                     currentSession.put("active_suite", suite.version);
                     checkpointSession();
+                    trace.setStage(suite.label);
                     results.put(run(suite, suite.repetitions(), trace));
+                    trace.setStage("阶段间隔");
                     currentSession.remove("active_report"); checkpointSession();
                     if (i + 1 < BenchmarkSuite.DEFAULT.length && !cancelRequested) {
                         long until = SystemClock.elapsedRealtime() + 1000;
                         while (!cancelRequested && SystemClock.elapsedRealtime() < until) SystemClock.sleep(50);
                     }
                 }
+                trace.setStage(null);
                 boolean complete = results.length() == BenchmarkSuite.DEFAULT.length;
                 for (int i = 0; i < results.length(); i++) complete &= "completed".equals(results.getJSONObject(i).optString("status"));
                 currentSession.put("status", WebClient.cleanupFailed() ? "failed" : interrupted ? "interrupted" : cancelRequested ? "cancelled" : complete ? "completed" : "partial");
@@ -280,6 +283,7 @@ final class BenchmarkRunner {
     private JSONObject run(BenchmarkSuite suite, int repetitions, TemperatureTrace sessionTrace) {
         boolean batch = sessionTrace != null;
         TemperatureTrace trace = batch ? sessionTrace.beginStage() : new TemperatureTrace(context);
+        if (!batch) trace.setStage(suite.label);
         JSONObject report = new JSONObject();
         int savedRounds = 0;
         long id = -1;
@@ -383,7 +387,7 @@ final class BenchmarkRunner {
             else if (!batch && persistenceProblem.length() == 0) persistenceProblem = "本次结果未写入数据库。";
             if (persistenceProblem.length() > 0) report.put("persistence_warning", persistenceProblem);
         } catch (Exception e) {
-            persistenceProblem = "保存失败，可先复制 JSON：" + e;
+            persistenceProblem = "保存失败，可先导出数据：" + e;
             try { report.put("persistence_warning", persistenceProblem); } catch (JSONException ignored) { }
         } finally { trace.close(); }
         String message = persistenceProblem.length() == 0
