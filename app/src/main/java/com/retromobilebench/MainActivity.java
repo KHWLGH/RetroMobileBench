@@ -782,9 +782,12 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener, 
             gpu = extra.optString("gpu_display_name");
             if (gpu.length() == 0) gpu = DeviceHardwareExtra.formatGpuModel(extra.optString("gpu_renderer"));
         }
+        CpuSocResolver.Result soc = CpuSocResolver.resolve(device);
         int workers = CpuTopology.workers(device);
+        String cpuPart = soc.matched ? soc.socName : (workers + " 核 " + device.optString("abi"));
         String line = "Android " + device.optString("android_release")
-                + " · " + workers + " 核 " + device.optString("abi")
+                + " · " + cpuPart
+                + (soc.matched ? " (" + workers + " 核)" : "")
                 + (gpu.length() > 0 ? " · " + gpu : "");
         deviceSummarySub.setText(line);
     }
@@ -911,11 +914,17 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener, 
         // 2. Processor (CPU)
         devicePageColumn.addView(MiuiUi.sectionTitle(this, "处理器 (CPU)"));
         LinearLayout cpuCard = MiuiUi.cardGroup(this);
-        JSONObject cpuId = device.optJSONObject("cpu_identity");
-        String hwName = cpuId != null
-                ? cpuId.optString("Hardware", cpuId.optString("model name", cpuId.optString("Processor", "未知")))
-                : "未知";
-        cpuCard.addView(MiuiUi.kvRow(this, "处理器型号", hwName, null, null, 0));
+        CpuSocResolver.Result soc = CpuSocResolver.resolve(device);
+        boolean isEmu = device.optBoolean("emulator");
+        String socSub = soc.socName + (soc.sourceNote.length() > 0 ? "\n" + soc.sourceNote : "");
+        cpuCard.addView(MiuiUi.kvRow(this, "处理器型号",
+                socSub,
+                null, isEmu ? "模拟器" : null, isEmu ? MiuiUi.TONE_WARN : 0));
+        if (soc.cpuArch.length() > 0 && !"未知".equals(soc.cpuArch)) {
+            MiuiUi.addDivider(this, cpuCard);
+            String archSub = soc.cpuArch + (soc.cpuArchDetail.length() > 0 ? "\n" + soc.cpuArchDetail : "");
+            cpuCard.addView(MiuiUi.kvRow(this, "核心微架构", archSub, null, null, 0));
+        }
         MiuiUi.addDivider(this, cpuCard);
         String abi2 = device.optString("abi2");
         String abiText = device.optString("abi") + (abi2.length() > 0 ? " / " + abi2 : "");

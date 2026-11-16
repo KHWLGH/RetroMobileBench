@@ -38,6 +38,8 @@ final class UiLayoutAndPerfChecks {
                 new Intent(context, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
         test.waitForIdleSync();
 
+        LegacyCompatibilityChecks.verifyCpuSocResolver(context);
+
         JSONObject session = buildRealisticSession();
         int widthPx = Math.round(320 * context.getResources().getDisplayMetrics().density);
         int heightPx = Math.round(533 * context.getResources().getDisplayMetrics().density);

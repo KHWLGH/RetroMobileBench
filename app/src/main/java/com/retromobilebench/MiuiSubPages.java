@@ -243,8 +243,16 @@ final class MiuiSubPages {
         }
         sb.append("【RetroMobileBench 核心指标速览】\n");
         if (dev != null) {
+            CpuSocResolver.Result soc = CpuSocResolver.resolve(dev);
             sb.append("设备：").append(dev.optString("manufacturer")).append(' ').append(dev.optString("model"))
                     .append(" (Android ").append(dev.optString("android_release")).append(", API ").append(dev.optInt("sdk")).append(")\n");
+            if (soc.matched) {
+                sb.append("处理器：").append(soc.socName);
+                if (soc.cpuArch.length() > 0 && !"未知".equals(soc.cpuArch)) {
+                    sb.append(" · ").append(soc.cpuArch);
+                }
+                sb.append('\n');
+            }
         }
         sb.append("1. CPU 整数 (CoreMark)：").append(stageHeadlineSummary(BenchmarkSuite.COREMARK, byStage[0])).append('\n');
         sb.append("2. CPU 浮点 (SciMark 2.0)：").append(stageHeadlineSummary(BenchmarkSuite.SCIMARK, byStage[1])).append('\n');
@@ -750,6 +758,42 @@ final class MiuiSubPages {
                 }
                 col.addView(coreCard);
             }
+
+            CpuSocResolver.Result soc = CpuSocResolver.resolve(device);
+            col.addView(MiuiUi.sectionTitle(context, "SoC 与处理器识别"));
+            LinearLayout socCard = MiuiUi.cardGroup(context);
+            socCard.addView(MiuiUi.kvRow(context, "识别型号",
+                    soc.sourceNote.length() > 0 ? soc.sourceNote : null,
+                    soc.socName, soc.matched ? "已匹配" : "原始值",
+                    soc.matched ? MiuiUi.TONE_OK : MiuiUi.TONE_NEUTRAL));
+            if (soc.cpuArch.length() > 0 && !"未知".equals(soc.cpuArch)) {
+                MiuiUi.addDivider(context, socCard);
+                socCard.addView(MiuiUi.kvRow(context, "核心微架构",
+                        soc.cpuArchDetail.length() > 0 ? soc.cpuArchDetail : null,
+                        soc.cpuArch, null, 0));
+            }
+            JSONObject extraObj = device.optJSONObject("ui_extra");
+            if (extraObj != null) {
+                String[][] propKeys = {
+                        {"sys_board_platform", "ro.board.platform"},
+                        {"sys_product_board", "ro.product.board"},
+                        {"sys_chipname", "ro.chipname"},
+                        {"sys_hardware_chipname", "ro.hardware.chipname"},
+                        {"sys_mediatek_platform", "ro.mediatek.platform"},
+                        {"sys_arch", "ro.arch"},
+                        {"sys_soc_model", "ro.soc.model"},
+                        {"sysfs_soc_machine", "sysfs soc0/machine"},
+                        {"sysfs_soc_id", "sysfs soc0/soc_id"}
+                };
+                for (String[] pair : propKeys) {
+                    String val = extraObj.optString(pair[0]);
+                    if (val.length() > 0) {
+                        MiuiUi.addDivider(context, socCard);
+                        socCard.addView(MiuiUi.kvRow(context, pair[1], null, val, null, 0));
+                    }
+                }
+            }
+            col.addView(socCard);
 
             JSONObject id = device.optJSONObject("cpu_identity");
             if (id != null && id.length() > 0) {

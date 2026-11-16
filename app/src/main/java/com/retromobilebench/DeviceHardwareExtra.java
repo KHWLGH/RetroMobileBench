@@ -106,6 +106,9 @@ final class DeviceHardwareExtra {
 
             // GPU / OpenGL ES probe via lightweight EGL10 pbuffer
             probeGpu(extra);
+
+            // Offline SoC & CPU microarchitecture hints
+            CpuSocResolver.collectExtra(extra);
         } catch (JSONException | SecurityException ignored) { }
         return extra;
     }
