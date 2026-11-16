@@ -40,7 +40,7 @@ val webBuildId = providers.provider {
     webInputs.files.sortedBy { it.relativeTo(rootDir).invariantSeparatorsPath }.forEach {
         digest.update(it.relativeTo(rootDir).invariantSeparatorsPath.toByteArray()); digest.update(it.readBytes())
     }
-    "web-host-v2-" + digest.digest().take(12).joinToString("") { "%02x".format(it) }
+    "web-host-v1-" + digest.digest().take(12).joinToString("") { "%02x".format(it) }
 }
 
 val legacyNdkDirectory = rootProject.layout.projectDirectory.dir(
@@ -247,9 +247,6 @@ val benchmarkNotices = tasks.register<BenchmarkNotices>("generateBenchmarkNotice
     mustRunAfter(prepareLegacyNdk)
     noticeFiles.from(
         rootProject.file("third_party/coremark/LICENSE.md"),
-        rootProject.file("third_party/mbedtls/LICENSE"),
-        rootProject.file("third_party/libjpeg-turbo/LICENSE.md"),
-        rootProject.file("third_party/libpng/LICENSE"),
         rootProject.file("third_party/ffmpeg/COPYING.LGPLv2.1"),
         rootProject.file("docs/licenses.md"),
         rootProject.file("app/src/main/assets/media/manifest.json"),
@@ -281,7 +278,7 @@ abstract class GpuPackTask : DefaultTask() {
     @TaskAction fun generate() {
         val source = gfxDirectory.get().asFile
         val selected = linkedMapOf<String, java.io.File>()
-        val tests = if (fullPack.get()) listOf("gl_egypt_off", "gl_egypt", "gl_trex_off", "gl_trex", "gl_fill_off") else listOf("gl_alu_off", "gl_fill_off", "gl_driver_off", "gl_blending_off")
+        val tests = if (fullPack.get()) listOf("gl_egypt_off", "gl_egypt", "gl_trex_off", "gl_trex", "gl_fill_off") else listOf("gl_fill_off")
         tests.forEach { test -> selected["config/$test.json"] = source.resolve("gfxbench40/resources/gfxbench_gl/config/$test.json") }
         val directories = listOf("common", "fill") + if (fullPack.get()) listOf("trex", "egypt") else emptyList()
         directories.forEach { name ->

@@ -171,6 +171,8 @@ finish:
         int removed = remove_files(path);
         if (!cleanup_errno) cleanup_errno = removed;
     }
+    double composite_tps = completed == 3 ? (tps[0] + tps[1] + tps[2]) / 3.0 : 0.0;
+    int total_metrics = completed == 3 ? 4 : completed;
     const char *status = is_cancelled() ? "cancelled"
             : code == SQLITE_OK && completed == 3 && !cleanup_errno ? "completed" : "failed";
     snprintf(json, capacity,
@@ -178,8 +180,8 @@ finish:
         "\"error_code\":%d,\"cleanup_errno\":%d,\"sqlite_version\":\"%s\",\"sqlite_source_id\":\"%s\","
         "\"transactions\":%d,\"rows_per_transaction\":1,\"payload_bytes\":1024,\"page_bytes\":4096,"
         "\"cache_kib\":2048,\"journal_mode\":\"DELETE\",\"synchronous\":\"FULL\","
-        "\"completed_metrics\":%d,\"insert_tps\":%.6f,\"update_tps\":%.6f,\"delete_tps\":%.6f,"
+        "\"completed_metrics\":%d,\"composite_tps\":%.6f,\"insert_tps\":%.6f,\"update_tps\":%.6f,\"delete_tps\":%.6f,"
         "\"completed_transactions\":[%d,%d,%d],\"elapsed_seconds\":[%.9f,%.9f,%.9f]}",
         status, stage, code, cleanup_errno, sqlite3_libversion(), sqlite3_sourceid(), transactions,
-        completed, tps[0], tps[1], tps[2], counts[0], counts[1], counts[2], elapsed[0], elapsed[1], elapsed[2]);
+        total_metrics, composite_tps, tps[0], tps[1], tps[2], counts[0], counts[1], counts[2], elapsed[0], elapsed[1], elapsed[2]);
 }

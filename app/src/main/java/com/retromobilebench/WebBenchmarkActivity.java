@@ -46,7 +46,7 @@ public final class WebBenchmarkActivity extends Activity {
                         started = true;
                         web.post(() -> startWhenReady(frame)); return true;
                     }
-                    if (!"RMB_WEB_V2".equals(message) || defaultValue == null || defaultValue.length() > 40000) return true;
+                    if (!"RMB_WEB".equals(message) || defaultValue == null || defaultValue.length() > 40000) return true;
                     JSONObject event = new JSONObject(defaultValue);
                     if (!request.nonce.equals(event.optString("nonce")) || event.optInt("sequence") != ++sequence) { end("error", "stale_or_out_of_order_js"); return true; }
                     if (web.getWidth() != viewportWidth || web.getHeight() != viewportHeight) { end("interrupted", "fullscreen_viewport_changed"); return true; }
@@ -75,7 +75,7 @@ public final class WebBenchmarkActivity extends Activity {
     private void startWhenReady(FrameLayout frame) {
         if (ending || web == null) return;
         int width = web.getWidth(), height = web.getHeight();
-        if (!hasWindowFocus() || width <= height || height <= 0 || width != frame.getWidth() || height != frame.getHeight()) {
+        if (!hasWindowFocus() || height < width || width <= 0 || width != frame.getWidth() || height != frame.getHeight()) {
             web.postDelayed(() -> startWhenReady(frame), 50); return;
         }
         web.postDelayed(() -> {
@@ -104,7 +104,7 @@ public final class WebBenchmarkActivity extends Activity {
     @android.annotation.TargetApi(11) private static final class Api11 { static boolean accelerated(View view) { return view.isHardwareAccelerated(); } }
     @android.annotation.TargetApi(14) private static final class Api14 { static void configure(WebSettings settings) { settings.setTextZoom(100); } }
     @android.annotation.TargetApi(16) private static final class Api16 {
-        static void configure(WebSettings settings) { settings.setAllowFileAccessFromFileURLs(false); settings.setAllowUniversalAccessFromFileURLs(false); }
+        static void configure(WebSettings settings) { settings.setAllowFileAccessFromFileURLs(true); settings.setAllowUniversalAccessFromFileURLs(false); }
     }
     @android.annotation.TargetApi(26) private static final class Api26 {
         static String provider() { android.content.pm.PackageInfo info = WebView.getCurrentWebViewPackage(); return info == null ? "unknown" : info.packageName + ":" + info.versionName + ":" + info.versionCode; }

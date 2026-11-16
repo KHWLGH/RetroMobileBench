@@ -27,7 +27,7 @@
                                 /* compiler could not resolve as */
                                 /*   a constant.                 */
 
-  static /*const*/ double dm1;  /*  = 1.0 / (double) m1; */
+  static const double dm1 = 1.0 / (double) ((ONE << (MDIG-2)) + ((ONE << (MDIG-2) )-ONE));
 
 
 /* private methods (defined below, but not in Random.h */
@@ -111,8 +111,6 @@ static void initialize(Random R, int seed)
 {
 
     int jseed, k0, k1, j0, j1, iloop;
-
-    dm1  = 1.0 / (double) m1; 
 
     R->seed = seed;
 

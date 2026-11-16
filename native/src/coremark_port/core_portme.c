@@ -34,15 +34,40 @@ void portable_init(core_portable *p, int *argc, char *argv[]) {
 void portable_fini(core_portable *p) { p->portable_id = 0; }
 void *portable_malloc(ee_size_t size) { return malloc(size); }
 void portable_free(void *p) { free(p); }
+typedef struct {
+    core_results *res;
+    pthread_mutex_t mutex;
+    pthread_cond_t cond;
+    int tls_ready;
+} rmb_core_launch;
+
+static void *core_thread_trampoline(void *arg) {
+    rmb_core_launch *launch = arg;
+    core_results *res = launch->res;
+    pthread_mutex_lock(&launch->mutex);
+    launch->tls_ready = 1;
+    pthread_cond_signal(&launch->cond);
+    pthread_mutex_unlock(&launch->mutex);
+    return iterate(res);
+}
+
 ee_u8 core_start_parallel(core_results *res) {
-    int error = pthread_create(&res->port.thread, NULL, iterate, res);
+    rmb_core_launch launch = { res, PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, 0 };
+    int error = pthread_create(&res->port.thread, NULL, core_thread_trampoline, &launch);
     res->port.started = error == 0;
-    if (error) {
+    if (!error) {
+        /* Wait until libc __init_tls/__set_tls finishes for this thread (Gingerbread x86 race). */
+        pthread_mutex_lock(&launch.mutex);
+        while (!launch.tls_ready) pthread_cond_wait(&launch.cond, &launch.mutex);
+        pthread_mutex_unlock(&launch.mutex);
+    } else {
         /* main does not check the return code. Fill valid outputs synchronously,
            then reject the entire run; never join an uninitialized pthread_t. */
         port_error = error;
         iterate(res);
     }
+    pthread_cond_destroy(&launch.cond);
+    pthread_mutex_destroy(&launch.mutex);
     return (ee_u8)(error != 0);
 }
 ee_u8 core_stop_parallel(core_results *res) {
@@ -119,7 +144,7 @@ finish:;
     rmb_json_string(COMPILER_VERSION, compiler, sizeof(compiler));
     rmb_json_string(COMPILER_FLAGS, flags, sizeof(flags));
     int n = snprintf(json, capacity,
-        "{\"test_version\":\"cpu-coremark-v2\",\"status\":\"%s\",\"error_stage\":\"%s\",\"error_code\":%d,"
+        "{\"test_version\":\"cpu-coremark-v1\",\"status\":\"%s\",\"error_stage\":\"%s\",\"error_code\":%d,"
         "\"completed_metrics\":%d,\"source_revision\":\"1f483d5b8316753a742cbf5590caf5bd0a4e4777\","
         "\"compiler_version\":\"%s\",\"compiler_flags\":\"%s\",\"memory_method\":\"stack\","
         "\"buffer_bytes\":2000,\"minimum_seconds\":10,\"parallel_threads\":%d,\"diagnostic_iterations\":%d,"

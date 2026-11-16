@@ -68,14 +68,8 @@ tfw::TestFactory::Holder create_test_gl_trex();
 tfw::TestFactory::Holder create_test_gl_trex_off();
 tfw::TestFactory::Holder create_test_gl_egypt();
 tfw::TestFactory::Holder create_test_gl_egypt_off();
-tfw::TestFactory::Holder create_test_gl_alu();
-tfw::TestFactory::Holder create_test_gl_alu_off();
 tfw::TestFactory::Holder create_test_gl_fill();
 tfw::TestFactory::Holder create_test_gl_fill_off();
-tfw::TestFactory::Holder create_test_gl_driver();
-tfw::TestFactory::Holder create_test_gl_driver_off();
-tfw::TestFactory::Holder create_test_gl_blending();
-tfw::TestFactory::Holder create_test_gl_blending_off();
 }
 
 namespace {
@@ -93,12 +87,9 @@ struct FactoryEntry {
 };
 
 const FactoryEntry kFactories[] = {
-    {"gl_trex", create_test_gl_trex},         {"gl_trex_off", create_test_gl_trex_off},
-    {"gl_egypt", create_test_gl_egypt},       {"gl_egypt_off", create_test_gl_egypt_off},
-    {"gl_alu", create_test_gl_alu},           {"gl_alu_off", create_test_gl_alu_off},
-    {"gl_fill", create_test_gl_fill},         {"gl_fill_off", create_test_gl_fill_off},
-    {"gl_driver", create_test_gl_driver},     {"gl_driver_off", create_test_gl_driver_off},
-    {"gl_blending", create_test_gl_blending}, {"gl_blending_off", create_test_gl_blending_off},
+    {"gl_trex", create_test_gl_trex},   {"gl_trex_off", create_test_gl_trex_off},
+    {"gl_egypt", create_test_gl_egypt}, {"gl_egypt_off", create_test_gl_egypt_off},
+    {"gl_fill", create_test_gl_fill},   {"gl_fill_off", create_test_gl_fill_off},
 };
 
 FactoryFn findFactory(const std::string &name) {
@@ -121,7 +112,7 @@ bool readFile(const std::string &path, std::string *out) {
 
 // Runs one GFXBench test. Returns the test's result JSON, or a string starting with
 // "ERROR:" describing where it failed.
-//   configPath:  path to e.g. .../config/gl_alu_off.json
+//   configPath:  path to e.g. .../config/gl_fill_off.json
 //   dataPath:    directory that contains common/, fill/, shaders_40/ ... (ends with '/')
 //   writePath:   writable directory (ends with '/')
 //   playTimeMs:  > 0 overrides raw_config.play_time (shorter runs for smoke tests)

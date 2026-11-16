@@ -11,8 +11,6 @@ public final class NativeBridge {
     public static native int configuredProcessors();
     public static native void resetMediaCancellation();
     public static native void cancelMedia();
-    public static native String runCrypto(int threads, int durationMs);
-    public static native String runImage(byte[] data, String referencePath, boolean png, int width, int height, int durationMs);
     /** MP4 packet timing/identity preflight only; never opens or invokes a software decoder. */
     public static native String readVideoPacketTimeline(String path, int expectedFrames);
     public static native String runVideoSoftware(String path, int threads, int durationMs, int width, int height, String firstYuvSha256);
@@ -20,34 +18,18 @@ public final class NativeBridge {
     /** Native file I/O suite. Single worker only; JSON includes parameters and cache mode. */
     public static native String runStorage(String directory, int fileMiB, int randomOperations);
 
-    /** Fixed zlib corpus; single and parallel compression/decompression, explicit 64-worker capacity. */
-    public static native String runCpu(int parallelThreads, int durationMs);
-
-    public static native void resetCpuCancellation();
-
-    /** Checked between bounded 1 MiB codec operations, including warm-up. */
-    public static native void cancelCpu();
-
-    /** Independent streams with the same corpus and timing protocol as zlib. */
-    public static native String runZstd(int parallelThreads, int durationMs);
-    public static native void resetZstdCancellation();
-    public static native void cancelZstd();
-
     /** Bundled SQLite, one committed row per transaction; call on the serial worker. */
     public static native String runSqlite(String directory, int transactions);
     public static native void resetSqliteCancellation();
     public static native void cancelSqlite();
 
-    /** Memory suites share cancellation and must execute serially. */
-    public static native String runMemory(int durationMs);
-    /** Fixed 24 MiB Triad working set, single plus N workers; memory-tiny-v2. */
-    public static native String runMemoryV2(int threads, int durationMs);
-    public static native String runStream(int threads, int durationMs);
+    /** Fixed 24 MiB Triad working set, single plus N workers; memory-tiny-v1. */
+    public static native String runMemory(int threads, int durationMs);
     public static native void resetMemoryCancellation();
     public static native void cancelMemory();
 
-    /** NIST small-data kernels, fixed RMB wall-time protocol. */
-    public static native String runScimark(int durationMs);
+    /** NIST small-data kernels, single plus N workers, fixed RMB wall-time protocol. */
+    public static native String runScimark(int parallelThreads, int durationMs);
     public static native void resetScimarkCancellation();
     public static native void cancelScimark();
 

@@ -113,7 +113,7 @@ final class BenchmarkRunner {
         if (state.busy || refuseUnsafeRestart()) return;
         cancelRequested = interrupted = false; cancelRequestedElapsed = -1; currentSession = null;
         sessionStartedElapsed = SystemClock.elapsedRealtime();
-        update(new State(true, "正在准备固定套件", "自动完成固定套件；CPU、图片、内存与存储三轮采样。请保持前台；GPU 配置时长 6 分 38 秒。", ""));
+        update(new State(true, "正在准备固定套件", "自动完成 12 项固定套件；CPU、内存、存储、SQLite 与 Web 三轮采样。请保持前台；GPU 配置时长 6 分 38 秒。", ""));
         worker.execute(() -> {
             TemperatureTrace trace = new TemperatureTrace(context);
             try {
@@ -201,8 +201,6 @@ final class BenchmarkRunner {
         WebClient.cancel();
         if (nativeReady) {
             NativeBridge.cancelStorage();
-            NativeBridge.cancelCpu();
-            NativeBridge.cancelZstd();
             NativeBridge.cancelSqlite();
             NativeBridge.cancelCoremark();
             NativeBridge.cancelScimark();
@@ -340,7 +338,7 @@ final class BenchmarkRunner {
                         report.put("status", status);
                         report.put("message", "本轮未完成，仅保留已完成的分项");
                     }
-                    if (parameter == 1 && (suite.isCompression() || suite == BenchmarkSuite.COREMARK || suite == BenchmarkSuite.CRYPTO || suite == BenchmarkSuite.MEMORY)) {
+                    if (parameter == 1 && (suite == BenchmarkSuite.COREMARK || suite == BenchmarkSuite.SCIMARK || suite == BenchmarkSuite.MEMORY)) {
                         for (String metric : suite.metrics) if (metric.startsWith("parallel_")) sample.remove(metric);
                         sample.put("parallel_omitted", "single_core");
                     }

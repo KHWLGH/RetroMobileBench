@@ -14,7 +14,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Worker-side synchronous facade over a disposable, explicitly bound GPU process. */
 final class GpuClient {
-    static final String[] TESTS = {"gl_alu_off", "gl_fill_off", "gl_driver_off", "gl_blending_off", "gl_trex_off", "gl_egypt_off", "gl_trex", "gl_egypt"};
+    static final String[] TESTS = {"gl_fill_off", "gl_trex_off", "gl_egypt_off", "gl_trex", "gl_egypt"};
     private static final WorkerRequest.Cancellation cancellation = new WorkerRequest.Cancellation();
     private static volatile boolean externalDisplay;
     private static volatile boolean cleanupFailed;

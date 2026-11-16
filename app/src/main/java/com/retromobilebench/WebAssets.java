@@ -9,7 +9,7 @@ import java.security.MessageDigest;
 
 /** Verify the entire offline pack before launching a round; never inside the JS timer. */
 final class WebAssets {
-    static final String VERSION = "web-daily-v2";
+    static final String VERSION = "web-daily-v1";
     static JSONObject verify(Context context) throws Exception {
         byte[] manifest = read(context, "manifest.json");
         JSONObject value = new JSONObject(new String(manifest, "UTF-8"));

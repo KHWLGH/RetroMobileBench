@@ -3,7 +3,7 @@
     <string name="app_name">RetroMobileBench</string>
     <string name="cancel_run">取消当前测试</string>
     <string name="copied">已复制</string>
-    <string name="console_subtitle_ready">15 项离线基准测试 · 记录真实测量值与中位数</string>
-    <string name="console_subtitle_idle">点击「开始测试」按顺序执行 15 项测试</string>
+    <string name="console_subtitle_ready">12 项离线基准测试 · 记录真实测量值与中位数</string>
+    <string name="console_subtitle_idle">点击「开始测试」按顺序执行 12 项测试</string>
     <string name="history_count">全部测试记录 (%1$d)</string>
 </resources>

@@ -70,6 +70,10 @@ int rmb_triad_measure(int threads, int duration_ms, double *rate, double *elapse
         error = pthread_create(handles + i, NULL, triad_work, w);
         if (error) break;
         created++;
+        /* Serialize worker TLS initialization on Gingerbread x86 (unguarded __set_tls). */
+        pthread_mutex_lock(&g.mutex);
+        while (g.ready < created) pthread_cond_wait(&g.condition, &g.mutex);
+        pthread_mutex_unlock(&g.mutex);
     }
     *created_workers = created;
     pthread_mutex_lock(&g.mutex);

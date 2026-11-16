@@ -1,44 +1,37 @@
 # 许可与分发
 
-RetroMobileBench 以 APK 形式直接分发。第三方组件的锁定版本与源码来源见[开发与构建 - 第三方依赖](development.md#第三方依赖)，各组件的原始许可证文本随源码保留，并在应用内的“许可”页面集中展示。
+RetroMobileBench 以 APK 形式直接分发。第三方组件的锁定版本与源码来源见[开发与构建 - 第三方依赖](development.md#第三方依赖共-7-项)，各组件的原始许可证文本随源码保留，并在应用内的“许可”页面集中展示。
 
 ## 第三方组件与素材许可
 
 | 组件 / 素材 | 许可证 | 使用方式与署名说明 |
 |---|---|---|
-| CoreMark 1.0 | Apache-2.0 + EEMBC 商标约定 | 保留原始许可与商标声明，仅定制 Android 移植层，遵循标准计时与种子校验规则 |
-| SciMark 2.0 C | NIST 公有领域 | 注明 NIST 来源；本地补充了内存分配失败检查，核心计算逻辑不变 |
-| zlib 1.3.1 | zlib License | 保留版权声明；CPU 测试所用的版本通过符号前缀与 GFXBench 内置版本隔离 |
-| Zstd 1.5.7 | BSD-3-Clause（双许可中选用） | 保留版权与许可声明；源码随主库编译，供开发诊断与历史记录解析使用 |
+| CoreMark 1.0 | Apache-2.0 + EEMBC 商标约定 | 保留原始许可与商标声明，仅定制 Android 移植层，遵循标准计时与双种子校验规则 |
+| SciMark 2.0 C | NIST 公有领域 | 注明 NIST 来源；本地补充了内存分配失败检查与多线程安全初始化，核心计算逻辑不变 |
 | tinymembench C 内核 | MIT License | 保留版权与许可声明；仅使用 C 语言内存复制与填充内核 |
-| STREAM 变体 | STREAM License | 保留原始许可声明，并在报告中注明为固定工作集的 STREAM 变体实现 |
+| STREAM Triad 变体 | STREAM License | 保留原始许可声明，并在报告中注明为共享固定 24 MiB 工作集的 STREAM 变体实现 |
 | SQLite 3.53.1 | 公有领域 | 作为独立事务测试负载编入原生库，与应用自身的数据库分离 |
-| Mbed TLS 2.28.10 | Apache-2.0 | 保留许可声明；仅裁剪编译 AES、GCM 与 SHA-256 算法模块 |
-| libjpeg-turbo 2.1.5.1 | IJG / BSD / zlib | 保留组件许可与 IJG 署名声明 |
-| libpng 1.6.43 | libpng-2.0 | 保留版权与许可声明 |
 | FFmpeg 4.4.6 | LGPL-2.1-or-later（禁用 GPL/nonfree） | 编译为独立共享库，公开分发时提供匹配的对应源码与库替换说明 |
 | GFXBench 引擎代码 | BSD-3-Clause（© 2005–2025 Kishonti Ltd） | 保留版权与许可声明 |
 | GFXBench 场景素材 | CC BY 4.0 | 保留来源署名、许可链接及本地裁剪修改说明 |
 | GFXBench 内置依赖 | 各自开源许可 | 保留实际参与编译的 zlib、libpng、TinyXML/TinyXML2、libetc1、Xiph Ogg/Theora 声明 |
 | GNU 静态 C++ 运行时 | GPLv3 + GCC Runtime Library Exception | 保留 NDK 工具链中的 `COPYING3` 与 `COPYING.RUNTIME`，适用运行时例外条款 |
-| Web 测试页面与语料 | 本项目原创合成内容 | 项目自研 HTML/JS 与合成图片/JSON/文本，不引入外部第三方网页框架 |
+| Web 测试页面与语料 | 本项目原创合成内容 + Sintel 衍生图片 | 项目自研竖屏信息流 HTML/JS 与 480p/720p/1080p 测试图，不引入外部第三方网页框架 |
 | Sintel 衍生视频与图片 | CC BY 3.0（© Blender Foundation） | 保留来源署名、CC BY 3.0 许可链接及裁剪重编码说明 |
 
 ### 署名与商标声明
 
-- **Independent JPEG Group (IJG)**：
-  > This software is based in part on the work of the Independent JPEG Group.
 - **CoreMark**：
   > CoreMark® is a registered trademark of EEMBC.
 - **STREAM**：测试结果中注明 `Based on a variant of the STREAM benchmark code.`
 - **GFXBench 场景素材**：源自 [Kishonti 开源仓库](https://github.com/Kishonti-Opensource/gfxbench)（© 2005–2025 Kishonti Ltd，采用 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) 许可发布）。本项目仅打包 ETC1 纹理子集，移除了画质参考图，并为 `ui.fs` 添加了片元精度回退适配。测试结果在应用中标注为基于 GFXBench 开源场景的移植成绩。
-- **Sintel 媒体素材**：视频与 JPEG 测试图像源自 Blender Foundation 的 *Sintel* 预告片（采用 [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/) 许可发布，详见[官方分享说明](https://durian.blender.org/sharing/)）。测试素材经过时长截取、缩放、重编码并移除了音轨；PNG 透明测试图则由 FFmpeg `testsrc2` 滤镜生成。各文件的详细生成参数见 [`manifest.json`](../app/src/main/assets/media/manifest.json)。
+- **Sintel 媒体素材**：视频与 JPEG 测试图像源自 Blender Foundation 的 *Sintel* 预告片（采用 [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/) 许可发布，详见[官方分享说明](https://durian.blender.org/sharing/)）。测试素材经过时长截取、缩放、重编码并移除了音轨；PNG 透明测试图则由 FFmpeg `testsrc2` 滤镜生成。
 
 构建时，Gradle 的 `generateBenchmarkNotices` 任务会自动汇总各组件的原始许可证文本、工具链运行时许可、媒体清单及本文档，并与 `licenses.txt`、`xiph-notices.txt` 一并在应用的“许可”页面中展示。
 
 ## FFmpeg 构建与 LGPL 源码交付
 
-软件视频解码使用 FFmpeg 4.4.6（子模块 `third_party/ffmpeg`）。构建脚本 `scripts/build-ffmpeg.sh` 仅启用 H.264、H.263、MPEG-4 Part 2、VP8 解码器及必需的解析器、解封装器和本地文件协议，显式禁用编码器、网络协议、滤镜以及 `--enable-gpl` / `--enable-nonfree` 选项。编译产物 `libavutil.so`、`libavcodec.so`、`libavformat.so` 作为独立的动态共享库打包。
+软件视频解码使用 FFmpeg 4.4.6（子模块 `third_party/ffmpeg`）。构建脚本 `scripts/build-ffmpeg.sh` 仅启用 H.264、H.263、MPEG-4 Part 2、VP8、VP9 解码器及必需的解析器、解封装器和本地文件协议，显式禁用编码器、网络协议、滤镜以及 `--enable-gpl` / `--enable-nonfree` 选项。编译产物 `libavutil.so`、`libavcodec.so`、`libavformat.so` 作为独立的动态共享库打包。
 
 ### 生成对应源码包
 
@@ -48,13 +41,4 @@ RetroMobileBench 以 APK 形式直接分发。第三方组件的锁定版本与�
 .\gradlew.bat :app:correspondingSource --console=plain
 ```
 
-归档文件将输出至 `app/build/distributions/RetroMobileBench-corresponding-source-fixed-suite-v3.zip`。完整的 [LGPL-2.1 文本](../third_party/ffmpeg/COPYING.LGPLv2.1) 随源码树一并保留。
-
-### 替换 APK 中的 FFmpeg 动态库
-
-用户或开发者如需自行修改并替换 APK 中的 FFmpeg 动态库，可按以下步骤操作：
-
-1. 使用 `.tools/android-ndk-r10e` 工具链运行 `bash scripts/build-ffmpeg.sh`（或执行 `.\gradlew.bat :app:buildFfmpeg`），编译生成具有相同 ABI、SONAME 及最低 API 兼容性的 `libavutil.so`、`libavcodec.so` 和 `libavformat.so`。
-2. 解包目标 APK，替换 `lib/armeabi-v7a/` 或 `lib/x86/` 目录下的上述三个 `.so` 文件。
-3. 重新打包 APK，并使用支持 v1（JAR）签名的密钥进行签名。
-4. 若设备上已安装不同签名的旧版本，请先导出所需测试记录并卸载旧版，再安装重签名后的 APK。应用在运行时仅校验测试媒体素材的哈希，不对 FFmpeg 动态库本身施加签名或哈希限制。
+归档文件将输出至 `app/build/distributions/RetroMobileBench-corresponding-source-fixed-suite-v1.zip`。完整的 [LGPL-2.1 文本](../third_party/ffmpeg/COPYING.LGPLv2.1) 随源码树一并保留。

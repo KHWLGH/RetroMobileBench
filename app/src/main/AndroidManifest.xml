@@ -15,7 +15,7 @@
             android:exported="false"
             android:stopWithTask="true" />
         <service android:name=".WebService" android:process=":web" android:exported="false" android:stopWithTask="true" />
-        <activity android:name=".WebBenchmarkActivity" android:process=":web" android:exported="false" android:screenOrientation="landscape" android:configChanges="orientation|screenSize" android:hardwareAccelerated="true" />
+        <activity android:name=".WebBenchmarkActivity" android:process=":web" android:exported="false" android:screenOrientation="portrait" android:configChanges="orientation|screenSize" android:hardwareAccelerated="true" />
         <service android:name=".MediaService" android:process=":media" android:exported="false" android:stopWithTask="true" />
         <activity android:name=".LegacyGpuActivity" android:process=":gpu" android:exported="false" android:screenOrientation="landscape" android:configChanges="orientation|screenSize" />
         <activity android:name=".LegacyPlaybackActivity" android:process=":media" android:exported="false" android:screenOrientation="landscape" android:configChanges="orientation|screenSize" />

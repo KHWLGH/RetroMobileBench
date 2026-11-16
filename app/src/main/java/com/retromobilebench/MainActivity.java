@@ -366,11 +366,11 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener, 
         consoleCard.addView(btnBox);
         col.addView(consoleCard);
 
-        // Live 15-stage checklist (visible when busy)
+        // Live 12-stage checklist (visible when busy)
         liveQueueSection = new LinearLayout(this);
         liveQueueSection.setOrientation(LinearLayout.VERTICAL);
         liveQueueSection.setVisibility(View.GONE);
-        liveQueueSection.addView(MiuiUi.sectionTitle(this, "测试进度 (15 阶段)"));
+        liveQueueSection.addView(MiuiUi.sectionTitle(this, "测试进度 (12 阶段)"));
         LinearLayout queueCard = MiuiUi.cardGroup(this);
         for (int i = 0; i < BenchmarkSuite.DEFAULT.length; i++) {
             if (i > 0) MiuiUi.addDivider(this, queueCard);
@@ -414,8 +414,8 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener, 
 
         col.addView(MiuiUi.sectionTitle(this, "测试与流程"));
         LinearLayout group1 = MiuiUi.cardGroup(this);
-        group1.addView(MiuiUi.navRow(this, "测试套件说明", "15 项串行基准测试与采样轮次",
-                "15 阶段", null, 0,
+        group1.addView(MiuiUi.navRow(this, "测试套件说明", "12 项串行基准测试与明确测试量说明",
+                "12 阶段", null, 0,
                 () -> openSubPage("测试套件说明", MiuiSubPages.buildSuiteProtocolPage(this))));
         col.addView(group1);
 
@@ -431,8 +431,8 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener, 
 
         col.addView(MiuiUi.sectionTitle(this, "开源与许可"));
         LinearLayout group3 = MiuiUi.cardGroup(this);
-        group3.addView(MiuiUi.navRow(this, "内置开源项目", "CoreMark、SciMark、FFmpeg 等",
-                "12 项", null, 0,
+        group3.addView(MiuiUi.navRow(this, "内置开源项目", "CoreMark、SciMark、FFmpeg、GFXBench 等",
+                "7 项", null, 0,
                 () -> openSubPage("内置开源项目", MiuiSubPages.buildOpenSourceProjectsPage(this, this))));
         MiuiUi.addDivider(this, group3);
         group3.addView(MiuiUi.navRow(this, "开源许可协议全文", "第三方库许可与媒体署名",

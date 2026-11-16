@@ -12,8 +12,9 @@ import java.util.concurrent.atomic.AtomicReference;
 
 /** Parent owns every deadline, cancellation and cleanup; a blocked WebView cannot block it. */
 final class WebClient {
-    static final String[] IDS = {"page", "todo", "text", "data"};
-    static final String[] METRICS = {"page_total_ms", "page_unit_ms", "todo_total_ms", "todo_unit_ms", "text_total_ms", "text_unit_ms", "data_total_ms", "data_unit_ms"};
+    static final String[] IDS = {"page", "todo", "text", "image"};
+    static final String[] METRICS = {"total_ms", "feed_ms", "image_ms", "page_ms", "todo_ms", "text_ms"};
+    private static final String[] SUB_KEYS = {"page_ms", "todo_ms", "text_ms", "image_ms"};
     private static final WorkerRequest.Cancellation cancellation = new WorkerRequest.Cancellation();
     private static volatile long stageDeadline, handoffUntil;
     private static volatile boolean cleanupFailed;
@@ -38,10 +39,10 @@ final class WebClient {
             long deadline = stageDeadline == 0 ? SystemClock.elapsedRealtime() + 330000 : stageDeadline;
             snapshot = WebAssets.verify(context);
             snapshot.put("test_version", WebAssets.VERSION).put("units_per_subtest", 20).put("prewarm_units_per_subtest", 1)
-                    .put("viewport_css", "device-width/fullscreen").put("font_css", "12px/18px sans-serif")
+                    .put("viewport_css", "device-width/portrait-fullscreen").put("font_css", "12px/18px sans-serif")
                     .put("app_build_type", BuildConfig.BUILD_TYPE).put("app_debuggable", BuildConfig.DEBUG)
                     .put("subtest_timeout_ms", 20000).put("prepare_timeout_ms", 15000).put("stage_timeout_ms", 330000)
-                    .put("measurement", "application_task_with_layout_checkpoint; lower_is_better; not_paint_or_input_latency")
+                    .put("measurement", "application_task_with_layout_and_canvas_image_checkpoint; lower_is_better; not_paint_or_input_latency")
                     .put("results", new JSONArray()).put("completed_metrics", 0);
             if (fault.length() > 0 || diagnosticTimeout > 0) snapshot.put("diagnostic_fault", fault).put("diagnostic_timeout_ms", diagnosticTimeout);
             return invoke(context, snapshot, fault, deadline, diagnosticTimeout, roundStarted);
@@ -84,7 +85,7 @@ final class WebClient {
                         JSONObject event = new JSONObject(raw); String kind = event.getString("kind");
                         diagnosticPhase = kind;
                         if ("prepared".equals(kind)) {
-                            if (prepared[0] || next[0] != 0 || event.getInt("viewport_width") < 1 || event.getInt("viewport_height") < 1
+                            if (prepared[0] || next[0] != 0 || event.getInt("viewport_width") < 1 || event.getInt("viewport_height") < event.getInt("viewport_width")
                                     || !"fullscreen".equals(event.getString("window_mode"))
                                     || event.getInt("physical_width") != event.getInt("window_width") || event.getInt("physical_height") != event.getInt("window_height")
                                     || !positive(event.getDouble("clock_resolution_ms")) || !positive(event.getDouble("dpr"))) throw new IllegalStateException("Web environment");
@@ -102,7 +103,16 @@ final class WebClient {
                             double total = event.getDouble("total_ms"), unit = event.getDouble("unit_ms");
                             if (!positive(total) || !positive(unit) || total < 20 * snapshot.getDouble("clock_resolution_ms") || total > 20000 || Math.abs(total / 20 - unit) > 0.000001) throw new IllegalStateException("Web timing");
                             snapshot.getJSONArray("results").put(event);
-                            snapshot.put(METRICS[index * 2], total).put(METRICS[index * 2 + 1], unit).put("completed_metrics", (index + 1) * 2);
+                            snapshot.put(SUB_KEYS[index], total);
+                            if (index == 2) {
+                                snapshot.put("feed_ms", snapshot.getDouble("page_ms") + snapshot.getDouble("todo_ms") + total)
+                                        .put("completed_metrics", 4);
+                            } else if (index == 3) {
+                                double feed = snapshot.getDouble("page_ms") + snapshot.getDouble("todo_ms") + snapshot.getDouble("text_ms");
+                                snapshot.put("feed_ms", feed).put("total_ms", feed + total).put("completed_metrics", 6);
+                            } else {
+                                snapshot.put("completed_metrics", index + 1);
+                            }
                             next[0]++; measuring[0] = false; snapshot.remove("active_subtest");
                             phaseDeadline[0] = Math.min(deadline, SystemClock.elapsedRealtime() + 20000);
                         } else if ("done".equals(kind)) {

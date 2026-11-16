@@ -8,7 +8,6 @@ JNIEXPORT jint JNICALL Java_com_retromobilebench_NativeBridge_configuredProcesso
 
 #include "probe.h"
 #include "storage_bench.h"
-#include "cpu_bench.h"
 #include "sqlite_bench.h"
 #include "coremark_bench.h"
 #include "scimark_bench.h"
@@ -23,18 +22,8 @@ Java_com_retromobilebench_NativeBridge_cancelMemory(JNIEnv *env, jclass clazz) {
     (void)env; (void)clazz; rmb_memory_cancel();
 }
 JNIEXPORT jstring JNICALL
-Java_com_retromobilebench_NativeBridge_runMemory(JNIEnv *env, jclass clazz, jint duration) {
-    (void)clazz; char json[2048]; rmb_memory_run(duration, json, sizeof(json));
-    return (*env)->NewStringUTF(env, json);
-}
-JNIEXPORT jstring JNICALL
-Java_com_retromobilebench_NativeBridge_runMemoryV2(JNIEnv *env, jclass clazz, jint threads, jint duration) {
-    (void)clazz; char json[4096]; rmb_memory_run_v2(threads, duration, json, sizeof(json));
-    return (*env)->NewStringUTF(env, json);
-}
-JNIEXPORT jstring JNICALL
-Java_com_retromobilebench_NativeBridge_runStream(JNIEnv *env, jclass clazz, jint threads, jint duration) {
-    (void)clazz; char json[2048]; rmb_stream_run(threads, duration, json, sizeof(json));
+Java_com_retromobilebench_NativeBridge_runMemory(JNIEnv *env, jclass clazz, jint threads, jint duration) {
+    (void)clazz; char json[4096]; rmb_memory_run(threads, duration, json, sizeof(json));
     return (*env)->NewStringUTF(env, json);
 }
 
@@ -47,8 +36,8 @@ Java_com_retromobilebench_NativeBridge_cancelScimark(JNIEnv *env, jclass clazz) 
     (void)env; (void)clazz; rmb_scimark_cancel();
 }
 JNIEXPORT jstring JNICALL
-Java_com_retromobilebench_NativeBridge_runScimark(JNIEnv *env, jclass clazz, jint duration) {
-    (void)clazz; char json[2048]; rmb_scimark_run(duration, json, sizeof(json));
+Java_com_retromobilebench_NativeBridge_runScimark(JNIEnv *env, jclass clazz, jint threads, jint duration) {
+    (void)clazz; char json[4096]; rmb_scimark_run(threads, duration, json, sizeof(json));
     return (*env)->NewStringUTF(env, json);
 }
 
@@ -72,21 +61,6 @@ Java_com_retromobilebench_NativeBridge_runCoremark(JNIEnv *env, jclass clazz, ji
 }
 
 JNIEXPORT void JNICALL
-Java_com_retromobilebench_NativeBridge_resetZstdCancellation(JNIEnv *env, jclass clazz) {
-    (void) env; (void) clazz; rmb_zstd_reset_cancel();
-}
-JNIEXPORT void JNICALL
-Java_com_retromobilebench_NativeBridge_cancelZstd(JNIEnv *env, jclass clazz) {
-    (void) env; (void) clazz; rmb_zstd_cancel();
-}
-JNIEXPORT jstring JNICALL
-Java_com_retromobilebench_NativeBridge_runZstd(JNIEnv *env, jclass clazz, jint threads, jint duration) {
-    (void) clazz;
-    char json[2048];
-    rmb_zstd_run(threads, duration, json, sizeof json);
-    return (*env)->NewStringUTF(env, json);
-}
-JNIEXPORT void JNICALL
 Java_com_retromobilebench_NativeBridge_resetSqliteCancellation(JNIEnv *env, jclass clazz) {
     (void) env; (void) clazz; rmb_sqlite_reset_cancel();
 }
@@ -103,27 +77,6 @@ Java_com_retromobilebench_NativeBridge_runSqlite(JNIEnv *env, jclass clazz, jstr
     char json[2048];
     rmb_sqlite_run(path, transactions, json, sizeof json);
     (*env)->ReleaseStringUTFChars(env, directory, path);
-    return (*env)->NewStringUTF(env, json);
-}
-
-JNIEXPORT void JNICALL
-Java_com_retromobilebench_NativeBridge_resetCpuCancellation(JNIEnv *env, jclass clazz) {
-    (void) env; (void) clazz;
-    rmb_cpu_reset_cancel();
-}
-
-JNIEXPORT void JNICALL
-Java_com_retromobilebench_NativeBridge_cancelCpu(JNIEnv *env, jclass clazz) {
-    (void) env; (void) clazz;
-    rmb_cpu_cancel();
-}
-
-JNIEXPORT jstring JNICALL
-Java_com_retromobilebench_NativeBridge_runCpu(JNIEnv *env, jclass clazz,
-                                            jint parallel_threads, jint duration_ms) {
-    (void) clazz;
-    char json[2048];
-    rmb_cpu_run(parallel_threads, duration_ms, json, sizeof json);
     return (*env)->NewStringUTF(env, json);
 }
 

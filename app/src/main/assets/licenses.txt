@@ -1,79 +1,11 @@
 RetroMobileBench 开源组件与署名声明
 
-多媒体与加密组件：
-- Mbed TLS 2.28.10（Apache-2.0）
-- libjpeg-turbo 2.1.5.1（IJG / BSD / zlib）
-- libpng 1.6.43（libpng-2.0）
-- FFmpeg 4.4.6（LGPL-2.1-or-later，仅启用必要本地解码器，禁用 GPL / nonfree / 网络 / 编码器）
+多媒体组件：
+- FFmpeg 4.4.6（LGPL-2.1-or-later，仅启用必要本地解码器与 SHA-256 校验，禁用 GPL / nonfree / 网络 / 编码器）
 
 各组件的完整原始许可证文本、源码构建及 LGPL 动态库替换说明见「基准组件声明」页。
-JPEG 参考像素由同版本标量 djpeg 生成；This software is based in part on the work of the Independent JPEG Group.
-测试视频与 JPEG 素材源自 Sintel trailer（© Blender Foundation，CC BY 3.0：https://durian.blender.org/sharing/），经截取、缩放、重编码并移除音轨；PNG 为合成透明测试图。
-内存测试中的 Triad 采用共享固定 24 MiB 工作集的 STREAM 变体实现（Zstd 与完整四内核 STREAM 保留供开发诊断使用）。
-
-────────────────
-zlib 1.3.1 — https://github.com/madler/zlib
-锁定提交：51b7f2abdade71cd9bb0e7a373ef2610ec6f9daf
-核心源码未修改；仅将内存压缩/解压模块编入原生库，并通过 Z_PREFIX 隔离符号。
-
-Copyright notice:
-
- (C) 1995-2022 Jean-loup Gailly and Mark Adler
-
-  This software is provided 'as-is', without any express or implied
-  warranty.  In no event will the authors be held liable for any damages
-  arising from the use of this software.
-
-  Permission is granted to anyone to use this software for any purpose,
-  including commercial applications, and to alter it and redistribute it
-  freely, subject to the following restrictions:
-
-  1. The origin of this software must not be misrepresented; you must not
-     claim that you wrote the original software. If you use this software
-     in a product, an acknowledgment in the product documentation would be
-     appreciated but is not required.
-  2. Altered source versions must be plainly marked as such, and must not be
-     misrepresented as being the original software.
-  3. This notice may not be removed or altered from any source distribution.
-
-  Jean-loup Gailly        Mark Adler
-  jloup@gzip.org          madler@alumni.caltech.edu
-
-────────────────
-Zstandard 1.5.7 — https://github.com/facebook/zstd
-锁定提交：f8745da6ff1ad1e7bab384bd1f9d742439278e99
-源码未修改，选用 BSD-3-Clause 许可；仅编译核心编解码模块，关闭汇编与旧版格式支持。
-
-BSD License
-
-For Zstandard software
-
-Copyright (c) Meta Platforms, Inc. and affiliates. All rights reserved.
-
-Redistribution and use in source and binary forms, with or without modification,
-are permitted provided that the following conditions are met:
-
- * Redistributions of source code must retain the above copyright notice, this
-   list of conditions and the following disclaimer.
-
- * Redistributions in binary form must reproduce the above copyright notice,
-   this list of conditions and the following disclaimer in the documentation
-   and/or other materials provided with the distribution.
-
- * Neither the name Facebook, nor Meta, nor the names of its contributors may
-   be used to endorse or promote products derived from this software without
-   specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
-ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
-ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
-ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+测试视频与 Web 信息流大图 JPEG 素材源自 Sintel trailer（© Blender Foundation，CC BY 3.0：https://durian.blender.org/sharing/），经截取、缩放、重编码并移除音轨；PNG 为合成透明测试图。
+内存测试中的 Triad 采用共享固定 24 MiB 工作集（3 × 8 MiB）的 STREAM 变体实现。
 
 ────────────────
 SQLite 3.53.1 — https://sqlite.org
@@ -98,7 +30,7 @@ CoreMark® is a registered trademark of EEMBC.
 SciMark 2.0 (C) — https://math.nist.gov/scimark2/
 Authors: Roldan Pozo and Bruce Miller, National Institute of Standards and Technology.
 NIST 公有领域数值计算基准（原始包 scimark2c.zip）。
-本地补充了 Random.c / MonteCarlo.c 的内存分配失败检查，核心计算逻辑不变；对各内核进行独立计时并展示 MFLOPS。
+本地补充了 Random.c / MonteCarlo.c 的内存分配失败检查与多线程安全静态常量初始化，核心计算逻辑不变；对各内核执行单线程与多线程独立计时并输出综合 MFLOPS。
 
 ────────────────
 TinyMemBench — https://github.com/ssvb/tinymembench
@@ -112,7 +44,7 @@ STREAM — https://www.cs.virginia.edu/stream/
 锁定提交：6703f7504a38a8da96b353cadafa64d3c2d7a2d3
 Copyright 1991-2003: John D. McCalpin.
 Based on a variant of the STREAM benchmark code.
-采用 pthread 多线程与固定工作集持续计时：单线程与多线程共享固定 24 MiB 总工作集，按缓存行边界划分无重叠区间，以完成元素数 × 24 字节 / 耗时计算带宽（MB/s）。完整许可声明见后附 LICENSE.txt。
+采用 pthread 多线程与固定工作集持续计时：单线程与多线程共享固定 24 MiB 总工作集（3 × 8 MiB），按缓存行边界划分无重叠区间，以完成元素数 × 24 字节 / 耗时计算带宽（MB/s）。完整许可声明见后附 LICENSE.txt。
 
 ────────────────
 GFXBench ES2 — https://github.com/Kishonti-Opensource/gfxbench

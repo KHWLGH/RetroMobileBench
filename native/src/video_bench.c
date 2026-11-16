@@ -4,10 +4,16 @@
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
 #include <libavutil/imgutils.h>
-#include <mbedtls/sha256.h>
+#include <libavutil/sha.h>
+#include <libavutil/mem.h>
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+
+static int cancelled;
+void rmb_media_cancel(void) { __atomic_store_n(&cancelled, 1, __ATOMIC_RELAXED); }
+void rmb_media_reset_cancel(void) { __atomic_store_n(&cancelled, 0, __ATOMIC_RELAXED); }
+int rmb_media_cancelled(void) { return __atomic_load_n(&cancelled, __ATOMIC_RELAXED); }
 
 static int interrupt_io(void *opaque);
 
@@ -51,9 +57,13 @@ void rmb_video_packet_timeline(const char *path, int expected, char *json, size_
         int64_t pts = av_rescale_q_rnd(packet->pts, time_base, AV_TIME_BASE_Q, AV_ROUND_DOWN);
         int64_t dts = av_rescale_q_rnd(packet->dts - first_dts, time_base, AV_TIME_BASE_Q, AV_ROUND_DOWN);
         if (pts < 0 || pts > 10000000 || dts < 0 || dts > 10000000) { error = AVERROR_INVALIDDATA; break; }
-        mbedtls_sha256_context sha; unsigned char digest[32]; char hash[65];
-        const unsigned char prefix[4] = {0, 0, 0, 1};
-        mbedtls_sha256_init(&sha); mbedtls_sha256_starts_ret(&sha, 0);
+        struct AVSHA *sha = av_sha_alloc();
+        if (!sha || av_sha_init(sha, 256) < 0) {
+            if (sha) av_free(sha);
+            error = AVERROR(ENOMEM); break;
+        }
+        unsigned char digest[32]; char hash[65];
+        const uint8_t prefix[4] = {0, 0, 0, 1};
         size_t offset = 0; int valid = 1;
         while (offset < (size_t)packet->size) {
             if ((size_t)packet->size - offset < 4) { valid = 0; break; }
@@ -61,11 +71,11 @@ void rmb_video_packet_timeline(const char *path, int expected, char *json, size_
             uint32_t size = ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | p[3];
             offset += 4;
             if (!size || size > (size_t)packet->size - offset) { valid = 0; break; }
-            mbedtls_sha256_update_ret(&sha, prefix, 4);
-            mbedtls_sha256_update_ret(&sha, packet->data + offset, size);
+            av_sha_update(sha, prefix, 4);
+            av_sha_update(sha, packet->data + offset, size);
             offset += size;
         }
-        mbedtls_sha256_finish_ret(&sha, digest); mbedtls_sha256_free(&sha);
+        av_sha_final(sha, digest); av_free(sha);
         if (!valid || offset != (size_t)packet->size) { error = AVERROR_INVALIDDATA; break; }
         for (int i = 0; i < 32; i++) snprintf(hash + i * 2, 3, "%02x", digest[i]);
         if (cap - used < 256) { error = AVERROR(ENOSPC); break; }
@@ -87,13 +97,18 @@ static int verify_frame(AVFrame *frame, int width, int height, int first, const 
     if (frame->width != width || frame->height != height || frame->format != AV_PIX_FMT_YUV420P
             || frame->decode_error_flags || (frame->flags & AV_FRAME_FLAG_CORRUPT)) return AVERROR_INVALIDDATA;
     if (!first) return 0;
-    mbedtls_sha256_context sha; unsigned char digest[32]; mbedtls_sha256_init(&sha); mbedtls_sha256_starts_ret(&sha, 0);
+    struct AVSHA *sha = av_sha_alloc();
+    if (!sha || av_sha_init(sha, 256) < 0) {
+        if (sha) av_free(sha);
+        return AVERROR(ENOMEM);
+    }
+    unsigned char digest[32];
     for (int plane = 0; plane < 3; plane++) {
         int w = plane ? (width + 1) / 2 : width, h = plane ? (height + 1) / 2 : height;
-        if (!frame->data[plane] || frame->linesize[plane] < w) { mbedtls_sha256_free(&sha); return AVERROR_INVALIDDATA; }
-        for (int y = 0; y < h; y++) mbedtls_sha256_update_ret(&sha, frame->data[plane] + (size_t)y * frame->linesize[plane], (size_t)w);
+        if (!frame->data[plane] || frame->linesize[plane] < w) { av_free(sha); return AVERROR_INVALIDDATA; }
+        for (int y = 0; y < h; y++) av_sha_update(sha, frame->data[plane] + (size_t)y * frame->linesize[plane], (unsigned int)w);
     }
-    mbedtls_sha256_finish_ret(&sha, digest); mbedtls_sha256_free(&sha);
+    av_sha_final(sha, digest); av_free(sha);
     for (int i = 0; i < 32; i++) snprintf(hash + i * 2, 3, "%02x", digest[i]);
     return expected && strcmp(hash, expected) ? AVERROR_INVALIDDATA : 0;
 }

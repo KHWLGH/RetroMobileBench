@@ -36,7 +36,7 @@ final class WebRegressionChecks {
         ResultStore store = new ResultStore(context, "web-regression.db");
         try {
             long id = store.begin(report); store.save(id, report); store.close(); store = new ResultStore(context, "web-regression.db");
-            check(store.latest(1).getJSONObject(0).getJSONObject("median").length() == 8, "Web persisted median survives reopen");
+            check(store.latest(1).getJSONObject(0).getJSONObject("median").length() == 6, "Web persisted median survives reopen");
             JSONObject partial = new JSONObject(report.toString()).put("status", "running"); partial.getJSONArray("samples").put(WebClient.failure("timeout", "fixture"));
             store.begin(partial); store.recoverInterrupted(); JSONObject recovered = store.latest(1).getJSONObject(0);
             check("interrupted".equals(recovered.getString("status")) && recovered.getJSONArray("samples").length() == 4 && !recovered.has("median"), "recovery retains all raw partial rounds");
@@ -45,11 +45,11 @@ final class WebRegressionChecks {
             progress.stage("Web pre-entry cancellation"); WebClient.resetCancellation(); WebClient.cancel();
             check("cancelled".equals(WebClient.run(context, "", 0).optString("status")), "pre-entry cancel cannot launch worker");
             foreground(test); WebClient.resetCancellation(); progress.stage("Web stale request exclusion"); completed(WebClient.run(context, "stale_callback", 0));
-            for (String fault : new String[]{"bad_page", "bad_todo", "bad_text", "bad_data", "clock_zero", "clock_backward", "late_text", "crash", "hang_prepare", "hang_measure"}) {
+            for (String fault : new String[]{"bad_page", "bad_todo", "bad_text", "bad_image", "clock_zero", "clock_backward", "late_text", "crash", "hang_prepare", "hang_measure"}) {
                 foreground(test); progress.stage("Web negative path " + fault); WebClient.resetCancellation();
                 JSONObject value = WebClient.run(context, fault, "hang_prepare".equals(fault) ? 1500 : 0);
-                check(!"completed".equals(value.optString("status")) && value.optInt("completed_metrics") < 8 && value.optBoolean("cleanup_confirmed"), "negative rejected and process reaped: " + value);
-                if ("late_text".equals(fault)) check(value.getInt("completed_metrics") == 4, "two completed subtests survive later failure");
+                check(!"completed".equals(value.optString("status")) && value.optInt("completed_metrics") < 6 && value.optBoolean("cleanup_confirmed"), "negative rejected and process reaped: " + value);
+                if ("late_text".equals(fault)) check(value.getInt("completed_metrics") == 2, "two completed subtests survive later failure");
                 if (fault.startsWith("hang_")) check("timeout".equals(value.optString("status")), "parent timeout survives blocked JS: " + value);
                 SystemClock.sleep(250);
             }
@@ -69,19 +69,19 @@ final class WebRegressionChecks {
             foreground(test); WebClient.resetCancellation(); progress.stage("Web restart after all failures"); completed(WebClient.run(context, "", 0));
         }
         save(context, report);
-        StringBuilder summary = new StringBuilder(WebAssets.VERSION + ": full-screen, 4 tasks x 20 units x 3 rounds; independent PIDs " + pids + "; validated medians ");
+        StringBuilder summary = new StringBuilder(WebAssets.VERSION + ": portrait full-screen, 4 tasks x 20 units x 3 rounds; independent PIDs " + pids + "; validated medians ");
         summary.append(report.getJSONObject("median")); return summary.toString();
     }
     static void completed(JSONObject value) throws Exception {
         check("completed".equals(value.optString("status")), "Web completes all four real tasks: " + value);
-        check(value.getInt("completed_metrics") == 8 && value.getJSONArray("results").length() == 4 && value.getInt("units_per_subtest") == 20, "all fixed work completed");
+        check(value.getInt("completed_metrics") == 6 && value.getJSONArray("results").length() == 4 && value.getInt("units_per_subtest") == 20, "all fixed work completed");
         check(value.getBoolean("cleanup_confirmed") && !value.has("native_build_id"), "reaped process and independent host identity");
         for (int i = 0; i < 4; i++) {
             JSONObject metric = value.getJSONArray("results").getJSONObject(i);
             check(metric.getInt("units") == 20 && metric.getJSONObject("proof").getInt("validated_units") == 20 && WebClient.IDS[i].equals(metric.getString("id")), "validated units, stable order");
         }
         for (String key : WebClient.METRICS) check(value.getDouble(key) > 0, "positive raw task time");
-        check(value.getInt("viewport_width") > value.getInt("viewport_height") && value.getInt("text_zoom_percent") == 100, "landscape CSS viewport");
+        check(value.getInt("viewport_height") >= value.getInt("viewport_width") && value.getInt("text_zoom_percent") == 100, "portrait CSS viewport");
         check("fullscreen".equals(value.getString("window_mode")) && value.getInt("physical_width") == value.getInt("window_width")
                 && value.getInt("physical_height") == value.getInt("window_height"), "WebView fills the whole window");
     }
@@ -92,10 +92,8 @@ final class WebRegressionChecks {
         }
         JSONObject changed = new JSONObject(original.toString()); changed.getJSONArray("samples").getJSONObject(1).put("status", "timeout");
         BenchmarkReport.summarize(changed); check(!changed.has("median"), "failed round cannot be zero");
-        for (String version : new String[]{"fixed-suite-v1", "fixed-suite-v2", "fixed-suite-v3"}) {
-            JSONObject session = new JSONObject().put("suite_version", version).put("status", "partial").put("results", new JSONArray().put(original));
-            check(BenchmarkReport.format(session).contains("Web 日常响应"), "all old session versions readable");
-        }
+        JSONObject session = new JSONObject().put("suite_version", BenchmarkSuite.SESSION_VERSION).put("status", "partial").put("results", new JSONArray().put(original));
+        check(BenchmarkReport.format(session).contains("Web 竖屏信息流与大图"), "session readable");
     }
     private static boolean nativeMapped() throws Exception {
         try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.FileReader("/proc/self/maps"))) {

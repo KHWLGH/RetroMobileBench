@@ -17,18 +17,19 @@ final class LegacyCompatibilityChecks {
         check(BuildConfig.NATIVE_BUILD_ID.startsWith("r10e-gcc49-"), "pinned legacy compiler group");
         check(NativeBridge.probeReport().contains("native build: " + BuildConfig.NATIVE_BUILD_ID),
                 "packaged native binary matches the Java build identity");
-        JSONObject skipped = GpuClient.parse("SKIP: ETC1 unsupported", "gl_alu_off");
+        JSONObject skipped = GpuClient.parse("SKIP: ETC1 unsupported", "gl_fill_off");
         check("skipped".equals(skipped.getString("status")) && skipped.getInt("completed_metrics") == 0 && !skipped.has("score"), "unsupported GPU has no score");
-        check("failed".equals(GpuClient.parse("ERROR: unexpected error", "gl_alu_off").getString("status")), "unexpected errors remain failures");
+        check("failed".equals(GpuClient.parse("ERROR: unexpected error", "gl_fill_off").getString("status")), "unexpected errors remain failures");
         JSONObject raw = new JSONObject().put("results", new JSONArray().put(new JSONObject()
                 .put("status", "FAILED").put("error_string", "OUT_OF_VMEMORY")));
-        check("skipped".equals(GpuClient.parse(raw.toString(), "gl_alu_off").getString("status")), "known GPU memory shortage skips");
+        check("skipped".equals(GpuClient.parse(raw.toString(), "gl_fill_off").getString("status")), "known GPU memory shortage skips");
         raw.getJSONArray("results").getJSONObject(0).put("error_string", "SHADER_ERROR");
-        check("failed".equals(GpuClient.parse(raw.toString(), "gl_alu_off").getString("status")), "shader failures stay visible");
-        JSONObject sample = new JSONObject(NativeBridge.runCpu(1, 50));
+        check("failed".equals(GpuClient.parse(raw.toString(), "gl_fill_off").getString("status")), "shader failures stay visible");
+        NativeBridge.resetScimarkCancellation();
+        JSONObject sample = new JSONObject(NativeBridge.runScimark(1, 50));
         sample.put("native_build_id", BuildConfig.NATIVE_BUILD_ID).put("native_library", NativeLoader.load())
                 .put("native_abi", device.getString("abi"));
-        JSONObject report = new JSONObject().put("suite_version", BenchmarkSuite.CPU.version)
+        JSONObject report = new JSONObject().put("suite_version", BenchmarkSuite.SCIMARK.version)
                 .put("status", "completed").put("repetitions", 3).put("started_ms", 0);
         JSONArray samples = new JSONArray();
         for (int i = 0; i < 3; i++) samples.put(new JSONObject(sample.toString()));

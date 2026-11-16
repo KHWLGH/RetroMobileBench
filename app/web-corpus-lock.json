@@ -1,12 +1,7 @@
 {
   "generator": "web-corpus-v1",
-  "seed": 101010,
-  "serialized_length": 115784,
-  "serialized_checksum": 231320356,
   "files": [
-    {"path":"corpus.js","bytes":253891,"sha256":"95d1b1da2fe0d4719dd51c96df250b02f0bec9a91bf0659c2a8760cef24f5e32"},
-    {"path":"data.json","bytes":231568,"sha256":"079e6928808041376fced6296ba0605de8607bd92a3f80ca661cf8a5997b15a3"},
-    {"path":"text.txt","bytes":6167,"sha256":"f7ba7bbeed94f1f6f4efd8d407b3e2d177b41984277dd5a9cd6189dc819d06d5"},
+    {"path":"corpus.js","bytes":292,"sha256":"fc1aa29b1a7158de53ed20fdbb143aa773480cb5a605bcbf84b259f9a2b5af27"},
     {"path":"image0.jpg","bytes":8103,"sha256":"cfe2d1d6374d830991baf976c872d6fb7c55b310290e55bc529db8668ffab793"},
     {"path":"image1.jpg","bytes":9549,"sha256":"ee1a8d81e11c67d713446cb2742359d726998c6e4865350cda0d80140823acde"},
     {"path":"image2.jpg","bytes":11090,"sha256":"a040a916d2e37d23d31cb209bd13634274ff304763c1838a343a99c0cfad2ea1"},

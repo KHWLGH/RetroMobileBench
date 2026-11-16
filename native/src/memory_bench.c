@@ -13,7 +13,7 @@ static int cancelled;
 void rmb_memory_reset_cancel(void) { __atomic_store_n(&cancelled, 0, __ATOMIC_RELAXED); }
 void rmb_memory_cancel(void) { __atomic_store_n(&cancelled, 1, __ATOMIC_RELAXED); }
 int rmb_memory_cancelled(void) { return __atomic_load_n(&cancelled, __ATOMIC_RELAXED); }
-static void memory_run(int threads, int duration_ms, int v2, char *json, size_t capacity) {
+void rmb_memory_run(int threads, int duration_ms, char *json, size_t capacity) {
     int error = 0, completed = 0; const char *stage = "arguments";
     double triad_rates[2] = {0}, triad_elapsed[2] = {0};
     unsigned long long triad_elements[2] = {0}; int triad_workers[2] = {0};
@@ -81,7 +81,7 @@ static void memory_run(int threads, int duration_ms, int v2, char *json, size_t 
     rates[2] = elapsed[2] * 1e9 / (double)operations[2];
     completed++;
     free(allocation); allocation = NULL; /* Do not overlap the 16 MiB and 24 MiB workspaces. */
-    if (v2) for (int phase = 0; phase < (threads == 1 ? 1 : 2); phase++) {
+    for (int phase = 0; phase < (threads == 1 ? 1 : 2); phase++) {
         stage = phase ? "parallel_triad" : "single_triad";
         error = rmb_triad_measure(phase ? threads : 1, duration_ms, &triad_rates[phase],
                 &triad_elapsed[phase], &triad_elements[phase], &triad_workers[phase]);
@@ -92,26 +92,19 @@ static void memory_run(int threads, int duration_ms, int v2, char *json, size_t 
 finish:
     free(allocation);
     snprintf(json, capacity,
-        "{\"test_version\":\"%s\",\"status\":\"%s\",\"error_stage\":\"%s\",\"error_code\":%d,\"completed_metrics\":%d,"
+        "{\"test_version\":\"memory-tiny-v1\",\"status\":\"%s\",\"error_stage\":\"%s\",\"error_code\":%d,\"completed_metrics\":%d,"
         "\"source_revision\":\"a2cf6d7e382e3aea1eb39173174d9fa28cad15f3\",\"duration_ms\":%d,\"buffer_bytes\":8388608,"
         "\"latency_bytes\":4194304,\"latency_batch\":4096,\"seed\":1380794931,\"copy_traffic_multiplier\":2,"
         "\"copy_mbps\":%.9g,\"fill_mbps\":%.9g,\"latency_ns\":%.9g,"
-        "\"elapsed_seconds\":[%.9f,%.9f,%.9f],\"operations\":[%llu,%llu,%llu]}",
-        v2 ? "memory-tiny-v2" : "memory-tiny-v1", error == ECANCELED ? "cancelled" : error ? "failed" : "completed", stage, error, completed, duration_ms,
-        rates[0],rates[1],rates[2],elapsed[0],elapsed[1],elapsed[2],
-        (unsigned long long)operations[0],(unsigned long long)operations[1],(unsigned long long)operations[2]);
-    if (v2) {
-        /* Keep the original metrics and diagnostic ABI, but emit one unambiguous v2 object. */
-        size_t used = strlen(json);
-        if (used && json[used - 1] == '}') snprintf(json + used - 1, capacity - used + 1,
-            ",\"triad_protocol\":\"RMB fixed-set STREAM Triad variant v1\",\"parallel_threads\":%d,"
-            "\"triad_array_bytes\":8388608,\"triad_total_bytes\":25165824,\"triad_element_bytes\":8,"
-            "\"triad_bytes_per_element\":24,\"triad_scalar\":3,\"triad_source_revision\":\"6703f7504a38a8da96b353cadafa64d3c2d7a2d3\","
-            "\"single_triad_mbps\":%.9g,\"parallel_triad_mbps\":%.9g,"
-            "\"triad_elapsed_seconds\":[%.9f,%.9f],\"triad_elements\":[%llu,%llu],\"triad_created_workers\":[%d,%d]}",
-            threads, triad_rates[0], triad_rates[1], triad_elapsed[0], triad_elapsed[1],
-            triad_elements[0], triad_elements[1], triad_workers[0], triad_workers[1]);
-    }
+        "\"elapsed_seconds\":[%.9f,%.9f,%.9f],\"operations\":[%llu,%llu,%llu],"
+        "\"triad_protocol\":\"RMB fixed-set STREAM Triad variant v1\",\"parallel_threads\":%d,"
+        "\"triad_array_bytes\":8388608,\"triad_total_bytes\":25165824,\"triad_element_bytes\":8,"
+        "\"triad_bytes_per_element\":24,\"triad_scalar\":3,\"triad_source_revision\":\"6703f7504a38a8da96b353cadafa64d3c2d7a2d3\","
+        "\"single_triad_mbps\":%.9g,\"parallel_triad_mbps\":%.9g,"
+        "\"triad_elapsed_seconds\":[%.9f,%.9f],\"triad_elements\":[%llu,%llu],\"triad_created_workers\":[%d,%d]}",
+        error == ECANCELED ? "cancelled" : error ? "failed" : "completed", stage, error, completed, duration_ms,
+        rates[0], rates[1], rates[2], elapsed[0], elapsed[1], elapsed[2],
+        (unsigned long long)operations[0], (unsigned long long)operations[1], (unsigned long long)operations[2],
+        threads, triad_rates[0], triad_rates[1], triad_elapsed[0], triad_elapsed[1],
+        triad_elements[0], triad_elements[1], triad_workers[0], triad_workers[1]);
 }
-void rmb_memory_run(int duration_ms, char *json, size_t capacity) { memory_run(1, duration_ms, 0, json, capacity); }
-void rmb_memory_run_v2(int threads, int duration_ms, char *json, size_t capacity) { memory_run(threads, duration_ms, 1, json, capacity); }

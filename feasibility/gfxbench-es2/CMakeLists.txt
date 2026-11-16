@@ -71,6 +71,10 @@ file(WRITE "${GEN}/battery.cpp" "${RMB_BATTERY}")
 file(READ "${KCL}/platforms/android/src/kcl_os.cpp" RMB_KCL_OS)
 string(REPLACE "#include <android/asset_manager.h>" "// Assets are extracted by Java" RMB_KCL_OS "${RMB_KCL_OS}")
 file(WRITE "${GEN}/kcl_os.cpp" "${RMB_KCL_OS}")
+file(READ "${G40}/tests/40/corporate/create_factory_lowlevel_corporate.cpp" RMB_LOWLEVEL_FACTORY)
+string(REGEX REPLACE "#include \"opengl/gl_(alu|blending|driver)\\.h\"\r?\n" "" RMB_LOWLEVEL_FACTORY "${RMB_LOWLEVEL_FACTORY}")
+string(REGEX REPLACE "CREATE_FACTORY\\(gl_(alu|blending|driver)[^\r\n]*\r?\n" "" RMB_LOWLEVEL_FACTORY "${RMB_LOWLEVEL_FACTORY}")
+file(WRITE "${GEN}/create_factory_lowlevel_corporate.cpp" "${RMB_LOWLEVEL_FACTORY}")
 configure_file("${G}/3rdparty/zlib/zconf.h.cmakein" "${GEN}/zconf.h" @ONLY)
 configure_file("${G}/3rdparty/libpng/scripts/pnglibconf.h.prebuilt" "${GEN}/pnglibconf.h" COPYONLY)
 
@@ -215,10 +219,8 @@ set(GFX30_SCENE
     ${G40}/gfx3_0/high_level_tests_3/opengl/vao_storage.cpp)
 
 set(GFX30_LOWLEVEL
-    ${G40}/gfx3_0/low_level_tests/alu_base.cpp ${G40}/gfx3_0/low_level_tests/blending_base.cpp
-    ${G40}/gfx3_0/low_level_tests/driver_base.cpp ${G40}/gfx3_0/low_level_tests/fill_base.cpp
-    ${G40}/gfx3_0/low_level_tests/opengl/gl_alu.cpp ${G40}/gfx3_0/low_level_tests/opengl/gl_blending.cpp
-    ${G40}/gfx3_0/low_level_tests/opengl/gl_driver.cpp ${G40}/gfx3_0/low_level_tests/opengl/gl_fill.cpp)
+    ${G40}/gfx3_0/low_level_tests/fill_base.cpp
+    ${G40}/gfx3_0/low_level_tests/opengl/gl_fill.cpp)
 
 set(GFX_FRONT
     ${G40}/gfxbench/global_test_environment.cpp ${G40}/gfxbench/status_report.cpp
@@ -227,7 +229,7 @@ set(GFX_FRONT
     ${G40}/gfxbench/gfxbench_ios_rawconfig.cpp
     ${G40}/tests/40/corporate/create_factory_trex_corporate.cpp
     ${G40}/tests/40/corporate/create_factory_egypt_corporate.cpp
-    ${G40}/tests/40/corporate/create_factory_lowlevel_corporate.cpp)
+    ${GEN}/create_factory_lowlevel_corporate.cpp)
 
 add_library(${RMB_GFX_PREFIX}gfxbench_es2 STATIC ${GL_COMMON} ${GFX30_SCENE} ${GFX30_LOWLEVEL} ${GFX_FRONT})
 # OPT_TEST_GFX2: build GLB_Scene_ES2 (T-Rex, Egypt). Deliberately NOT defining

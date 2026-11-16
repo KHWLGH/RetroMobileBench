@@ -72,7 +72,7 @@ final class GpuBackendChecks {
         JSONObject timeout = GpuClient.invoke(context, pack, "gl_egypt_off", 10000, 400);
         check("timeout".equals(timeout.getString("status")) && timeout.getString("error_stage").contains("超时"), "GPU timeout");
         check("completed".equals(new JSONObject(GpuClient.run(context, "gl_egypt_off", 5000)).getString("status")), "GPU restart after kill");
-        check("failed".equals(GpuClient.parse("ERROR: init failed", "gl_alu_off").getString("status")), "GPU native failure");
+        check("failed".equals(GpuClient.parse("ERROR: init failed", "gl_fill_off").getString("status")), "GPU native failure");
     }
 
     static void checkOpaqueWindow(JSONObject result) throws Exception {
@@ -87,12 +87,12 @@ final class GpuBackendChecks {
         File parent = new File(context.getCacheDir(), "pack-check-" + System.nanoTime());
         check(parent.mkdir(), "pack test directory");
         try {
-            byte[] valid = fixture("config/gl_alu_off.json", false, false);
+            byte[] valid = fixture("config/gl_fill_off.json", false, false);
             File installed = GpuDataPack.install(parent, new ByteArrayInputStream(valid), () -> false);
             check(new File(installed, "manifest.json").isFile(), "pack commit marker");
             for (byte[] invalid : new byte[][]{
-                    fixture("data/gfx/../../escape", false, false), fixture("config/gl_alu_off.json", true, false),
-                    fixture("config/gl_alu_off.json", false, true), new byte[]{1, 2, 3}}) {
+                    fixture("data/gfx/../../escape", false, false), fixture("config/gl_fill_off.json", true, false),
+                    fixture("config/gl_fill_off.json", false, true), new byte[]{1, 2, 3}}) {
                 boolean rejected = false;
                 try { GpuDataPack.install(parent, new ByteArrayInputStream(invalid), () -> false); }
                 catch (Exception expected) { rejected = true; }
@@ -118,7 +118,7 @@ final class GpuBackendChecks {
         JSONObject file = new JSONObject().put("path", path).put("size", data.length)
                 .put("sha256", corrupt ? "0000000000000000000000000000000000000000000000000000000000000000" : sha);
         JSONObject manifest = new JSONObject().put("format", 2).put("source", GpuDataPack.SOURCE)
-                .put("texture_type", "ETC1").put("license", "fixture").put("tests", new JSONArray().put("gl_alu_off"))
+                .put("texture_type", "ETC1").put("license", "fixture").put("tests", new JSONArray().put("gl_fill_off"))
                 .put("files", new JSONArray().put(file));
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         try (ZipOutputStream zip = new ZipOutputStream(bytes)) {

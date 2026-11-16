@@ -60,6 +60,14 @@ final class MiuiSubPages {
                 trace.optInt("delta_tenths_c") / 10.0);
     }
 
+    private static JSONObject stageSource(JSONObject stageReport) {
+        if (stageReport == null) return null;
+        JSONObject median = stageReport.optJSONObject("median");
+        if (median != null) return median;
+        JSONArray samples = stageReport.optJSONArray("samples");
+        return samples != null && samples.length() > 0 ? samples.optJSONObject(0) : null;
+    }
+
     static String stageHeadlineSummary(BenchmarkSuite suite, JSONObject stageReport) {
         if (stageReport == null) return "未执行";
         String status = stageReport.optString("status", "failed");
@@ -67,28 +75,10 @@ final class MiuiSubPages {
             String msg = stageReport.optString("message");
             return msg.length() > 0 ? msg : BenchmarkReport.statusLabel(status);
         }
-        JSONObject median = stageReport.optJSONObject("median");
         JSONArray samples = stageReport.optJSONArray("samples");
-        JSONObject source = median != null ? median
-                : (samples != null && samples.length() > 0 ? samples.optJSONObject(0) : null);
+        JSONObject source = stageSource(stageReport);
         if (source == null) return BenchmarkReport.statusLabel(status);
 
-        if (suite == BenchmarkSuite.IMAGE) {
-            JSONObject images = source.optJSONObject("images");
-            if (images != null) {
-                JSONObject jpg1080 = images.optJSONObject("jpeg-1920-1080");
-                JSONObject png1080 = images.optJSONObject("png-1920-1080");
-                if (jpg1080 != null && png1080 != null) {
-                    return String.format(Locale.US, "1080p JPG %.1f · PNG %.1f MPix/s",
-                            jpg1080.optDouble("mpixels_per_second"), png1080.optDouble("mpixels_per_second"));
-                }
-            }
-            if (samples != null && samples.length() > 0) {
-                JSONArray list = samples.optJSONObject(0).optJSONArray("results");
-                if (list != null) return "已完成 " + list.length() + " 项固定图片解码";
-            }
-            return "6 张固定图像解码";
-        }
         if (suite == BenchmarkSuite.VIDEO) {
             if (samples != null && samples.length() > 0) {
                 JSONArray list = samples.optJSONObject(0).optJSONArray("results");
@@ -127,10 +117,44 @@ final class MiuiSubPages {
             if (s > 0 && p > 0) return String.format(Locale.US, "单核 %.1f · 多核 %.1f iter/s", s, p);
             if (s > 0) return String.format(Locale.US, "单核 %.1f iter/s", s);
         }
+        if (suite == BenchmarkSuite.SCIMARK) {
+            double s = source.optDouble("single_composite_mflops", -1);
+            double p = source.optDouble("parallel_composite_mflops", -1);
+            if (s > 0 && p > 0) return String.format(Locale.US, "单核 %.1f · 多核 %.1f MFLOPS", s, p);
+            if (s > 0) return String.format(Locale.US, "单核综合 %.1f MFLOPS", s);
+        }
+        if (suite == BenchmarkSuite.MEMORY) {
+            double copy = source.optDouble("copy_mbps", -1);
+            double triad = source.optDouble("parallel_triad_mbps", source.optDouble("single_triad_mbps", -1));
+            double lat = source.optDouble("latency_ns", -1);
+            if (copy > 0 && triad > 0 && lat > 0) {
+                return String.format(Locale.US, "复制 %.0f · Triad %.0f MB/s · %.1f ns", copy, triad, lat);
+            }
+        }
+        if (suite == BenchmarkSuite.STORAGE) {
+            double sr = source.optDouble("sequential_read_mbps", -1);
+            double sw = source.optDouble("sequential_write_mbps", -1);
+            double rr = source.optDouble("random_read_iops", -1);
+            double rw = source.optDouble("random_write_iops", -1);
+            if (sr > 0 && sw > 0 && rr > 0 && rw > 0) {
+                return String.format(Locale.US, "顺读 %.1f/写 %.1f MB/s · 随读 %.0f/写 %.0f IOPS", sr, sw, rr, rw);
+            }
+        }
+        if (suite == BenchmarkSuite.SQLITE) {
+            double comp = source.optDouble("composite_tps", -1);
+            double ins = source.optDouble("insert_tps", -1);
+            double upd = source.optDouble("update_tps", -1);
+            double del = source.optDouble("delete_tps", -1);
+            if (comp > 0) return String.format(Locale.US, "综合 %.1f TPS (插%.0f/更%.0f/删%.0f)", comp, ins, upd, del);
+            if (ins > 0) return String.format(Locale.US, "插入 %.1f · 更新 %.1f · 删除 %.1f TPS", ins, upd, del);
+        }
         if (suite == BenchmarkSuite.WEB) {
-            double page = source.optDouble("page_unit_ms", -1);
-            double data = source.optDouble("data_unit_ms", -1);
-            if (page > 0 && data > 0) return String.format(Locale.US, "页面 %.1f · 数据 %.1f ms/单元", page, data);
+            double total = source.optDouble("total_ms", -1);
+            double feed = source.optDouble("feed_ms", -1);
+            double img = source.optDouble("image_ms", -1);
+            if (total > 0 && feed > 0 && img > 0) {
+                return String.format(Locale.US, "总计 %.0f ms (信息流 %.0f + 大图 %.0f ms)", total, feed, img);
+            }
         }
         if (suite.metrics.length > 0 && source.has(suite.metrics[0])) {
             double v0 = source.optDouble(suite.metrics[0], -1);
@@ -151,7 +175,51 @@ final class MiuiSubPages {
         return p == null ? "" : p.optString("status");
     }
 
-    /** Sub-page A0: Full report detail (session opens overview + 15-stage list; single stage opens stage detail directly). */
+    private static double extractGpuFps(JSONObject stageRep) {
+        if (stageRep == null) return -1;
+        JSONObject src = stageSource(stageRep);
+        if (src != null && src.optDouble("fps", -1) > 0) return src.optDouble("fps", -1);
+        JSONArray samples = stageRep.optJSONArray("samples");
+        if (samples != null && samples.length() > 0) return samples.optJSONObject(0).optDouble("fps", -1);
+        return -1;
+    }
+
+    private static String formatPairedGpuFps(JSONObject offRep, JSONObject onRep) {
+        double offFps = extractGpuFps(offRep);
+        double onFps = extractGpuFps(onRep);
+        String offStr = offFps > 0 ? String.format(Locale.US, "%.1f FPS", offFps)
+                : (offRep != null ? BenchmarkReport.statusLabel(offRep.optString("status")) : "未测");
+        String onStr = onFps > 0 ? String.format(Locale.US, "%.1f FPS", onFps)
+                : (onRep != null ? BenchmarkReport.statusLabel(onRep.optString("status")) : "未测");
+        return "离屏 " + offStr + " · 屏上 " + onStr;
+    }
+
+    private static String buildQuickComparisonText(JSONObject report, JSONObject[] byStage) {
+        StringBuilder sb = new StringBuilder();
+        JSONObject dev = null;
+        for (JSONObject st : byStage) {
+            if (st != null && st.has("device")) { dev = st.optJSONObject("device"); break; }
+        }
+        sb.append("【RetroMobileBench 核心指标速览】\n");
+        if (dev != null) {
+            sb.append("设备：").append(dev.optString("manufacturer")).append(' ').append(dev.optString("model"))
+                    .append(" (Android ").append(dev.optString("android_release")).append(", API ").append(dev.optInt("sdk")).append(")\n");
+        }
+        sb.append("1. CPU 整数 (CoreMark)：").append(stageHeadlineSummary(BenchmarkSuite.COREMARK, byStage[0])).append('\n');
+        sb.append("2. CPU 浮点 (SciMark 2.0)：").append(stageHeadlineSummary(BenchmarkSuite.SCIMARK, byStage[1])).append('\n');
+        sb.append("3. 内存 (8MiB复制/4MiB延迟/24MiB Triad)：").append(stageHeadlineSummary(BenchmarkSuite.MEMORY, byStage[2])).append('\n');
+        sb.append("4. 存储 (256KiB×128顺序/4KiB×256随机)：").append(stageHeadlineSummary(BenchmarkSuite.STORAGE, byStage[3])).append('\n');
+        sb.append("5. SQLite (900独立事务/1KiB行)：").append(stageHeadlineSummary(BenchmarkSuite.SQLITE, byStage[4])).append('\n');
+        sb.append("6. Web 竖屏信息流与大图：").append(stageHeadlineSummary(BenchmarkSuite.WEB, byStage[5])).append('\n');
+        sb.append("7. 视频解码与播放 (7段)：").append(stageHeadlineSummary(BenchmarkSuite.VIDEO, byStage[6])).append('\n');
+        sb.append("8. GPU Egypt HD：").append(formatPairedGpuFps(byStage[7], byStage[8])).append('\n');
+        sb.append("9. GPU T-Rex：").append(formatPairedGpuFps(byStage[9], byStage[10])).append('\n');
+        sb.append("10. GPU 纹理填充率：").append(stageHeadlineSummary(BenchmarkSuite.GPU_FILL, byStage[11])).append('\n');
+        sb.append("电池温度：").append(formatTemperatureShort(report.optJSONObject("temperature")));
+        return sb.toString();
+    }
+
+    /** Sub-page A0: Full report detail (session opens overview + 12-stage list; single stage opens stage detail directly). */
     static View buildReportDetailPage(Context context, JSONObject report, boolean isBusy, Navigator nav) {
         String suiteVer = report.optString("suite_version");
         boolean isSession = BenchmarkSuite.isSession(suiteVer);
@@ -178,7 +246,7 @@ final class MiuiSubPages {
         col.addView(MiuiUi.sectionTitle(context, "报告总览"));
         LinearLayout summaryCard = MiuiUi.cardGroup(context);
         summaryCard.addView(MiuiUi.kvRow(context,
-                isSession ? "完整测试套件（15 阶段）" : suiteVer,
+                isSession ? "完整测试套件（12 阶段）" : suiteVer,
                 sessionId.length() > 0 ? "会话：" + MiuiUi.ellipsizeMiddle(sessionId, 8, 6) : null,
                 null, BenchmarkReport.statusLabel(status), MiuiUi.statusTone(status)));
 
@@ -241,8 +309,57 @@ final class MiuiSubPages {
                     }
                 }
             }
-            String[] groupTitles = {"处理器与加密 (CPU)", "多媒体 (Media)", "内存与存储 (Memory & I/O)", "Web 响应", "OpenGL ES 2.0 (GPU)"};
-            int[][] groupIndices = {{0, 1, 2, 3}, {4, 5}, {6, 7, 8}, {9}, {10, 11, 12, 13, 14}};
+
+            // One-screen summary card for video creators & device comparisons
+            col.addView(MiuiUi.sectionTitle(context, "核心指标速览（横评总结）"));
+            LinearLayout quickCard = MiuiUi.cardGroup(context);
+            quickCard.addView(MiuiUi.kvRow(context, "CPU 整数 (CoreMark®)",
+                    "2000B 栈工作区 · 双种子校验 · 每段 ≥10s",
+                    stageHeadlineSummary(BenchmarkSuite.COREMARK, byStage[0]), null, 0));
+            MiuiUi.addDivider(context, quickCard);
+            quickCard.addView(MiuiUi.kvRow(context, "CPU 浮点 (SciMark 2.0)",
+                    "5 项浮点内核均值 (FFT/SOR/MC/稀疏/LU)",
+                    stageHeadlineSummary(BenchmarkSuite.SCIMARK, byStage[1]), null, 0));
+            MiuiUi.addDivider(context, quickCard);
+            quickCard.addView(MiuiUi.kvRow(context, "内存带宽与延迟",
+                    "8MiB 复制/填充 · 4MiB 随机指针链(100万节点) · 24MiB 共享 Triad",
+                    stageHeadlineSummary(BenchmarkSuite.MEMORY, byStage[2]), null, 0));
+            MiuiUi.addDivider(context, quickCard);
+            quickCard.addView(MiuiUi.kvRow(context, "闪存读写 (Storage)",
+                    "32MiB 文件(4–32MiB 自适应) · 256KiB×128 顺序 · 4KiB×256 随机 · O_SYNC",
+                    stageHeadlineSummary(BenchmarkSuite.STORAGE, byStage[3]), null, 0));
+            MiuiUi.addDivider(context, quickCard);
+            quickCard.addView(MiuiUi.kvRow(context, "SQLite 事务吞吐",
+                    "INSERT/UPDATE/DELETE 各 300 独立事务(共 900 次 COMMIT) · 1KiB/行 · FULL 同步",
+                    stageHeadlineSummary(BenchmarkSuite.SQLITE, byStage[4]), null, 0));
+            MiuiUi.addDivider(context, quickCard);
+            quickCard.addView(MiuiUi.kvRow(context, "Web 竖屏信息流与大图",
+                    "竖屏 640卡片+2000列表+480段落 + 480p/720p/1080p 大图解码×20 (越低越好)",
+                    stageHeadlineSummary(BenchmarkSuite.WEB, byStage[5]), null, 0));
+            MiuiUi.addDivider(context, quickCard);
+            quickCard.addView(MiuiUi.kvRow(context, "视频解码与播放",
+                    "7 段 240p–1080p 素材 (H.263/MPEG-4/H.264/VP8/VP9)",
+                    stageHeadlineSummary(BenchmarkSuite.VIDEO, byStage[6]), null, 0));
+            MiuiUi.addDivider(context, quickCard);
+            quickCard.addView(MiuiUi.kvRow(context, "GPU Egypt HD (中压场景)",
+                    "1080p 离屏 vs 实际屏幕分辨率屏上",
+                    formatPairedGpuFps(byStage[7], byStage[8]), null, 0));
+            MiuiUi.addDivider(context, quickCard);
+            quickCard.addView(MiuiUi.kvRow(context, "GPU T-Rex (高压场景)",
+                    "1080p 离屏 vs 实际屏幕分辨率屏上",
+                    formatPairedGpuFps(byStage[9], byStage[10]), null, 0));
+            MiuiUi.addDivider(context, quickCard);
+            quickCard.addView(MiuiUi.kvRow(context, "GPU 纹理填充率",
+                    "1080p 离屏四层多纹理混合",
+                    stageHeadlineSummary(BenchmarkSuite.GPU_FILL, byStage[11]), null, 0));
+            MiuiUi.addDivider(context, quickCard);
+            final String quickSummaryText = buildQuickComparisonText(report, byStage);
+            quickCard.addView(MiuiUi.navRow(context, "复制横评总结文本", "一键复制以上 10 项核心指标与工作量说明",
+                    "复制", null, 0, () -> nav.copyText("横评总结", quickSummaryText)));
+            col.addView(quickCard);
+
+            String[] groupTitles = {"处理器算力 (CPU)", "内存与存储 (Memory & I/O)", "Web 与视频 (Daily & Media)", "OpenGL ES 2.0 (GPU)"};
+            int[][] groupIndices = {{0, 1}, {2, 3, 4}, {5, 6}, {7, 8, 9, 10, 11}};
             for (int g = 0; g < groupTitles.length; g++) {
                 col.addView(MiuiUi.sectionTitle(context, groupTitles[g]));
                 LinearLayout card = MiuiUi.cardGroup(context);
@@ -283,10 +400,27 @@ final class MiuiSubPages {
         LinearLayout col = pageColumn(context);
         String status = report.optString("status", "failed");
 
+        JSONArray samples = report.optJSONArray("samples");
+        JSONObject firstSample = samples != null && samples.length() > 0 ? samples.optJSONObject(0) : null;
+        String stageSubtitle = null;
+        if (suite != null) {
+            int param = 4;
+            if (suite == BenchmarkSuite.STORAGE) {
+                long fb = firstSample != null ? firstSample.optLong("file_bytes", 0) : 0;
+                param = fb > 0 ? (int) (fb / (1024L * 1024L)) : 32;
+            } else if (suite == BenchmarkSuite.SQLITE) {
+                param = firstSample != null ? firstSample.optInt("transactions", 300) : 300;
+            } else if (firstSample != null && firstSample.has("parallel_threads")) {
+                param = firstSample.optInt("parallel_threads", 4);
+            } else if (report.has("device")) {
+                param = suite.parameter(report.optJSONObject("device"));
+            }
+            stageSubtitle = suite.progress(param);
+        }
         col.addView(MiuiUi.sectionTitle(context, "阶段概览"));
         LinearLayout overview = MiuiUi.cardGroup(context);
         overview.addView(MiuiUi.kvRow(context, suite != null ? suite.label : report.optString("suite_version"),
-                null,
+                stageSubtitle,
                 null, BenchmarkReport.statusLabel(status), MiuiUi.statusTone(status)));
         if (report.has("started_ms")) {
             MiuiUi.addDivider(context, overview);
@@ -302,7 +436,6 @@ final class MiuiSubPages {
         }
         MiuiUi.addDivider(context, overview);
         int reps = report.optInt("repetitions", 1);
-        JSONArray samples = report.optJSONArray("samples");
         int doneRounds = samples == null ? 0 : samples.length();
         overview.addView(MiuiUi.kvRow(context, "采样轮次", null,
                 doneRounds + " / " + reps + " 轮" + (report.has("median") ? "（中位数）" : ""), null, 0));
@@ -317,9 +450,7 @@ final class MiuiSubPages {
         }
         col.addView(overview);
 
-        if (suite == BenchmarkSuite.IMAGE) {
-            appendImageStageDetails(context, col, report);
-        } else if (suite == BenchmarkSuite.VIDEO) {
+        if (suite == BenchmarkSuite.VIDEO) {
             appendVideoStageDetails(context, col, report);
         } else if (suite != null) {
             appendStandardStageMetrics(context, col, suite, report);
@@ -327,7 +458,7 @@ final class MiuiSubPages {
 
         if (suite != null && samples != null && samples.length() > 0) {
             appendStageEnvironmentCard(context, col, suite, samples.optJSONObject(0));
-            if (samples.length() > 1 && suite != BenchmarkSuite.IMAGE && suite != BenchmarkSuite.VIDEO) {
+            if (samples.length() > 1 && suite != BenchmarkSuite.VIDEO) {
                 appendPerRoundSamplesCard(context, col, suite, samples);
             }
         }
@@ -370,17 +501,19 @@ final class MiuiSubPages {
     private static void appendStandardStageMetrics(Context context, LinearLayout col, BenchmarkSuite suite, JSONObject report) {
         JSONObject median = report.optJSONObject("median");
         JSONArray samples = report.optJSONArray("samples");
-        JSONObject source = median != null ? median
-                : (samples != null && samples.length() > 0 ? samples.optJSONObject(0) : null);
+        JSONObject source = stageSource(report);
         if (source == null) return;
 
         LinearLayout card = MiuiUi.cardGroup(context);
 
-        double maxVal = 0;
-        for (String key : suite.metrics) {
+        java.util.HashMap<String, Double> maxByUnit = new java.util.HashMap<>();
+        for (int i = 0; i < suite.metrics.length; i++) {
+            String key = suite.metrics[i];
             if (source.has(key)) {
                 double v = source.optDouble(key, 0);
-                if (v > maxVal) maxVal = v;
+                String unit = suite.units[i];
+                Double prev = maxByUnit.get(unit);
+                if (prev == null || v > prev) maxByUnit.put(unit, v);
             }
         }
 
@@ -391,7 +524,9 @@ final class MiuiSubPages {
             if (added) MiuiUi.addDivider(context, card);
             double val = source.optDouble(key, 0);
             String valStr = String.format(Locale.US, "%.2f %s", val, suite.units[i]);
-            float ratio = maxVal > 0 ? (float) (val / maxVal) : 0.5f;
+            Double unitMaxObj = maxByUnit.get(suite.units[i]);
+            double unitMax = unitMaxObj != null ? unitMaxObj : 0;
+            float ratio = unitMax > 0 ? (float) (val / unitMax) : 0.5f;
             int barColor = suite == BenchmarkSuite.WEB ? 0xFF188AE2 : MiuiUi.ORANGE;
             card.addView(MiuiUi.metricBarRow(context, suite.labels[i], valStr, ratio, barColor));
             added = true;
@@ -412,59 +547,6 @@ final class MiuiSubPages {
         if (added) {
             col.addView(MiuiUi.sectionTitle(context, median != null ? "核心测量结果（三轮有效中位数）" : "测量结果（单轮 / 原始值）"));
             col.addView(card);
-        }
-    }
-
-    private static void appendImageStageDetails(Context context, LinearLayout col, JSONObject report) {
-        JSONObject median = report.optJSONObject("median");
-        JSONObject images = median != null ? median.optJSONObject("images") : null;
-        if (images != null) {
-            col.addView(MiuiUi.sectionTitle(context, "图片解码中位数（6 张固定素材）"));
-            LinearLayout card = MiuiUi.cardGroup(context);
-            double maxRate = 0;
-            Iterator<String> k1 = images.keys();
-            while (k1.hasNext()) {
-                JSONObject item = images.optJSONObject(k1.next());
-                if (item != null && item.optDouble("mpixels_per_second") > maxRate) {
-                    maxRate = item.optDouble("mpixels_per_second");
-                }
-            }
-            boolean first = true;
-            String[] order = {"jpeg-854-480", "jpeg-1280-720", "jpeg-1920-1080", "png-854-480", "png-1280-720", "png-1920-1080"};
-            for (String id : order) {
-                JSONObject item = images.optJSONObject(id);
-                if (item == null) continue;
-                if (!first) MiuiUi.addDivider(context, card);
-                double mpix = item.optDouble("mpixels_per_second");
-                double ms = item.optDouble("ms_per_image");
-                card.addView(MiuiUi.metricBarRow(context, id,
-                        String.format(Locale.US, "%.2f MPix/s · %.2f ms/张", mpix, ms),
-                        maxRate > 0 ? (float) (mpix / maxRate) : 0.5f, MiuiUi.ORANGE));
-                first = false;
-            }
-            col.addView(card);
-            return;
-        }
-        JSONArray samples = report.optJSONArray("samples");
-        if (samples != null && samples.length() > 0) {
-            JSONArray results = samples.optJSONObject(0).optJSONArray("results");
-            if (results != null) {
-                col.addView(MiuiUi.sectionTitle(context, "图片解码首轮结果"));
-                LinearLayout card = MiuiUi.cardGroup(context);
-                for (int i = 0; i < results.length(); i++) {
-                    JSONObject item = results.optJSONObject(i);
-                    if (item == null) continue;
-                    if (i > 0) MiuiUi.addDivider(context, card);
-                    String st = item.optString("status");
-                    String val = "completed".equals(st)
-                            ? String.format(Locale.US, "%.2f MPix/s (%.2f ms)", item.optDouble("mpixels_per_second"), item.optDouble("ms_per_image"))
-                            : item.optString("error_stage", BenchmarkReport.statusLabel(st));
-                    card.addView(MiuiUi.kvRow(context, item.optString("id"),
-                            item.optInt("width") + "×" + item.optInt("height") + " · " + item.optString("library"),
-                            val, BenchmarkReport.statusLabel(st), MiuiUi.statusTone(st)));
-                }
-                col.addView(card);
-            }
         }
     }
 
@@ -546,10 +628,13 @@ final class MiuiSubPages {
                 hasRow = true;
             }
         } else if (suite == BenchmarkSuite.WEB) {
-            card.addView(MiuiUi.kvRow(context, "CSS / 物理视口", null,
+            card.addView(MiuiUi.kvRow(context, "CSS / 物理竖屏视口", null,
                     sample.optInt("viewport_width") + "×" + sample.optInt("viewport_height")
                             + " / " + sample.optInt("physical_width") + "×" + sample.optInt("physical_height")
                             + " (DPR " + sample.optDouble("dpr") + ")", null, 0));
+            MiuiUi.addDivider(context, card);
+            card.addView(MiuiUi.kvRow(context, "测试负载构成",
+                    "信息流卡片 640 张 + 列表项 2000 条 + 段落 480 段 + 480p/720p/1080p 大图解码 20 次", null, null, 0));
             MiuiUi.addDivider(context, card);
             card.addView(MiuiUi.kvRow(context, "计时器与精度", null,
                     sample.optString("clock_source") + " / " + sample.optDouble("clock_resolution_ms") + " ms", null, 0));
@@ -567,16 +652,27 @@ final class MiuiSubPages {
                         sample.optString("native_library") + " (" + sample.optString("native_abi") + ")", null, 0));
                 hasRow = true;
             }
+            if (suite == BenchmarkSuite.MEMORY && sample.has("buffer_bytes")) {
+                if (hasRow) MiuiUi.addDivider(context, card);
+                card.addView(MiuiUi.kvRow(context, "内存测试量",
+                        "8 MiB 复制/填充(共 16 MiB) · 4 MiB 随机指针链(100 万节点) · 24 MiB 共享 Triad(3×8 MiB)",
+                        null, null, 0));
+                hasRow = true;
+            }
             if (suite == BenchmarkSuite.STORAGE && sample.has("file_bytes")) {
                 if (hasRow) MiuiUi.addDivider(context, card);
-                card.addView(MiuiUi.kvRow(context, "测试文件与读取模式", null,
-                        (sample.optLong("file_bytes") / (1024 * 1024)) + " MiB · " + sample.optString("read_mode"), null, 0));
+                long fileMib = sample.optLong("file_bytes") / (1024 * 1024);
+                card.addView(MiuiUi.kvRow(context, "存储测试量与模式",
+                        "256 KiB 顺序读写 × " + (fileMib * 4) + " 块 · 4 KiB 随机读写 × " + sample.optInt("random_operations", 256) + " 次",
+                        fileMib + " MiB · " + sample.optString("read_mode"), null, 0));
                 hasRow = true;
             }
             if (suite == BenchmarkSuite.SQLITE && sample.has("sqlite_version")) {
                 if (hasRow) MiuiUi.addDivider(context, card);
-                card.addView(MiuiUi.kvRow(context, "SQLite 引擎与事务数", null,
-                        "v" + sample.optString("sqlite_version") + " · 每项 " + sample.optInt("transactions") + " 事务", null, 0));
+                int tx = sample.optInt("transactions", 300);
+                card.addView(MiuiUi.kvRow(context, "SQLite 引擎与测试量",
+                        "INSERT / UPDATE / DELETE 各 " + tx + " 独立事务（共 " + (tx * 3) + " 次 COMMIT）· 1 KiB/行 · DELETE 日志 + FULL 同步",
+                        "v" + sample.optString("sqlite_version"), null, 0));
                 hasRow = true;
             }
         }
@@ -702,7 +798,7 @@ final class MiuiSubPages {
         MiuiUi.addDivider(context, appCard);
         appCard.addView(MiuiUi.kvRow(context, "软件版本", null, BuildConfig.VERSION_NAME, "Code " + BuildConfig.VERSION_CODE, MiuiUi.TONE_ACTIVE));
         MiuiUi.addDivider(context, appCard);
-        appCard.addView(MiuiUi.kvRow(context, "测试范围", null, "15 项离线基准测试", null, 0));
+        appCard.addView(MiuiUi.kvRow(context, "测试范围", null, "12 项离线基准测试 (fixed-suite-v1)", null, 0));
         MiuiUi.addDivider(context, appCard);
         appCard.addView(MiuiUi.kvRow(context, "兼容目标", "ARMv7 (NEON / 无 NEON) · x86", "API 8 (Android 2.2+)", null, 0));
         col.addView(appCard);
@@ -738,17 +834,17 @@ final class MiuiSubPages {
         return wrapScroll(context, col);
     }
 
-    /** Sub-page E1: Fixed Suite (15 stages) protocol overview. */
+    /** Sub-page E1: Fixed Suite (12 stages) protocol overview. */
     static View buildSuiteProtocolPage(Context context) {
         LinearLayout col = pageColumn(context);
-        col.addView(MiuiUi.sectionTitle(context, "15 阶段执行顺序与测试内容"));
+        col.addView(MiuiUi.sectionTitle(context, "12 阶段执行顺序与明确测试量说明"));
 
         LinearLayout listCard = MiuiUi.cardGroup(context);
         for (int i = 0; i < BenchmarkSuite.DEFAULT.length; i++) {
             BenchmarkSuite s = BenchmarkSuite.DEFAULT[i];
             if (i > 0) MiuiUi.addDivider(context, listCard);
             String rounds = s.repetitions() + " 轮" + (s.repetitions() == 3 ? "中位数" : "正式测量");
-            String desc = s.progress(4);
+            String desc = s.progress(s == BenchmarkSuite.STORAGE ? 32 : (s == BenchmarkSuite.SQLITE ? 300 : 4));
             listCard.addView(MiuiUi.kvRow(context, (i + 1) + ". " + s.label, desc,
                     null, rounds, s.repetitions() == 3 ? MiuiUi.TONE_OK : MiuiUi.TONE_ACTIVE));
         }
@@ -759,20 +855,15 @@ final class MiuiSubPages {
     /** Sub-page E2: Bundled Open-Source Projects & Benchmark Kernels list. */
     static View buildOpenSourceProjectsPage(Context context, Navigator nav) {
         LinearLayout col = pageColumn(context);
-        col.addView(MiuiUi.sectionTitle(context, "内置开源基准测试与依赖项目（共 12 项）"));
+        col.addView(MiuiUi.sectionTitle(context, "内置开源基准测试与依赖项目（共 7 项）"));
 
         String[][] projects = {
-                {"CoreMark® 1.0", "EEMBC · COREMARK 许可证", "1f483d5b8316 · CPU 单线程与多线程整数核心计算"},
-                {"SciMark 2.0 C", "NIST · 公有领域 / 学术声明", "FFT、SOR、Monte Carlo、稀疏矩阵、LU 五项浮点内核"},
-                {"zlib 1.3.1", "Jean-loup Gailly & Mark Adler · Zlib 许可", "51b7f2abdade · 固定 1 MiB 语料单核与多核流压缩/解压"},
-                {"Zstandard (zstd) 1.5.7", "Meta Platforms · BSD 许可", "f8745da6ff1a · 高速数据压缩回归内核"},
-                {"Mbed TLS 2.28.10", "TrustedFirmware · Apache-2.0", "2fc8413bfcb5 · AES-128-GCM 认证加解密与 SHA-256 吞吐"},
-                {"libjpeg-turbo 2.1.5.1", "libjpeg-turbo 社区 · IJG / BSD-3", "8ecba3647edb · 480p/720p/1080p JPEG 标量精确整数 DCT 解码"},
-                {"libpng 1.6.43", "PNG Group · libpng 许可证", "ed217e3e601d · 480p/720p/1080p PNG RGBA8 无损图像解码"},
-                {"FFmpeg 4.4.6", "FFmpeg 团队 · LGPL v2.1+", "44b04492bfc8 · avutil/avcodec/avformat 独立动态库视频软解"},
-                {"tinymembench", "Siarhei Siamashka · MIT 许可证", "a2cf6d7e382e · 8 MiB 内存复制/填充带宽与 4 MiB 依赖访问延迟"},
-                {"STREAM 变体", "John D. McCalpin / Jeff Hammond · STREAM 许可", "6703f7504a38 · 固定 24 MiB 工作集单核/多核 Triad 内存带宽"},
-                {"SQLite 3.53.1", "Hipp, Wyrick & Company · 公有领域", "sqlite-amalgamation-3530100 · 独立数据库同步事务 TPS 基准"},
+                {"CoreMark® 1.0", "EEMBC · COREMARK 许可证", "1f483d5b8316 · CPU 单核与多核整数核心计算（2000B 栈 / 双种子）"},
+                {"SciMark 2.0 C", "NIST · 公有领域 / 学术声明", "FFT、SOR、Monte Carlo、稀疏矩阵、LU 五项单核/多核浮点内核"},
+                {"FFmpeg 4.4.6", "FFmpeg 团队 · LGPL v2.1+", "44b04492bfc8 · avutil/avcodec/avformat 独立动态库视频标量软解与 SHA-256 校验"},
+                {"tinymembench", "Siarhei Siamashka · MIT 许可证", "a2cf6d7e382e · 8 MiB 内存复制/填充带宽与 4 MiB 随机指针链延迟"},
+                {"STREAM Triad 变体", "John D. McCalpin / Jeff Hammond · STREAM 许可", "6703f7504a38 · 共享固定 24 MiB 工作集（3×8 MiB）单核/多核 Triad 内存带宽"},
+                {"SQLite 3.53.1", "Hipp, Wyrick & Company · 公有领域", "sqlite-amalgamation-3530100 · INSERT/UPDATE/DELETE 各 300 独立同步事务 TPS 基准"},
                 {"GFXBench 4.0 (ES2 子集)", "Kishonti Ltd · BSD / CC BY 4.0 素材", "89aa956f4383 · OpenGL ES 2.0 Egypt HD / T-Rex / Fill 离屏与屏上渲染"}
         };
 
