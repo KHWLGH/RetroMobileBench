@@ -25,18 +25,24 @@ final class BenchmarkRunner {
         final String message;
         final String text;
         final String exportJson;
+        final JSONObject latestReport;
         final String suiteVersion;
         final int stageIndex, completedStages, round, repetitions, savedRounds;
 
         State(boolean busy, String message, String text, String exportJson) {
-            this(busy, message, text, exportJson, "", -1, 0, 0, 0, 0);
+            this(busy, message, text, exportJson, null, "", -1, 0, 0, 0, 0);
         }
         State(boolean busy, String message, String text, String exportJson, String suiteVersion,
+              int stageIndex, int completedStages, int round, int repetitions, int savedRounds) {
+            this(busy, message, text, exportJson, null, suiteVersion, stageIndex, completedStages, round, repetitions, savedRounds);
+        }
+        State(boolean busy, String message, String text, String exportJson, JSONObject latestReport, String suiteVersion,
               int stageIndex, int completedStages, int round, int repetitions, int savedRounds) {
             this.busy = busy;
             this.message = message;
             this.text = text;
             this.exportJson = exportJson;
+            this.latestReport = latestReport;
             this.suiteVersion = suiteVersion;
             this.stageIndex = stageIndex;
             this.completedStages = completedStages;
@@ -158,9 +164,9 @@ final class BenchmarkRunner {
                                 .put("cancel_stop_latency_ms", SystemClock.elapsedRealtime() - cancelRequestedElapsed);
                         currentSession.remove("active_suite"); checkpointSession();
                         publish(false, "本次测试 · " + BenchmarkReport.statusLabel(currentSession.optString("status")),
-                                BenchmarkReport.format(currentSession), currentSession.toString(2));
+                                "", currentSession.toString(), currentSession);
                     }
-                } catch (Exception e) { publish(false, "结果处理失败", e.toString(), currentSession == null ? "" : currentSession.toString()); }
+                } catch (Exception e) { publish(false, "结果处理失败", e.toString(), currentSession == null ? "" : currentSession.toString(), currentSession); }
                 trace.close();
                 DisplaySurface.hide();
             }
@@ -169,7 +175,7 @@ final class BenchmarkRunner {
 
     private boolean refuseUnsafeRestart() {
         if (!WebClient.cleanupFailed()) return false;
-        publish(false, "工作进程回收未确认，请重启应用", state.text, state.exportJson);
+        publish(false, "工作进程回收未确认，请重启应用", state.text, state.exportJson, state.latestReport);
         return true;
     }
 
@@ -380,14 +386,10 @@ final class BenchmarkRunner {
             persistenceProblem = "保存失败，可先复制 JSON：" + e;
             try { report.put("persistence_warning", persistenceProblem); } catch (JSONException ignored) { }
         } finally { trace.close(); }
-        try {
-            String message = persistenceProblem.length() == 0
-                    ? "结果已保存 · " + BenchmarkReport.statusLabel(report.optString("status")) : persistenceProblem;
-            if (!batch) publish(false, message, BenchmarkReport.format(report), report.toString(2));
-            Log.i("RMB", suite.name() + "_DONE status=" + report.optString("status") + " id=" + id);
-        } catch (JSONException e) {
-            if (!batch) publish(false, "结果格式错误", e.toString(), report.toString());
-        }
+        String message = persistenceProblem.length() == 0
+                ? "结果已保存 · " + BenchmarkReport.statusLabel(report.optString("status")) : persistenceProblem;
+        if (!batch) publish(false, message, "", report.toString(), report);
+        Log.i("RMB", suite.name() + "_DONE status=" + report.optString("status") + " id=" + id);
         return report;
     }
 
@@ -443,17 +445,8 @@ final class BenchmarkRunner {
 
     private void showHistory() throws JSONException {
         JSONArray reports = store.latest(1);
-        StringBuilder text = new StringBuilder();
-        for (int i = 0; i < reports.length(); i++) {
-            if (i > 0) text.append("\n────────────────\n\n");
-            text.append(BenchmarkReport.format(reports.getJSONObject(i)));
-        }
-        if (reports.length() == 0) text.append("尚无本地成绩。点击开始，自动执行固定套件；需多轮的项目自动采样三轮。\n"
-                + "测试期间请保持应用在前台，屏幕会保持亮起。\n"
-                + "切到后台会取消测试；旋转屏幕会保留进度。\n");
-        String json = reports.length() == 1 ? reports.getJSONObject(0).toString(2)
-                : reports.length() > 0 ? reports.toString(2) : "";
-        publish(false, reports.length() == 0 ? "就绪" : "本地记录（最近 " + reports.length() + " 次）", text.toString(), json);
+        JSONObject latest = reports.length() > 0 ? reports.optJSONObject(0) : null;
+        publish(false, reports.length() == 0 ? "就绪" : "本地记录（最近 " + reports.length() + " 次）", "", "", latest);
     }
 
     private void publishProgress(BenchmarkSuite suite, int round, int repetitions, int savedRounds, String message) {
@@ -468,7 +461,11 @@ final class BenchmarkRunner {
     }
 
     private void publish(boolean busy, String message, String text, String exportJson) {
-        State next = new State(busy, message, text, exportJson);
+        publish(busy, message, text, exportJson, null);
+    }
+
+    private void publish(boolean busy, String message, String text, String exportJson, JSONObject latestReport) {
+        State next = new State(busy, message, text, exportJson, latestReport, "", -1, 0, 0, 0, 0);
         main.post(() -> update(next));
     }
 

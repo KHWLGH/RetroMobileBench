@@ -137,13 +137,13 @@ enum BenchmarkSuite {
     }
 
     String progress(int parameter) {
-        if (this == WEB) return "独立竖屏全屏 WebView；3 项信息流任务（640 卡片 / 2000 列表项 / 480 段落）+ 1 项 480p/720p/1080p 高清大图解码（20 单元）。\n各 20 单元 × 3 轮取中位数，测量任务完成与布局/像素检查点耗时（越低越好）。";
-        if (this == VIDEO) return "7 段离线视频（240p H.263 / 360p MPEG-4 / 480p–1080p H.264 / 720p VP8+VP9）；依次执行 FFmpeg 标量软解、MediaCodec 系统解码与 Surface 实时播放。";
-        if (isGpu()) return (gpuTest().endsWith("_off") ? "1920 × 1080 离屏渲染" : "实际窗口分辨率屏上渲染") + " / ETC1 纹理 / 正式时长。\n在独立子进程中运行，可随时取消。";
-        if (this == MEMORY) return "8 MiB 复制/填充（共 16 MiB 缓冲）· 4 MiB 随机指针链延迟（100 万节点）。\nTriad 共享固定 24 MiB 工作集（3 × 8 MiB），单核及 " + parameter + " 线程；每项至少 1.5 秒，3 轮取中位数。";
-        if (this == SCIMARK) return "NIST SciMark 2.0 五项浮点内核（FFT 1024 / SOR 100×100 / Monte Carlo 16384 / 稀疏矩阵 N=1000 / LU 100×100）。\n单核及 " + parameter + " 线程，输出单核/多核综合 MFLOPS，3 轮取中位数。";
-        if (this == COREMARK) return "2000 字节栈工作区 · 双种子完整校验；单核及 " + parameter + " 线程。\n单段正式计时至少 10 秒，3 轮取中位数；取消时在当前计算段结束后停止。";
-        if (this == SQLITE) return "INSERT / UPDATE / DELETE 各 " + parameter + " 个独立事务（共 " + (parameter * 3) + " 次 COMMIT）。\n每行 1 KiB 载荷 · 4 KiB 页 · DELETE 日志 + FULL 同步落盘；3 轮取中位数。";
-        return "测试文件 " + parameter + " MiB（自适应 4–32 MiB，预留 ≥16 MiB 空间）。\n256 KiB 顺序读写（" + (parameter * 4) + " 块）与 4 KiB 随机读写（256 次）；写入 O_SYNC 同步落盘，读取优先 O_DIRECT。";
+        if (this == WEB) return "独立竖屏全屏 WebView；3 项信息流任务（640 卡片 / 2000 列表项 / 480 段落）+ 1 项 480p/720p/1080p 高清大图解码（20\u00A0单元）。\n各 20\u00A0单元 × 3\u00A0轮取中位数，测量任务完成与布局/像素检查点耗时（越低越好）。";
+        if (this == VIDEO) return "7\u00A0段离线视频（240p H.263 / 360p MPEG-4 / 480p–1080p H.264 / 720p VP8+VP9）；依次执行 FFmpeg 标量软解、MediaCodec 系统解码与 Surface 实时播放。";
+        if (isGpu()) return (gpuTest().endsWith("_off") ? "1920\u00A0×\u00A01080 离屏渲染" : "实际窗口分辨率屏上渲染") + " / ETC1 纹理 / 正式时长。\n在独立子进程中运行，可随时取消。";
+        if (this == MEMORY) return "8\u00A0MiB 复制/填充（共 16\u00A0MiB 缓冲）· 4\u00A0MiB 随机指针链延迟（100 万节点）。\nTriad 共享固定 24\u00A0MiB 工作集（3×8\u00A0MiB），单核及 " + parameter + "\u00A0线程；每项至少 1.5\u00A0秒，3\u00A0轮取中位数。";
+        if (this == SCIMARK) return "NIST SciMark 2.0 五项浮点内核（FFT 1024 / SOR 100×100 / Monte Carlo 16384 / 稀疏矩阵 N=1000 / LU 100×100）。\n单核及 " + parameter + "\u00A0线程，输出单核/多核综合 MFLOPS，3\u00A0轮取中位数。";
+        if (this == COREMARK) return "2000\u00A0字节栈工作区 · 双种子完整校验；单核及 " + parameter + "\u00A0线程。\n单段正式计时至少 10\u00A0秒，3\u00A0轮取中位数；取消时在当前计算段结束后停止。";
+        if (this == SQLITE) return "INSERT / UPDATE / DELETE 各 " + parameter + "\u00A0个独立事务（共 " + (parameter * 3) + "\u00A0次 COMMIT）。\n每行 1\u00A0KiB 载荷 · 4\u00A0KiB 页 · DELETE 日志 + FULL 同步落盘；3\u00A0轮取中位数。";
+        return "测试文件 " + parameter + "\u00A0MiB（自适应 4–32\u00A0MiB，预留 ≥16\u00A0MiB 空间）。\n256\u00A0KiB 顺序读写（" + (parameter * 4) + "\u00A0块）与 4\u00A0KiB 随机读写（256\u00A0次）；写入 O_SYNC 同步落盘，读取优先 O_DIRECT。";
     }
 }

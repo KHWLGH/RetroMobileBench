@@ -18,7 +18,7 @@ import java.util.concurrent.atomic.AtomicReference;
 public final class BackendInstrumentation extends Instrumentation {
     private boolean gpuOnly, fullGpu, production, fixedOnly, lifecycleOnly, interferenceOnly, mediaOnly, mediaTimestamps;
     private String gpuTest, gpuDuration;
-    private boolean webOnly, webFaults, displayOnly, gpuSurfaceOnly, gpuCaptureOnly;
+    private boolean webOnly, webFaults, displayOnly, gpuSurfaceOnly, gpuCaptureOnly, uiOnly;
     @Override
     public void onCreate(Bundle arguments) {
         super.onCreate(arguments);
@@ -37,6 +37,7 @@ public final class BackendInstrumentation extends Instrumentation {
         displayOnly = arguments != null && "true".equals(arguments.getString("displayOnly"));
         gpuSurfaceOnly = arguments != null && "true".equals(arguments.getString("gpuSurfaceOnly"));
         gpuCaptureOnly = arguments != null && "true".equals(arguments.getString("gpuCaptureOnly"));
+        uiOnly = arguments != null && "true".equals(arguments.getString("uiOnly"));
         start();
     }
 
@@ -45,6 +46,10 @@ public final class BackendInstrumentation extends Instrumentation {
         Bundle result = new Bundle();
         try {
             Context context = getTargetContext();
+            if (uiOnly) {
+                result.putString("stream", "\nPASS: " + UiLayoutAndPerfChecks.run(this) + "\n");
+                finish(Activity.RESULT_OK, result); return;
+            }
             if (gpuSurfaceOnly) {
                 result.putString("stream", "\nPASS: diagnostic pixels only, not a benchmark: " + GpuSurfaceChecks.run(this, this::progress) + "\n");
                 finish(Activity.RESULT_OK, result); return;

@@ -4,7 +4,10 @@ import android.annotation.SuppressLint;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.ColorFilter;
 import android.graphics.Paint;
+import android.graphics.PixelFormat;
+import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
@@ -15,6 +18,7 @@ import android.text.TextUtils;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
@@ -94,19 +98,61 @@ final class MiuiUi {
         return shape;
     }
 
+    private static final Paint SHARED_FILL_PAINT = new Paint();
+    private static final Paint SHARED_STROKE_PAINT = new Paint();
+    private static final Paint SHARED_BADGE_FILL_PAINT = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private static final Paint SHARED_BADGE_STROKE_PAINT = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private static final Paint SHARED_CHEVRON_PAINT = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private static final RectF SHARED_RECT = new RectF();
+
+    static {
+        SHARED_FILL_PAINT.setStyle(Paint.Style.FILL);
+        SHARED_STROKE_PAINT.setStyle(Paint.Style.FILL);
+        SHARED_BADGE_FILL_PAINT.setStyle(Paint.Style.FILL);
+        SHARED_BADGE_STROKE_PAINT.setStyle(Paint.Style.STROKE);
+        SHARED_CHEVRON_PAINT.setStyle(Paint.Style.STROKE);
+        SHARED_CHEVRON_PAINT.setColor(CHEVRON);
+        SHARED_CHEVRON_PAINT.setStrokeCap(Paint.Cap.ROUND);
+        SHARED_CHEVRON_PAINT.setStrokeJoin(Paint.Join.ROUND);
+    }
+
     static Drawable badgeDrawable(Context context, int tone) {
-        GradientDrawable shape = new GradientDrawable();
-        shape.setCornerRadius(dp(context, 10));
-        final int bg;
-        final int border;
-        if (tone == TONE_OK) { bg = GREEN_BG; border = GREEN_BORDER; }
-        else if (tone == TONE_ACTIVE) { bg = ORANGE_BG; border = ORANGE_BORDER; }
-        else if (tone == TONE_WARN) { bg = AMBER_BG; border = AMBER_BORDER; }
-        else if (tone == TONE_BAD) { bg = RED_BG; border = RED_BORDER; }
-        else { bg = BG_SUBTLE; border = BORDER_CARD; }
-        shape.setColor(bg);
-        shape.setStroke(dp(context, 1), border);
-        return shape;
+        return new BadgeDrawable(tone, dp(context, 10), dp(context, 1));
+    }
+
+    /** Lightweight shared-Paint badge pill drawable (eliminates per-badge GradientDrawable allocations). */
+    private static final class BadgeDrawable extends Drawable {
+        private final int bg;
+        private final int border;
+        private final float radius;
+        private final float stroke;
+
+        BadgeDrawable(int tone, float radius, float stroke) {
+            if (tone == TONE_OK) { bg = GREEN_BG; border = GREEN_BORDER; }
+            else if (tone == TONE_ACTIVE) { bg = ORANGE_BG; border = ORANGE_BORDER; }
+            else if (tone == TONE_WARN) { bg = AMBER_BG; border = AMBER_BORDER; }
+            else if (tone == TONE_BAD) { bg = RED_BG; border = RED_BORDER; }
+            else { bg = BG_SUBTLE; border = BORDER_CARD; }
+            this.radius = radius;
+            this.stroke = stroke;
+        }
+
+        @Override
+        public void draw(Canvas canvas) {
+            Rect b = getBounds();
+            if (b.width() <= 0 || b.height() <= 0) return;
+            float inset = stroke * 0.5f;
+            SHARED_RECT.set(b.left + inset, b.top + inset, b.right - inset, b.bottom - inset);
+            SHARED_BADGE_FILL_PAINT.setColor(bg);
+            canvas.drawRoundRect(SHARED_RECT, radius, radius, SHARED_BADGE_FILL_PAINT);
+            SHARED_BADGE_STROKE_PAINT.setColor(border);
+            SHARED_BADGE_STROKE_PAINT.setStrokeWidth(stroke);
+            canvas.drawRoundRect(SHARED_RECT, radius, radius, SHARED_BADGE_STROKE_PAINT);
+        }
+
+        @Override public void setAlpha(int alpha) { }
+        @Override public void setColorFilter(ColorFilter cf) { }
+        @Override public int getOpacity() { return PixelFormat.TRANSLUCENT; }
     }
 
     static int badgeTextColor(int tone) {
@@ -218,11 +264,7 @@ final class MiuiUi {
     }
 
     static LinearLayout cardGroup(Context context) {
-        LinearLayout card = new LinearLayout(context);
-        card.setOrientation(LinearLayout.VERTICAL);
-        setBackground(card, cardDrawable(context));
-        int pad = dp(context, 1);
-        card.setPadding(pad, pad, pad, pad);
+        CardLayout card = new CardLayout(context);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         int marginH = dp(context, 12);
@@ -232,12 +274,83 @@ final class MiuiUi {
     }
 
     static void addDivider(Context context, LinearLayout card) {
+        if (card instanceof CardLayout) {
+            ((CardLayout) card).markDivider();
+            return;
+        }
         View line = new View(context);
         line.setBackgroundColor(DIVIDER_ROW);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 1);
         lp.leftMargin = dp(context, 14);
         card.addView(line, lp);
+    }
+
+    /**
+     * Flat MIUI V5 card container: draws crisp card fill, 1px hairline border, and inline row
+     * dividers via a single Canvas pass (zero GradientDrawable path masks and zero divider Views).
+     */
+    static final class CardLayout extends LinearLayout {
+        private final int borderPx;
+        private final int dividerInsetPx;
+        private int[] dividerAfterIndex = new int[16];
+        private int dividerCount;
+
+        CardLayout(Context context) {
+            super(context);
+            setOrientation(LinearLayout.VERTICAL);
+            setBaselineAligned(false);
+            setWillNotDraw(false);
+            borderPx = Math.max(1, dp(context, 1));
+            dividerInsetPx = dp(context, 14);
+            setPadding(borderPx, borderPx, borderPx, borderPx);
+        }
+
+        void markDivider() {
+            int childIdx = getChildCount();
+            if (childIdx <= 0) return;
+            if (dividerCount == dividerAfterIndex.length) {
+                int[] grown = new int[dividerAfterIndex.length * 2];
+                System.arraycopy(dividerAfterIndex, 0, grown, 0, dividerCount);
+                dividerAfterIndex = grown;
+            }
+            dividerAfterIndex[dividerCount++] = childIdx;
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            int w = getWidth(), h = getHeight();
+            if (w <= 0 || h <= 0) return;
+            SHARED_FILL_PAINT.setColor(BG_CARD);
+            canvas.drawRect(borderPx, borderPx, w - borderPx, h - borderPx, SHARED_FILL_PAINT);
+        }
+
+        @Override
+        protected void dispatchDraw(Canvas canvas) {
+            super.dispatchDraw(canvas);
+            int w = getWidth(), h = getHeight();
+            if (w <= 0 || h <= 0) return;
+            int childCount = getChildCount();
+            if (dividerCount > 0) {
+                SHARED_STROKE_PAINT.setColor(DIVIDER_ROW);
+                int right = w - borderPx;
+                for (int i = 0; i < dividerCount; i++) {
+                    int idx = dividerAfterIndex[i];
+                    if (idx > 0 && idx < childCount) {
+                        View child = getChildAt(idx);
+                        if (child.getVisibility() != GONE) {
+                            int y = child.getTop();
+                            canvas.drawRect(dividerInsetPx, y, right, y + 1, SHARED_STROKE_PAINT);
+                        }
+                    }
+                }
+            }
+            SHARED_STROKE_PAINT.setColor(BORDER_CARD);
+            canvas.drawRect(0, 0, w, borderPx, SHARED_STROKE_PAINT);
+            canvas.drawRect(0, h - borderPx, w, h, SHARED_STROKE_PAINT);
+            canvas.drawRect(0, borderPx, borderPx, h - borderPx, SHARED_STROKE_PAINT);
+            canvas.drawRect(w - borderPx, borderPx, w, h - borderPx, SHARED_STROKE_PAINT);
+        }
     }
 
     static TextView badge(Context context, String text, int tone) {
@@ -297,115 +410,344 @@ final class MiuiUi {
         return tv;
     }
 
-    /** Standard MIUI V5 key-value setting item row inside a card. */
-    @SuppressLint("RtlHardcoded")
-    static LinearLayout kvRow(Context context, String title, String subtitle, String rightValue, String badgeText, int badgeTone) {
-        LinearLayout row = new LinearLayout(context);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        int hPad = dp(context, 14), vPad = dp(context, 10);
-        row.setPadding(hPad, vPad, hPad, vPad);
+    /** Standard MIUI V5 key-value setting item row inside a card (flat single-level ViewGroup). */
+    static MiuiRowLayout kvRow(Context context, String title, String subtitle, String rightValue, String badgeText, int badgeTone) {
+        return buildRow(context, title, subtitle, rightValue, badgeText, badgeTone, false, false, null);
+    }
 
-        LinearLayout left = new LinearLayout(context);
-        left.setOrientation(LinearLayout.VERTICAL);
+    /** Full-width MIUI V5 summary row for multi-metric benchmark highlights (never clips units). */
+    static LinearLayout summaryRow(Context context, String title, String resultText, String workloadSubtitle) {
+        LinearLayout box = new LinearLayout(context);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setBaselineAligned(false);
+        int hPad = dp(context, 14), vPad = dp(context, 10);
+        box.setPadding(hPad, vPad, hPad, vPad);
+
         TextView titleView = new TextView(context);
         titleView.setText(title);
-        titleView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        titleView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13.5f);
+        titleView.setTypeface(Typeface.DEFAULT_BOLD);
         titleView.setTextColor(TEXT_PRIMARY);
-        titleView.setLineSpacing(dp(context, 1.5f), 1f);
-        left.addView(titleView);
+        box.addView(titleView);
 
-        if (subtitle != null && subtitle.length() > 0) {
+        if (resultText != null && resultText.length() > 0) {
+            TextView resultView = new TextView(context);
+            resultView.setText(resultText);
+            resultView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+            resultView.setTypeface(Typeface.DEFAULT_BOLD);
+            resultView.setTextColor(ORANGE_DARK);
+            resultView.setLineSpacing(dp(context, 2), 1f);
+            resultView.setPadding(0, dp(context, 3), 0, 0);
+            box.addView(resultView);
+        }
+
+        if (workloadSubtitle != null && workloadSubtitle.length() > 0) {
             TextView subView = new TextView(context);
+            subView.setText(workloadSubtitle);
+            subView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f);
+            subView.setTextColor(TEXT_MUTED);
+            subView.setLineSpacing(dp(context, 1.5f), 1f);
+            subView.setPadding(0, dp(context, 3), 0, 0);
+            box.addView(subView);
+        }
+        return box;
+    }
+
+    /** Compact single-metric sub-row with non-wrapping right-aligned value+unit. */
+    static MiuiRowLayout compactMetricRow(Context context, String label, String valueText) {
+        return buildRow(context, label, null, valueText, null, 0, true, false, null);
+    }
+
+    /** Clickable MIUI V5 drill-down row with right-hand summary, optional badge, and inline › chevron. */
+    static MiuiRowLayout navRow(Context context, String title, String subtitle, String rightValue,
+                                String badgeText, int badgeTone, Runnable onClick) {
+        return buildRow(context, title, subtitle, rightValue, badgeText, badgeTone, false, true, onClick);
+    }
+
+    @SuppressLint("RtlHardcoded")
+    private static MiuiRowLayout buildRow(Context context, String title, String subtitle, String rightValue,
+                                          String badgeText, int badgeTone, boolean compact, boolean showChevron,
+                                          Runnable onClick) {
+        TextView titleView = new TextView(context);
+        titleView.setText(title);
+        if (compact) {
+            titleView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+            titleView.setTextColor(TEXT_SECONDARY);
+        } else {
+            titleView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+            titleView.setTextColor(TEXT_PRIMARY);
+        }
+        titleView.setLineSpacing(dp(context, 1.5f), 1f);
+
+        TextView subView = null;
+        if (!compact && subtitle != null && subtitle.length() > 0) {
+            subView = new TextView(context);
             subView.setText(subtitle);
             subView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f);
             subView.setTextColor(TEXT_MUTED);
             subView.setLineSpacing(dp(context, 1.5f), 1f);
-            subView.setPadding(0, dp(context, 2), 0, 0);
-            left.addView(subView);
         }
-        row.addView(left, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
 
+        TextView valView = null;
         if (rightValue != null && rightValue.length() > 0) {
-            TextView valView = new TextView(context);
+            valView = new TextView(context);
             valView.setText(rightValue);
-            valView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f);
-            valView.setTextColor(TEXT_SECONDARY);
             valView.setGravity(Gravity.RIGHT);
-            valView.setMaxWidth(dp(context, 165));
-            valView.setMaxLines(2);
-            valView.setEllipsize(TextUtils.TruncateAt.END);
-            valView.setPadding(dp(context, 8), 0, 0, 0);
-            row.addView(valView, new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+            if (compact) {
+                valView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+                valView.setTypeface(Typeface.MONOSPACE);
+                valView.setTextColor(TEXT_PRIMARY);
+                valView.setSingleLine(true);
+            } else {
+                valView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f);
+                valView.setTextColor(TEXT_SECONDARY);
+                valView.setLineSpacing(dp(context, 1.5f), 1f);
+            }
         }
 
-        if (badgeText != null && badgeText.length() > 0) {
-            TextView pill = badge(context, badgeText, badgeTone);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-            lp.leftMargin = dp(context, 6);
-            row.addView(pill, lp);
-        }
-        return row;
-    }
+        TextView pill = (badgeText != null && badgeText.length() > 0) ? badge(context, badgeText, badgeTone) : null;
+        int rightMaxW = compact ? dp(context, 220) : dp(context, (subView != null) ? 180 : 200);
 
-    /** Clickable MIUI V5 drill-down row with right-hand summary, optional badge, and › chevron. */
-    static LinearLayout navRow(Context context, String title, String subtitle, String rightValue,
-                               String badgeText, int badgeTone, Runnable onClick) {
-        LinearLayout row = kvRow(context, title, subtitle, rightValue, badgeText, badgeTone);
-        TextView arrow = new TextView(context);
-        arrow.setText("›");
-        arrow.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19);
-        arrow.setTextColor(CHEVRON);
-        arrow.setPadding(dp(context, 8), 0, 0, dp(context, 1));
-        row.addView(arrow, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        MiuiRowLayout row = new MiuiRowLayout(context, titleView, subView, valView, pill, compact, showChevron, rightMaxW);
         if (onClick != null) {
             row.setClickable(true);
-            setBackground(row, rowClickDrawable());
             row.setOnClickListener(v -> onClick.run());
         }
         return row;
     }
 
-    /** Metric row with label, numeric value + unit, and a clean horizontal visual proportion bar. */
-    static LinearLayout metricBarRow(Context context, String label, String valueText, float fraction, int barColor) {
-        LinearLayout box = new LinearLayout(context);
-        box.setOrientation(LinearLayout.VERTICAL);
-        int hPad = dp(context, 14), vPad = dp(context, 10);
-        box.setPadding(hPad, vPad, hPad, vPad);
+    /**
+     * Single-level flat row ViewGroup: eliminates inner LinearLayout, layout_weight dual-pass
+     * measurement, StateListDrawable per-row objects, and separate chevron TextViews.
+     */
+    @SuppressLint("ViewConstructor")
+    static final class MiuiRowLayout extends ViewGroup {
+        private final TextView titleView;
+        private final TextView subtitleView;
+        private final TextView rightView;
+        private final TextView badgeView;
+        private final boolean showChevron;
+        private final int hPad, vPad, subTopGap, rightGap, badgeGap, chevronGap, chevronW, chevronH, rightMaxW;
+        private final float chevronStroke;
 
-        LinearLayout top = new LinearLayout(context);
-        top.setOrientation(LinearLayout.HORIZONTAL);
-        top.setGravity(Gravity.CENTER_VERTICAL);
+        MiuiRowLayout(Context context, TextView titleView, TextView subtitleView, TextView rightView,
+                      TextView badgeView, boolean compact, boolean showChevron, int rightMaxW) {
+            super(context);
+            this.titleView = titleView;
+            this.subtitleView = subtitleView;
+            this.rightView = rightView;
+            this.badgeView = badgeView;
+            this.showChevron = showChevron;
+            this.rightMaxW = rightMaxW;
+            this.hPad = dp(context, 14);
+            this.vPad = dp(context, compact ? 4 : 10);
+            this.subTopGap = dp(context, 2);
+            this.rightGap = dp(context, 8);
+            this.badgeGap = dp(context, 6);
+            this.chevronGap = dp(context, 8);
+            this.chevronW = dp(context, 6);
+            this.chevronH = dp(context, 10);
+            this.chevronStroke = Math.max(1.5f, dp(context, 1.6f));
 
+            addView(titleView);
+            if (subtitleView != null) addView(subtitleView);
+            if (rightView != null) addView(rightView);
+            if (badgeView != null) addView(badgeView);
+            if (showChevron) setWillNotDraw(false);
+        }
+
+        TextView titleView() { return titleView; }
+        TextView subtitleView() { return subtitleView; }
+        TextView badgeView() { return badgeView; }
+
+        @Override
+        public void setClickable(boolean clickable) {
+            super.setClickable(clickable);
+            if (clickable) setWillNotDraw(false);
+        }
+
+        @Override
+        protected void drawableStateChanged() {
+            super.drawableStateChanged();
+            if (isClickable()) invalidate();
+        }
+
+        @Override
+        protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+            int totalW = MeasureSpec.getSize(widthMeasureSpec);
+            int availW = Math.max(0, totalW - hPad * 2);
+            int rightUsed = showChevron ? (chevronW + chevronGap) : 0;
+
+            int rightH = 0;
+            if (badgeView != null && badgeView.getVisibility() != GONE) {
+                int maxBadge = Math.max(0, availW - rightUsed);
+                badgeView.measure(MeasureSpec.makeMeasureSpec(maxBadge, MeasureSpec.AT_MOST),
+                        MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED));
+                rightUsed += badgeView.getMeasuredWidth() + badgeGap;
+                rightH = Math.max(rightH, badgeView.getMeasuredHeight());
+            }
+            if (rightView != null && rightView.getVisibility() != GONE) {
+                int maxVal = Math.min(rightMaxW, Math.max(0, availW - rightUsed));
+                rightView.measure(MeasureSpec.makeMeasureSpec(maxVal, MeasureSpec.AT_MOST),
+                        MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED));
+                rightUsed += rightView.getMeasuredWidth() + rightGap;
+                rightH = Math.max(rightH, rightView.getMeasuredHeight());
+            }
+
+            int leftW = Math.max(0, availW - rightUsed);
+            int leftWSpec = MeasureSpec.makeMeasureSpec(leftW, MeasureSpec.EXACTLY);
+            int unspec = MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED);
+            titleView.measure(leftWSpec, unspec);
+            int leftH = titleView.getMeasuredHeight();
+            if (subtitleView != null && subtitleView.getVisibility() != GONE) {
+                subtitleView.measure(leftWSpec, unspec);
+                leftH += subTopGap + subtitleView.getMeasuredHeight();
+            }
+
+            int contentH = Math.max(leftH, Math.max(rightH, showChevron ? chevronH : 0));
+            setMeasuredDimension(totalW, resolveSize(vPad * 2 + contentH, heightMeasureSpec));
+        }
+
+        @Override
+        protected void onLayout(boolean changed, int l, int t, int r, int b) {
+            int w = r - l, h = b - t;
+            int contentTop = vPad;
+            int contentBottom = h - vPad;
+            int contentCenterY = (contentTop + contentBottom) / 2;
+
+            int leftH = titleView.getMeasuredHeight()
+                    + (subtitleView != null && subtitleView.getVisibility() != GONE
+                    ? subTopGap + subtitleView.getMeasuredHeight() : 0);
+            int y = contentTop + Math.max(0, (contentBottom - contentTop - leftH) / 2);
+            titleView.layout(hPad, y, hPad + titleView.getMeasuredWidth(), y + titleView.getMeasuredHeight());
+            if (subtitleView != null && subtitleView.getVisibility() != GONE) {
+                int sy = y + titleView.getMeasuredHeight() + subTopGap;
+                subtitleView.layout(hPad, sy, hPad + subtitleView.getMeasuredWidth(), sy + subtitleView.getMeasuredHeight());
+            }
+
+            int rx = w - hPad;
+            if (showChevron) rx -= chevronW + chevronGap;
+            if (badgeView != null && badgeView.getVisibility() != GONE) {
+                int bw = badgeView.getMeasuredWidth(), bh = badgeView.getMeasuredHeight();
+                int by = contentCenterY - bh / 2;
+                badgeView.layout(rx - bw, by, rx, by + bh);
+                rx -= bw + badgeGap;
+            }
+            if (rightView != null && rightView.getVisibility() != GONE) {
+                int vw = rightView.getMeasuredWidth(), vh = rightView.getMeasuredHeight();
+                int vy = contentCenterY - vh / 2;
+                rightView.layout(rx - vw, vy, rx, vy + vh);
+            }
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            int w = getWidth(), h = getHeight();
+            if (w <= 0 || h <= 0) return;
+            if (isClickable() && isPressed()) {
+                SHARED_FILL_PAINT.setColor(BG_CARD_PRESSED);
+                canvas.drawRect(0, 0, w, h, SHARED_FILL_PAINT);
+            }
+            if (showChevron) {
+                float rightX = w - hPad;
+                float leftX = rightX - chevronW;
+                float cy = h * 0.5f;
+                float halfH = chevronH * 0.5f;
+                SHARED_CHEVRON_PAINT.setStrokeWidth(chevronStroke);
+                canvas.drawLine(leftX, cy - halfH, rightX, cy, SHARED_CHEVRON_PAINT);
+                canvas.drawLine(rightX, cy, leftX, cy + halfH, SHARED_CHEVRON_PAINT);
+            }
+        }
+    }
+
+    /** Metric row with label, numeric value + unit, and inline Canvas progress bar (flat 2-ViewGroup-free layout). */
+    @SuppressLint("RtlHardcoded")
+    static View metricBarRow(Context context, String label, String valueText, float fraction, int barColor) {
         TextView left = new TextView(context);
         left.setText(label);
         left.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         left.setTextColor(TEXT_PRIMARY);
-        left.setSingleLine(true);
+        left.setMaxLines(2);
         left.setEllipsize(TextUtils.TruncateAt.END);
-        left.setPadding(0, 0, dp(context, 8), 0);
-        top.addView(left, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        left.setLineSpacing(dp(context, 1.5f), 1f);
 
         TextView right = new TextView(context);
         right.setText(valueText);
         right.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         right.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
         right.setTextColor(TEXT_PRIMARY);
+        right.setGravity(Gravity.RIGHT);
         right.setSingleLine(true);
-        top.addView(right);
 
-        box.addView(top);
+        return new MiuiMetricBarLayout(context, left, right, fraction, barColor);
+    }
 
-        ProgressBarView bar = new ProgressBarView(context, dp(context, 6));
-        bar.setProgress(fraction, barColor);
-        LinearLayout.LayoutParams barLp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(context, 6));
-        barLp.topMargin = dp(context, 6);
-        box.addView(bar, barLp);
-        return box;
+    @SuppressLint("ViewConstructor")
+    private static final class MiuiMetricBarLayout extends ViewGroup {
+        private final TextView left;
+        private final TextView right;
+        private final float fraction;
+        private final int fillColor;
+        private final int hPad, vPad, gapPx, barTopMargin, barHeightPx;
+
+        MiuiMetricBarLayout(Context context, TextView left, TextView right, float fraction, int fillColor) {
+            super(context);
+            this.left = left;
+            this.right = right;
+            this.fraction = Math.min(1f, Math.max(0f, fraction));
+            this.fillColor = fillColor;
+            this.hPad = dp(context, 14);
+            this.vPad = dp(context, 10);
+            this.gapPx = dp(context, 8);
+            this.barTopMargin = dp(context, 6);
+            this.barHeightPx = dp(context, 6);
+            setWillNotDraw(false);
+            addView(left);
+            addView(right);
+        }
+
+        @Override
+        protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+            int totalW = MeasureSpec.getSize(widthMeasureSpec);
+            int availW = Math.max(0, totalW - hPad * 2);
+            int unspec = MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED);
+            right.measure(MeasureSpec.makeMeasureSpec(availW, MeasureSpec.AT_MOST), unspec);
+            int leftW = Math.max(0, availW - right.getMeasuredWidth() - gapPx);
+            left.measure(MeasureSpec.makeMeasureSpec(leftW, MeasureSpec.EXACTLY), unspec);
+            int topH = Math.max(left.getMeasuredHeight(), right.getMeasuredHeight());
+            int totalH = vPad * 2 + topH + barTopMargin + barHeightPx;
+            setMeasuredDimension(totalW, resolveSize(totalH, heightMeasureSpec));
+        }
+
+        @Override
+        protected void onLayout(boolean changed, int l, int t, int r, int b) {
+            int w = r - l;
+            int topH = Math.max(left.getMeasuredHeight(), right.getMeasuredHeight());
+            int ly = vPad + (topH - left.getMeasuredHeight()) / 2;
+            left.layout(hPad, ly, hPad + left.getMeasuredWidth(), ly + left.getMeasuredHeight());
+            int rw = right.getMeasuredWidth();
+            int ry = vPad + (topH - right.getMeasuredHeight()) / 2;
+            right.layout(w - hPad - rw, ry, w - hPad, ry + right.getMeasuredHeight());
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            int w = getWidth(), h = getHeight();
+            if (w <= hPad * 2 || h <= 0) return;
+            float top = h - vPad - barHeightPx;
+            float bottom = h - vPad;
+            float r = barHeightPx * 0.5f;
+            SHARED_RECT.set(hPad, top, w - hPad, bottom);
+            SHARED_BADGE_FILL_PAINT.setColor(0xFFE6E7EC);
+            canvas.drawRoundRect(SHARED_RECT, r, r, SHARED_BADGE_FILL_PAINT);
+            if (fraction > 0f) {
+                float trackW = w - hPad * 2;
+                float fillW = Math.max(barHeightPx, trackW * fraction);
+                SHARED_RECT.set(hPad, top, Math.min(w - hPad, hPad + fillW), bottom);
+                SHARED_BADGE_FILL_PAINT.setColor(fillColor);
+                canvas.drawRoundRect(SHARED_RECT, r, r, SHARED_BADGE_FILL_PAINT);
+            }
+        }
     }
 
     /** Lightweight API 8 horizontal rounded progress bar drawn via Canvas. */
@@ -415,6 +757,7 @@ final class MiuiUi {
         private final RectF rect = new RectF();
         private float fraction;
         private int fillColor = ORANGE;
+        private int lastFillPx = -1;
         private final int barHeightPx;
 
         ProgressBarView(Context context, int barHeightPx) {
@@ -424,9 +767,12 @@ final class MiuiUi {
 
         void setProgress(float value, int color) {
             float clamped = Math.min(1f, Math.max(0f, value));
-            if (Math.abs(clamped - fraction) > 0.001f || fillColor != color) {
+            int w = getWidth();
+            int fillPx = w > 0 ? Math.round(clamped * w) : Math.round(clamped * 1000f);
+            if (fillPx != lastFillPx || fillColor != color) {
                 fraction = clamped;
                 fillColor = color;
+                lastFillPx = fillPx;
                 invalidate();
             }
         }
@@ -538,25 +884,25 @@ final class MiuiUi {
     static String formatBytes(long bytes) {
         if (bytes <= 0) return "未知";
         double mib = bytes / (1024.0 * 1024.0);
-        if (mib >= 1024.0) return String.format(java.util.Locale.US, "%.2f GiB (%.0f MiB)", mib / 1024.0, mib);
-        return String.format(java.util.Locale.US, "%.1f MiB", mib);
+        if (mib >= 1024.0) return String.format(java.util.Locale.US, "%.2f\u00A0GiB (%.0f\u00A0MiB)", mib / 1024.0, mib);
+        return String.format(java.util.Locale.US, "%.1f\u00A0MiB", mib);
     }
 
     static String formatBytesShort(long bytes) {
         if (bytes <= 0) return "未知";
         double mib = bytes / (1024.0 * 1024.0);
-        if (mib >= 1024.0) return String.format(java.util.Locale.US, "%.2f GiB", mib / 1024.0);
-        return String.format(java.util.Locale.US, "%.0f MiB", mib);
+        if (mib >= 1024.0) return String.format(java.util.Locale.US, "%.2f\u00A0GiB", mib / 1024.0);
+        return String.format(java.util.Locale.US, "%.0f\u00A0MiB", mib);
     }
 
     static String formatDuration(long ms) {
         if (ms <= 0) return "—";
-        if (ms < 1000) return ms + " ms";
+        if (ms < 1000) return ms + "\u00A0ms";
         double totalSeconds = ms / 1000.0;
         int minutes = (int) (totalSeconds / 60);
         double seconds = totalSeconds - minutes * 60;
-        if (minutes > 0) return String.format(java.util.Locale.US, "%d 分 %.1f 秒", minutes, seconds);
-        return String.format(java.util.Locale.US, "%.2f 秒", totalSeconds);
+        if (minutes > 0) return String.format(java.util.Locale.US, "%d\u00A0分\u00A0%.1f\u00A0秒", minutes, seconds);
+        return String.format(java.util.Locale.US, "%.2f\u00A0秒", totalSeconds);
     }
 
     static String formatKhz(String khzText) {
@@ -564,7 +910,7 @@ final class MiuiUi {
         try {
             long khz = Long.parseLong(khzText.trim());
             if (khz <= 0) return khzText;
-            return String.format(java.util.Locale.US, "%.0f MHz", khz / 1000.0);
+            return String.format(java.util.Locale.US, "%.0f\u00A0MHz", khz / 1000.0);
         } catch (NumberFormatException e) {
             return khzText;
         }

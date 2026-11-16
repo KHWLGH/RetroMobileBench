@@ -8,11 +8,13 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.MessageQueue;
 import android.text.ClipboardManager;
 import android.text.TextUtils;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
 import android.view.animation.AlphaAnimation;
@@ -52,6 +54,8 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener, 
 
     private BenchmarkRunner runner;
     private JSONObject activeReport;
+    private JSONObject lastRenderedQuickReport;
+    private String lastParsedExportJson;
     private JSONObject cachedDevice;
     private String cachedProbeText = "";
     private boolean nativeProbeLoaded;
@@ -69,12 +73,30 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener, 
     // Navigation & Content Containers
     private int currentTab = 0;
     private final ArrayList<SubPageEntry> subPageStack = new ArrayList<>();
+    private FrameLayout centerFrame;
     private FrameLayout subPageContainer;
     private LinearLayout bottomBar;
     private final ScrollView[] tabScrolls = new ScrollView[4];
     private final MiuiUi.TabIconView[] tabIcons = new MiuiUi.TabIconView[4];
     private final TextView[] tabLabels = new TextView[4];
     private final View[] tabIndicators = new View[4];
+
+    private MessageQueue.IdleHandler idleSetupHandler;
+    private int idleSetupStep = 0;
+    private View cachedSuiteProtocolPage;
+    private View cachedVersionPage;
+    private View cachedProjectsPage;
+    private View cachedLicenseReaderPage;
+
+    // Dirty-checking cache for zero-interference onState updates
+    private Boolean lastUiBusy;
+    private String lastUiHeadline;
+    private String lastUiMessage;
+    private String lastUiProgressText;
+    private int lastUiStageIdx = Integer.MIN_VALUE;
+    private int lastUiCompletedStages = Integer.MIN_VALUE;
+    private int lastUiRound = Integer.MIN_VALUE;
+    private int lastUiReps = Integer.MIN_VALUE;
 
     // Tab 0 (Run Console) widgets
     private TextView deviceSummarySub;
@@ -113,7 +135,6 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener, 
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(MiuiUi.BG_PAGE);
 
         root.addView(buildTitleBar(), new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, MiuiUi.dp(this, 48)));
@@ -123,21 +144,13 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener, 
         root.addView(titleBorder, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 1));
 
-        FrameLayout centerFrame = new FrameLayout(this);
-        centerFrame.setBackgroundColor(MiuiUi.BG_PAGE);
+        centerFrame = new FrameLayout(this);
 
         tabScrolls[0] = buildRunTab();
-        tabScrolls[1] = buildScoreTab();
-        tabScrolls[2] = buildDeviceTab();
-        tabScrolls[3] = buildMoreTab();
-
-        for (int i = 0; i < 4; i++) {
-            centerFrame.addView(tabScrolls[i], new FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
-        }
+        centerFrame.addView(tabScrolls[0], new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
 
         subPageContainer = new FrameLayout(this);
-        subPageContainer.setBackgroundColor(MiuiUi.BG_PAGE);
         subPageContainer.setClickable(true);
         subPageContainer.setVisibility(View.GONE);
         centerFrame.addView(subPageContainer, new FrameLayout.LayoutParams(
@@ -151,7 +164,6 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener, 
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
         overlayRoot = new FrameLayout(this);
-        overlayRoot.setBackgroundColor(MiuiUi.BG_PAGE);
         overlayRoot.addView(root, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
 
@@ -176,14 +188,55 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener, 
         setContentView(overlayRoot);
         DisplaySurface.refreshHz = getWindowManager().getDefaultDisplay().getRefreshRate();
 
-        refreshDeviceData(false);
-        refreshHistoryData();
         switchTab(0);
+        scheduleIdleWarmup();
+    }
+
+    private void scheduleIdleWarmup() {
+        idleSetupStep = 0;
+        idleSetupHandler = () -> {
+            if (isFinishing() || (runner != null && runner.isBusy())) {
+                idleSetupHandler = null;
+                return false;
+            }
+            if (idleSetupStep == 0) {
+                idleSetupStep = 1;
+                if (cachedDevice == null) refreshDeviceData(false);
+                MiuiSubPages.prewarmLicenseAssets(MainActivity.this);
+                return true;
+            }
+            if (idleSetupStep <= 3) {
+                ensureTabBuilt(idleSetupStep);
+                idleSetupStep++;
+                return true;
+            }
+            if (cachedHistory == null) refreshHistoryData();
+            idleSetupHandler = null;
+            return false;
+        };
+        Looper.myQueue().addIdleHandler(idleSetupHandler);
+    }
+
+    private void ensureTabBuilt(int index) {
+        if (index < 0 || index >= 4 || tabScrolls[index] != null || centerFrame == null) return;
+        ScrollView sv;
+        if (index == 0) sv = buildRunTab();
+        else if (index == 1) sv = buildScoreTab();
+        else if (index == 2) sv = buildDeviceTab();
+        else sv = buildMoreTab();
+        sv.setVisibility(index == currentTab && subPageStack.isEmpty() ? View.VISIBLE : View.GONE);
+        tabScrolls[index] = sv;
+        int subIdx = centerFrame.indexOfChild(subPageContainer);
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT);
+        if (subIdx >= 0) centerFrame.addView(sv, subIdx, lp);
+        else centerFrame.addView(sv, lp);
     }
 
     private View buildTitleBar() {
         LinearLayout bar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setBaselineAligned(false);
         bar.setGravity(Gravity.CENTER_VERTICAL);
         MiuiUi.setBackground(bar, MiuiUi.titleBarBackground());
         int hPad = MiuiUi.dp(this, 12);
@@ -233,6 +286,7 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener, 
 
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setBaselineAligned(false);
         for (int i = 0; i < 4; i++) {
             final int tabIndex = i;
             LinearLayout item = new LinearLayout(this);
@@ -277,12 +331,11 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener, 
         LinearLayout devCard = MiuiUi.cardGroup(this);
         String modelLine = Build.MANUFACTURER + " " + Build.MODEL;
         String sysLine = "Android " + Build.VERSION.RELEASE + " (API " + Build.VERSION.SDK_INT + ") · " + Build.CPU_ABI;
-        LinearLayout devRow = MiuiUi.navRow(this, modelLine, sysLine, "详情", null, 0, () -> switchTab(2));
-        LinearLayout devLeft = (LinearLayout) devRow.getChildAt(0);
-        TextView deviceSummaryTitle = (TextView) devLeft.getChildAt(0);
+        MiuiUi.MiuiRowLayout devRow = MiuiUi.navRow(this, modelLine, sysLine, "详情", null, 0, () -> switchTab(2));
+        TextView deviceSummaryTitle = devRow.titleView();
         deviceSummaryTitle.setSingleLine(true);
         deviceSummaryTitle.setEllipsize(TextUtils.TruncateAt.END);
-        deviceSummarySub = (TextView) devLeft.getChildAt(1);
+        deviceSummarySub = devRow.subtitleView();
         deviceSummarySub.setMaxLines(2);
         deviceSummarySub.setEllipsize(TextUtils.TruncateAt.END);
         devCard.addView(devRow);
@@ -294,6 +347,7 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener, 
 
         LinearLayout statusHeader = new LinearLayout(this);
         statusHeader.setOrientation(LinearLayout.HORIZONTAL);
+        statusHeader.setBaselineAligned(false);
         statusHeader.setGravity(Gravity.CENTER_VERTICAL);
         int pad = MiuiUi.dp(this, 14);
         statusHeader.setPadding(pad, MiuiUi.dp(this, 12), pad, MiuiUi.dp(this, 10));
@@ -330,6 +384,7 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener, 
         // Compact 3-column preflight status strip
         preflightContainer = new LinearLayout(this);
         preflightContainer.setOrientation(LinearLayout.HORIZONTAL);
+        preflightContainer.setBaselineAligned(false);
         preflightContainer.setGravity(Gravity.CENTER_VERTICAL);
         consoleCard.addView(preflightContainer);
 
@@ -354,6 +409,7 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener, 
         // Primary CTA buttons ("开始测试" & "取消当前测试")
         LinearLayout btnBox = new LinearLayout(this);
         btnBox.setOrientation(LinearLayout.HORIZONTAL);
+        btnBox.setBaselineAligned(false);
         btnBox.setPadding(pad, MiuiUi.dp(this, 10), pad, MiuiUi.dp(this, 12));
 
         start = MiuiUi.styledButton(this, "开始测试", true, false, runner::startAll);
@@ -375,9 +431,9 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener, 
         for (int i = 0; i < BenchmarkSuite.DEFAULT.length; i++) {
             if (i > 0) MiuiUi.addDivider(this, queueCard);
             BenchmarkSuite s = BenchmarkSuite.DEFAULT[i];
-            LinearLayout row = MiuiUi.kvRow(this, (i + 1) + ". " + s.label,
+            MiuiUi.MiuiRowLayout row = MiuiUi.kvRow(this, (i + 1) + ". " + s.label,
                     s.repetitions() + " 轮", null, "待执行", MiuiUi.TONE_NEUTRAL);
-            stageQueueBadges[i] = (TextView) row.getChildAt(row.getChildCount() - 1);
+            stageQueueBadges[i] = row.badgeView();
             queueCard.addView(row);
         }
         liveQueueSection.addView(queueCard);
@@ -402,10 +458,14 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener, 
 
     private ScrollView buildDeviceTab() {
         devicePageColumn = MiuiSubPages.pageColumn(this);
-        devicePageColumn.addView(MiuiUi.sectionTitle(this, "硬件信息"));
-        LinearLayout loadingCard = MiuiUi.cardGroup(this);
-        loadingCard.addView(MiuiUi.kvRow(this, "正在采集硬件信息...", null, null, null, 0));
-        devicePageColumn.addView(loadingCard);
+        if (cachedDevice != null) {
+            renderDeviceTab(cachedDevice);
+        } else {
+            devicePageColumn.addView(MiuiUi.sectionTitle(this, "硬件信息"));
+            LinearLayout loadingCard = MiuiUi.cardGroup(this);
+            loadingCard.addView(MiuiUi.kvRow(this, "正在采集硬件信息...", null, null, null, 0));
+            devicePageColumn.addView(loadingCard);
+        }
         return MiuiSubPages.wrapScroll(this, devicePageColumn);
     }
 
@@ -415,15 +475,23 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener, 
         col.addView(MiuiUi.sectionTitle(this, "测试与流程"));
         LinearLayout group1 = MiuiUi.cardGroup(this);
         group1.addView(MiuiUi.navRow(this, "测试套件说明", "12 项串行基准测试与明确测试量说明",
-                "12 阶段", null, 0,
-                () -> openSubPage("测试套件说明", MiuiSubPages.buildSuiteProtocolPage(this))));
+                "12 阶段", null, 0, () -> {
+                    if (cachedSuiteProtocolPage == null) {
+                        cachedSuiteProtocolPage = MiuiSubPages.buildSuiteProtocolPage(this);
+                    }
+                    openSubPage("测试套件说明", cachedSuiteProtocolPage);
+                }));
         col.addView(group1);
 
         col.addView(MiuiUi.sectionTitle(this, "版本与探针"));
         LinearLayout group2 = MiuiUi.cardGroup(this);
         group2.addView(MiuiUi.navRow(this, "版本与构建信息", "应用版本、编译工具链与构建标识",
-                "v" + BuildConfig.VERSION_NAME, null, 0,
-                () -> openSubPage("版本与构建信息", MiuiSubPages.buildVersionPage(this, this))));
+                "v" + BuildConfig.VERSION_NAME, null, 0, () -> {
+                    if (cachedVersionPage == null) {
+                        cachedVersionPage = MiuiSubPages.buildVersionPage(this, this);
+                    }
+                    openSubPage("版本与构建信息", cachedVersionPage);
+                }));
         MiuiUi.addDivider(this, group2);
         group2.addView(MiuiUi.navRow(this, "底层硬件探针", "CPU 核心、GL 扩展与 JNI 报告",
                 null, null, 0, this::openCpuProbeSubPage));
@@ -432,12 +500,20 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener, 
         col.addView(MiuiUi.sectionTitle(this, "开源与许可"));
         LinearLayout group3 = MiuiUi.cardGroup(this);
         group3.addView(MiuiUi.navRow(this, "内置开源项目", "CoreMark、SciMark、FFmpeg、GFXBench 等",
-                "7 项", null, 0,
-                () -> openSubPage("内置开源项目", MiuiSubPages.buildOpenSourceProjectsPage(this, this))));
+                "7 项", null, 0, () -> {
+                    if (cachedProjectsPage == null) {
+                        cachedProjectsPage = MiuiSubPages.buildOpenSourceProjectsPage(this, this);
+                    }
+                    openSubPage("内置开源项目", cachedProjectsPage);
+                }));
         MiuiUi.addDivider(this, group3);
         group3.addView(MiuiUi.navRow(this, "开源许可协议全文", "第三方库许可与媒体署名",
-                null, null, 0,
-                () -> openSubPage("开源许可协议全文", MiuiSubPages.buildLicenseReaderPage(this))));
+                null, null, 0, () -> {
+                    if (cachedLicenseReaderPage == null) {
+                        cachedLicenseReaderPage = MiuiSubPages.buildLicenseReaderPage(this, this);
+                    }
+                    openSubPage("开源许可协议全文", cachedLicenseReaderPage);
+                }));
         col.addView(group3);
 
         return MiuiSubPages.wrapScroll(this, col);
@@ -452,10 +528,13 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener, 
         backBtn.setVisibility(View.GONE);
 
         currentTab = index;
+        ensureTabBuilt(index);
         titleText.setText(HEADER_TITLES[index]);
         for (int i = 0; i < 4; i++) {
             boolean sel = (i == index);
-            tabScrolls[i].setVisibility(sel ? View.VISIBLE : View.GONE);
+            if (tabScrolls[i] != null) {
+                tabScrolls[i].setVisibility(sel ? View.VISIBLE : View.GONE);
+            }
             tabIcons[i].setActive(sel);
             tabLabels[i].setTextColor(sel ? MiuiUi.ORANGE : MiuiUi.TEXT_MUTED);
             tabLabels[i].setTypeface(sel ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
@@ -471,6 +550,12 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener, 
 
     @Override
     public void openSubPage(String title, View content) {
+        if (content != null && content.getParent() instanceof ViewGroup) {
+            ((ViewGroup) content.getParent()).removeView(content);
+        }
+        if (content instanceof ScrollView) {
+            content.scrollTo(0, 0);
+        }
         subPageStack.add(new SubPageEntry(title, content));
         renderSubPageTop();
     }
@@ -484,7 +569,7 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener, 
         } else {
             subPageContainer.removeAllViews();
             subPageContainer.setVisibility(View.GONE);
-            tabScrolls[currentTab].setVisibility(View.VISIBLE);
+            if (tabScrolls[currentTab] != null) tabScrolls[currentTab].setVisibility(View.VISIBLE);
             bottomBar.setVisibility(View.VISIBLE);
             backBtn.setVisibility(View.GONE);
             titleText.setText(HEADER_TITLES[currentTab]);
@@ -493,8 +578,11 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener, 
 
     private void renderSubPageTop() {
         SubPageEntry top = subPageStack.get(subPageStack.size() - 1);
-        tabScrolls[currentTab].setVisibility(View.GONE);
+        if (tabScrolls[currentTab] != null) tabScrolls[currentTab].setVisibility(View.GONE);
         subPageContainer.removeAllViews();
+        if (top.view.getParent() instanceof ViewGroup) {
+            ((ViewGroup) top.view.getParent()).removeView(top.view);
+        }
         subPageContainer.addView(top.view, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         subPageContainer.setVisibility(View.VISIBLE);
@@ -712,7 +800,7 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener, 
         String batVal = (batteryPct >= 0 ? batteryPct + "%" : "未知")
                 + (plugged ? " 充电" : "")
                 + (TemperatureTrace.validTemperature(tempTenths)
-                ? String.format(Locale.US, " %.0f°C", tempTenths / 10.0) : "");
+                ? String.format(Locale.US, " %.0f\u00A0°C", tempTenths / 10.0) : "");
         preflightContainer.addView(buildPreflightCell("电源电量", batVal,
                 batteryOk ? "正常" : "需充电", batteryOk ? MiuiUi.TONE_OK : MiuiUi.TONE_BAD),
                 new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
@@ -779,6 +867,7 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener, 
     }
 
     private void renderDeviceTab(JSONObject device) {
+        if (devicePageColumn == null) return;
         devicePageColumn.removeAllViews();
         if (device == null) return;
         JSONObject extra = device.optJSONObject("ui_extra");
@@ -835,11 +924,11 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener, 
         int workers = CpuTopology.workers(device);
         cpuCard.addView(MiuiUi.kvRow(this, "核心与在线状态",
                 "在线：" + device.optString("cpu_online") + " · 呈现：" + device.optString("cpu_present", "未知"),
-                workers + " 核", null, 0));
+                workers + "\u00A0核", null, 0));
         MiuiUi.addDivider(this, cpuCard);
         cpuCard.addView(MiuiUi.kvRow(this, "CPU0 频率与调速器",
                 "调速器：" + device.optString("cpu0_governor"),
-                MiuiUi.formatKhz(device.optString("cpu0_frequency_khz")) + " / " + MiuiUi.formatKhz(device.optString("cpu0_max_frequency_khz")),
+                MiuiUi.formatKhz(device.optString("cpu0_frequency_khz")) + "\n最大 " + MiuiUi.formatKhz(device.optString("cpu0_max_frequency_khz")),
                 null, 0));
         MiuiUi.addDivider(this, cpuCard);
         String lib = device.optString("native_library", "");
@@ -891,7 +980,7 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener, 
             String eglVer = extra.optString("egl_version", "未知");
             int maxTex = extra.optInt("gpu_max_texture_size", 0);
             gpuCard.addView(MiuiUi.kvRow(this, "EGL 与最大纹理", "EGL " + eglVer + (extra.has("egl_vendor") ? " · " + extra.optString("egl_vendor") : ""),
-                    maxTex > 0 ? maxTex + " px" : "未知", null, 0));
+                    maxTex > 0 ? maxTex + "\u00A0px" : "未知", null, 0));
             MiuiUi.addDivider(this, gpuCard);
             boolean etc1 = extra.optBoolean("gpu_etc1", false);
             gpuCard.addView(MiuiUi.kvRow(this, "ETC1 压缩纹理", null, null, etc1 ? "支持" : "不支持",
@@ -910,17 +999,17 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener, 
             float density = (float) extra.optDouble("screen_density", 1.0);
             int wDp = Math.round(wPx / density);
             int hDp = Math.round(hPx / density);
-            dispCard.addView(MiuiUi.kvRow(this, "屏幕分辨率", wDp + " × " + hDp + " dp", wPx + " × " + hPx + " px", null, 0));
+            dispCard.addView(MiuiUi.kvRow(this, "屏幕分辨率", wDp + "×" + hDp + "\u00A0dp", wPx + "×" + hPx + "\u00A0px", null, 0));
             MiuiUi.addDivider(this, dispCard);
             int dpi = extra.optInt("screen_density_dpi");
             String inches = extra.optString("screen_inches");
             dispCard.addView(MiuiUi.kvRow(this, "像素密度与尺寸",
-                    inches.length() > 0 ? "估算尺寸约 " + inches + " 英寸" : null,
-                    dpi + " dpi (" + String.format(Locale.US, "%.2fx", density) + ")", null, 0));
+                    inches.length() > 0 ? "估算尺寸约 " + inches + "\u00A0英寸" : null,
+                    dpi + "\u00A0dpi (" + String.format(Locale.US, "%.2fx", density) + ")", null, 0));
             double hz = extra.optDouble("screen_refresh_hz", DisplaySurface.refreshHz);
             if (hz > 0) {
                 MiuiUi.addDivider(this, dispCard);
-                dispCard.addView(MiuiUi.kvRow(this, "屏幕刷新率", null, String.format(Locale.US, "%.1f Hz", hz), null, 0));
+                dispCard.addView(MiuiUi.kvRow(this, "屏幕刷新率", null, String.format(Locale.US, "%.1f\u00A0Hz", hz), null, 0));
             }
             devicePageColumn.addView(dispCard);
         }
@@ -980,13 +1069,13 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener, 
                 batSub.append("电池放电");
             }
             int mv = extra.optInt("battery_voltage_mv", -1);
-            if (mv > 0) batSub.append(String.format(Locale.US, " · %.2fV", mv / 1000.0));
+            if (mv > 0) batSub.append(String.format(Locale.US, " · %.2f\u00A0V", mv / 1000.0));
             String tech = extra.optString("battery_tech");
             if (tech.length() > 0) batSub.append(" · ").append(tech);
         }
         String batRight = (batPct >= 0 ? batPct + "%" : "未知")
                 + (TemperatureTrace.validTemperature(tempTenths)
-                ? String.format(Locale.US, " · %.1f°C", tempTenths / 10.0) : "");
+                ? String.format(Locale.US, " · %.1f\u00A0°C", tempTenths / 10.0) : "");
         actionCard.addView(MiuiUi.kvRow(this, "电池状态", batSub.toString(), batRight, null, 0));
         MiuiUi.addDivider(this, actionCard);
         actionCard.addView(MiuiUi.navRow(this, "刷新硬件信息", null, null, null, 0, () -> refreshDeviceData(true)));
@@ -1030,6 +1119,7 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener, 
     }
 
     private void renderScoreTab() {
+        if (scorePageColumn == null) return;
         scorePageColumn.removeAllViews();
 
         int totalCount = cachedHistory != null ? cachedHistory.length() : 0;
@@ -1037,6 +1127,7 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener, 
         // Top section header + Manage / Clear actions
         LinearLayout headerRow = new LinearLayout(this);
         headerRow.setOrientation(LinearLayout.HORIZONTAL);
+        headerRow.setBaselineAligned(false);
         headerRow.setGravity(Gravity.CENTER_VERTICAL);
         int hPad = MiuiUi.dp(this, 16);
         headerRow.setPadding(hPad, MiuiUi.dp(this, 10), MiuiUi.dp(this, 12), MiuiUi.dp(this, 6));
@@ -1115,14 +1206,19 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener, 
             }
 
             if (manageHistoryMode) {
-                LinearLayout row = MiuiUi.kvRow(this, title, sub.toString(), null,
+                LinearLayout manageRow = new LinearLayout(this);
+                manageRow.setOrientation(LinearLayout.HORIZONTAL);
+                manageRow.setBaselineAligned(false);
+                manageRow.setGravity(Gravity.CENTER_VERTICAL);
+                MiuiUi.MiuiRowLayout row = MiuiUi.kvRow(this, title, sub.toString(), null,
                         BenchmarkReport.statusLabel(status), MiuiUi.statusTone(status));
+                manageRow.addView(row, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
                 TextView delBtn = MiuiUi.actionChip(this, "删除", true, () -> deleteRun(item));
                 LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-                dlp.leftMargin = MiuiUi.dp(this, 8);
-                row.addView(delBtn, dlp);
-                listCard.addView(row);
+                dlp.rightMargin = MiuiUi.dp(this, 14);
+                manageRow.addView(delBtn, dlp);
+                listCard.addView(manageRow);
             } else {
                 listCard.addView(MiuiUi.navRow(this, title, sub.toString(), null,
                         BenchmarkReport.statusLabel(status), MiuiUi.statusTone(status),
@@ -1151,6 +1247,10 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener, 
 
     @Override
     protected void onDestroy() {
+        if (idleSetupHandler != null) {
+            Looper.myQueue().removeIdleHandler(idleSetupHandler);
+            idleSetupHandler = null;
+        }
         toastHandler.removeCallbacks(hideToastRunnable);
         dismissActiveDialog();
         super.onDestroy();
@@ -1158,75 +1258,125 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener, 
 
     @Override
     public void onState(BenchmarkRunner.State state) {
-        start.setEnabled(!state.busy);
-        cancel.setEnabled(state.busy);
+        boolean busyChanged = lastUiBusy == null || lastUiBusy != state.busy;
+        if (busyChanged) {
+            lastUiBusy = state.busy;
+            start.setEnabled(!state.busy);
+            cancel.setEnabled(state.busy);
+        }
 
         if (state.busy) {
-            dismissActiveDialog();
             if (!wasBusy) {
+                dismissActiveDialog();
                 manageHistoryMode = false;
-                switchTab(0);
+                if (currentTab != 0 || !subPageStack.isEmpty()) switchTab(0);
+                preflightContainer.setVisibility(View.GONE);
+                liveProgressBox.setVisibility(View.VISIBLE);
+                liveQueueSection.setVisibility(View.VISIBLE);
+                idleQuickLinksSection.setVisibility(View.GONE);
+                updateBadge(statusPill, "运行中", MiuiUi.TONE_ACTIVE);
+                updateBadge(headerBadge, "运行中", MiuiUi.TONE_ACTIVE);
+                lastUiStageIdx = Integer.MIN_VALUE;
             }
             wasBusy = true;
-            statusHeadline.setText("正在运行固定基准套件");
-            statusMessage.setText(state.message);
-            updateBadge(statusPill, "运行中", MiuiUi.TONE_ACTIVE);
-            updateBadge(headerBadge, "运行中", MiuiUi.TONE_ACTIVE);
 
-            preflightContainer.setVisibility(View.GONE);
-            liveProgressBox.setVisibility(View.VISIBLE);
-            liveQueueSection.setVisibility(View.VISIBLE);
-            idleQuickLinksSection.setVisibility(View.GONE);
+            String headline = "正在运行固定基准套件";
+            if (!headline.equals(lastUiHeadline)) {
+                lastUiHeadline = headline;
+                statusHeadline.setText(headline);
+            }
+            String msgText = state.message != null ? state.message : "";
+            if (!msgText.equals(lastUiMessage)) {
+                lastUiMessage = msgText;
+                statusMessage.setText(msgText);
+            }
 
             int totalStages = BenchmarkSuite.DEFAULT.length;
             int doneStages = Math.max(0, state.completedStages);
             float roundPart = state.repetitions > 0 ? (float) state.savedRounds / (float) state.repetitions : 0f;
             float progress = (doneStages + roundPart) / (float) totalStages;
             liveProgressBar.setProgress(progress, MiuiUi.ORANGE);
-            liveProgressText.setText(state.text != null && state.text.length() > 0 ? state.text : state.message);
 
-            for (int i = 0; i < totalStages; i++) {
-                TextView badge = stageQueueBadges[i];
-                if (badge == null) continue;
-                if (i < doneStages) {
-                    updateBadge(badge, "✓ 完成", MiuiUi.TONE_OK);
-                } else if (i == state.stageIndex) {
-                    String rText = state.repetitions > 0
-                            ? "第 " + Math.max(1, state.round) + "/" + state.repetitions + " 轮"
-                            : "运行中";
-                    updateBadge(badge, rText, MiuiUi.TONE_ACTIVE);
-                } else {
-                    updateBadge(badge, "待执行", MiuiUi.TONE_NEUTRAL);
+            String pText = state.text != null && state.text.length() > 0 ? state.text : msgText;
+            if (!pText.equals(lastUiProgressText)) {
+                lastUiProgressText = pText;
+                liveProgressText.setText(pText);
+            }
+
+            if (state.stageIndex != lastUiStageIdx || doneStages != lastUiCompletedStages
+                    || state.round != lastUiRound || state.repetitions != lastUiReps) {
+                lastUiStageIdx = state.stageIndex;
+                lastUiCompletedStages = doneStages;
+                lastUiRound = state.round;
+                lastUiReps = state.repetitions;
+                for (int i = 0; i < totalStages; i++) {
+                    TextView badge = stageQueueBadges[i];
+                    if (badge == null) continue;
+                    if (i < doneStages) {
+                        updateBadge(badge, "✓ 完成", MiuiUi.TONE_OK);
+                    } else if (i == state.stageIndex) {
+                        String rText = state.repetitions > 0
+                                ? "第 " + Math.max(1, state.round) + "/" + state.repetitions + " 轮"
+                                : "运行中";
+                        updateBadge(badge, rText, MiuiUi.TONE_ACTIVE);
+                    } else {
+                        updateBadge(badge, "待执行", MiuiUi.TONE_NEUTRAL);
+                    }
                 }
             }
         } else {
+            boolean prevBusy = wasBusy;
             wasBusy = false;
+            lastUiStageIdx = Integer.MIN_VALUE;
+            lastUiCompletedStages = Integer.MIN_VALUE;
+            lastUiRound = Integer.MIN_VALUE;
+            lastUiReps = Integer.MIN_VALUE;
+            lastUiProgressText = null;
+
+            if (busyChanged || prevBusy) {
+                updateBadge(statusPill, "空闲", MiuiUi.TONE_OK);
+                updateBadge(headerBadge, "v" + BuildConfig.VERSION_NAME, MiuiUi.TONE_NEUTRAL);
+                statusMessage.setText(R.string.console_subtitle_idle);
+                lastUiMessage = null;
+                preflightContainer.setVisibility(View.VISIBLE);
+                liveProgressBox.setVisibility(View.GONE);
+                liveQueueSection.setVisibility(View.GONE);
+                idleQuickLinksSection.setVisibility(View.VISIBLE);
+            }
+
             String msg = state.message != null ? state.message : "";
             boolean isHistoryInitMsg = msg.length() == 0 || msg.startsWith("本地记录") || "就绪".equals(msg);
-            statusHeadline.setText(isHistoryInitMsg ? "准备就绪" : msg);
-            statusMessage.setText(R.string.console_subtitle_idle);
-            updateBadge(statusPill, "空闲", MiuiUi.TONE_OK);
-            updateBadge(headerBadge, "v" + BuildConfig.VERSION_NAME, MiuiUi.TONE_NEUTRAL);
+            String headline = isHistoryInitMsg ? "准备就绪" : msg;
+            if (!headline.equals(lastUiHeadline)) {
+                lastUiHeadline = headline;
+                statusHeadline.setText(headline);
+            }
 
-            preflightContainer.setVisibility(View.VISIBLE);
-            liveProgressBox.setVisibility(View.GONE);
-            liveQueueSection.setVisibility(View.GONE);
-            idleQuickLinksSection.setVisibility(View.VISIBLE);
-
-            parseActiveReportFromExportJson(state.exportJson);
-            renderRecentQuickCard();
-            refreshHistoryData();
-            if (cachedDevice == null) {
-                refreshDeviceData(false);
+            parseActiveReportFromState(state);
+            if (activeReport != lastRenderedQuickReport) {
+                lastRenderedQuickReport = activeReport;
+                renderRecentQuickCard();
+            }
+            if (prevBusy || (currentTab == 1 && cachedHistory == null)) {
+                refreshHistoryData();
             }
         }
     }
 
-    private void parseActiveReportFromExportJson(String json) {
-        if (json == null || json.length() == 0) {
-            activeReport = null;
+    private void parseActiveReportFromState(BenchmarkRunner.State state) {
+        if (state.latestReport != null) {
+            activeReport = state.latestReport;
+            lastParsedExportJson = state.exportJson;
             return;
         }
+        String json = state.exportJson;
+        if (json == null || json.length() == 0) {
+            activeReport = null;
+            lastParsedExportJson = "";
+            return;
+        }
+        if (json.equals(lastParsedExportJson)) return;
+        lastParsedExportJson = json;
         String trimmed = json.trim();
         try {
             if (trimmed.startsWith("{")) {
@@ -1242,6 +1392,9 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener, 
     }
 
     private void updateBadge(TextView pill, String text, int tone) {
+        String key = tone + ":" + text;
+        if (key.equals(pill.getTag())) return;
+        pill.setTag(key);
         pill.setText(text);
         pill.setTextColor(MiuiUi.badgeTextColor(tone));
         MiuiUi.setBackground(pill, MiuiUi.badgeDrawable(this, tone));

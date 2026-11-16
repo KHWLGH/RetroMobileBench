@@ -3,10 +3,18 @@ package com.retromobilebench;
 import android.content.Context;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.os.Handler;
+import android.os.Looper;
+import android.text.ClipboardManager;
 import android.util.TypedValue;
+import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
+import android.widget.BaseAdapter;
 import android.widget.Button;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
+import android.widget.ListView;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
@@ -17,14 +25,21 @@ import org.json.JSONObject;
 import java.io.InputStreamReader;
 import java.io.Reader;
 import java.text.DateFormat;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * Builder for MIUI V5 secondary sub-pages and structured report/hardware cards.
  * Keeps each screen focused and uncluttered on small retro displays.
  */
+@SuppressWarnings("deprecation")
 final class MiuiSubPages {
     interface Navigator {
         void openSubPage(String title, View content);
@@ -32,11 +47,17 @@ final class MiuiSubPages {
         void deleteRun(JSONObject report);
     }
 
+    private static final ExecutorService TEXT_EXECUTOR = Executors.newSingleThreadExecutor();
+    private static final Handler MAIN_HANDLER = new Handler(Looper.getMainLooper());
+    private static final HashMap<String, String> ASSET_TEXT_CACHE = new HashMap<>();
+    private static final HashMap<String, List<String>> ASSET_CHUNK_CACHE = new HashMap<>();
+
     private MiuiSubPages() { }
 
     static ScrollView wrapScroll(Context context, View child) {
         ScrollView scroll = new ScrollView(context);
-        scroll.setBackgroundColor(MiuiUi.BG_PAGE);
+        scroll.setVerticalFadingEdgeEnabled(false);
+        scroll.setHorizontalFadingEdgeEnabled(false);
         scroll.setFillViewport(true);
         scroll.addView(child, new ScrollView.LayoutParams(
                 ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.WRAP_CONTENT));
@@ -46,14 +67,13 @@ final class MiuiSubPages {
     static LinearLayout pageColumn(Context context) {
         LinearLayout col = new LinearLayout(context);
         col.setOrientation(LinearLayout.VERTICAL);
-        col.setBackgroundColor(MiuiUi.BG_PAGE);
         col.setPadding(0, MiuiUi.dp(context, 6), 0, MiuiUi.dp(context, 20));
         return col;
     }
 
     static String formatTemperatureShort(JSONObject trace) {
         if (trace == null || !trace.optBoolean("available")) return "不可用";
-        return String.format(Locale.US, "%.1f → %.1f °C (峰值 %.1f °C / %+.1f °C)",
+        return String.format(Locale.US, "%.1f → %.1f\u00A0°C\n峰值 %.1f\u00A0°C (%+.1f\u00A0°C)",
                 trace.optInt("start_tenths_c") / 10.0,
                 trace.optInt("end_tenths_c") / 10.0,
                 trace.optInt("sampled_max_tenths_c") / 10.0,
@@ -69,6 +89,14 @@ final class MiuiSubPages {
     }
 
     static String stageHeadlineSummary(BenchmarkSuite suite, JSONObject stageReport) {
+        return formatStageHeadline(suite, stageReport, false);
+    }
+
+    private static String stageQuickLines(BenchmarkSuite suite, JSONObject stageReport) {
+        return formatStageHeadline(suite, stageReport, true);
+    }
+
+    private static String formatStageHeadline(BenchmarkSuite suite, JSONObject stageReport, boolean multiline) {
         if (stageReport == null) return "未执行";
         String status = stageReport.optString("status", "failed");
         if ("skipped".equals(status) || "unsupported".equals(status)) {
@@ -78,6 +106,8 @@ final class MiuiSubPages {
         JSONArray samples = stageReport.optJSONArray("samples");
         JSONObject source = stageSource(stageReport);
         if (source == null) return BenchmarkReport.statusLabel(status);
+
+        String sep = multiline ? "\n" : " · ";
 
         if (suite == BenchmarkSuite.VIDEO) {
             if (samples != null && samples.length() > 0) {
@@ -98,7 +128,7 @@ final class MiuiSubPages {
         }
         if (suite.isGpu()) {
             if (suite == BenchmarkSuite.GPU_FILL && source.has("score")) {
-                return String.format(Locale.US, "%.1f MTexels/s", source.optDouble("score"));
+                return String.format(Locale.US, "%.1f\u00A0MTexels/s", source.optDouble("score"));
             }
             double fps = source.optDouble("fps", -1);
             if (fps <= 0 && samples != null && samples.length() > 0) {
@@ -106,29 +136,30 @@ final class MiuiSubPages {
             }
             double frames = source.optDouble("score", -1);
             if (fps > 0 && frames > 0) {
-                return String.format(Locale.US, "%.2f FPS (%.0f frames)", fps, frames);
+                return String.format(Locale.US, "%.2f\u00A0FPS (%.0f\u00A0frames)", fps, frames);
             } else if (frames > 0) {
-                return String.format(Locale.US, "%.0f frames", frames);
+                return String.format(Locale.US, "%.0f\u00A0frames", frames);
             }
         }
         if (suite == BenchmarkSuite.COREMARK) {
             double s = source.optDouble("single_iterations_per_second", -1);
             double p = source.optDouble("parallel_iterations_per_second", -1);
-            if (s > 0 && p > 0) return String.format(Locale.US, "单核 %.1f · 多核 %.1f iter/s", s, p);
-            if (s > 0) return String.format(Locale.US, "单核 %.1f iter/s", s);
+            if (s > 0 && p > 0) return String.format(Locale.US, "单核 %.1f\u00A0iter/s · 多核 %.1f\u00A0iter/s", s, p);
+            if (s > 0) return String.format(Locale.US, "单核 %.1f\u00A0iter/s", s);
         }
         if (suite == BenchmarkSuite.SCIMARK) {
             double s = source.optDouble("single_composite_mflops", -1);
             double p = source.optDouble("parallel_composite_mflops", -1);
-            if (s > 0 && p > 0) return String.format(Locale.US, "单核 %.1f · 多核 %.1f MFLOPS", s, p);
-            if (s > 0) return String.format(Locale.US, "单核综合 %.1f MFLOPS", s);
+            if (s > 0 && p > 0) return String.format(Locale.US, "单核 %.1f\u00A0MFLOPS · 多核 %.1f\u00A0MFLOPS", s, p);
+            if (s > 0) return String.format(Locale.US, "单核综合 %.1f\u00A0MFLOPS", s);
         }
         if (suite == BenchmarkSuite.MEMORY) {
             double copy = source.optDouble("copy_mbps", -1);
             double triad = source.optDouble("parallel_triad_mbps", source.optDouble("single_triad_mbps", -1));
             double lat = source.optDouble("latency_ns", -1);
             if (copy > 0 && triad > 0 && lat > 0) {
-                return String.format(Locale.US, "复制 %.0f · Triad %.0f MB/s · %.1f ns", copy, triad, lat);
+                return String.format(Locale.US, "复制 %.0f\u00A0MB/s · Triad %.0f\u00A0MB/s%s延迟 %.1f\u00A0ns",
+                        copy, triad, sep, lat);
             }
         }
         if (suite == BenchmarkSuite.STORAGE) {
@@ -137,7 +168,8 @@ final class MiuiSubPages {
             double rr = source.optDouble("random_read_iops", -1);
             double rw = source.optDouble("random_write_iops", -1);
             if (sr > 0 && sw > 0 && rr > 0 && rw > 0) {
-                return String.format(Locale.US, "顺读 %.1f/写 %.1f MB/s · 随读 %.0f/写 %.0f IOPS", sr, sw, rr, rw);
+                return String.format(Locale.US, "顺读 %.1f / 顺写 %.1f\u00A0MB/s%s随读 %.0f / 随写 %.0f\u00A0IOPS",
+                        sr, sw, sep, rr, rw);
             }
         }
         if (suite == BenchmarkSuite.SQLITE) {
@@ -145,15 +177,19 @@ final class MiuiSubPages {
             double ins = source.optDouble("insert_tps", -1);
             double upd = source.optDouble("update_tps", -1);
             double del = source.optDouble("delete_tps", -1);
-            if (comp > 0) return String.format(Locale.US, "综合 %.1f TPS (插%.0f/更%.0f/删%.0f)", comp, ins, upd, del);
-            if (ins > 0) return String.format(Locale.US, "插入 %.1f · 更新 %.1f · 删除 %.1f TPS", ins, upd, del);
+            if (comp > 0) {
+                return String.format(Locale.US, "综合 %.1f\u00A0TPS%s插 %.0f / 更 %.0f / 删 %.0f\u00A0TPS",
+                        comp, sep, ins, upd, del);
+            }
+            if (ins > 0) return String.format(Locale.US, "插入 %.1f · 更新 %.1f · 删除 %.1f\u00A0TPS", ins, upd, del);
         }
         if (suite == BenchmarkSuite.WEB) {
             double total = source.optDouble("total_ms", -1);
             double feed = source.optDouble("feed_ms", -1);
             double img = source.optDouble("image_ms", -1);
             if (total > 0 && feed > 0 && img > 0) {
-                return String.format(Locale.US, "总计 %.0f ms (信息流 %.0f + 大图 %.0f ms)", total, feed, img);
+                return String.format(Locale.US, "总计 %.0f\u00A0ms%s信息流 %.0f\u00A0ms + 大图 %.0f\u00A0ms",
+                        total, sep, feed, img);
             }
         }
         if (suite.metrics.length > 0 && source.has(suite.metrics[0])) {
@@ -161,10 +197,10 @@ final class MiuiSubPages {
             if (v0 > 0) {
                 if (suite.metrics.length > 1 && source.has(suite.metrics[1])) {
                     double v1 = source.optDouble(suite.metrics[1], -1);
-                    return String.format(Locale.US, "%s %.1f · %s %.1f %s",
-                            suite.labels[0], v0, suite.labels[1], v1, suite.units[0]);
+                    return String.format(Locale.US, "%s %.1f\u00A0%s · %s %.1f\u00A0%s",
+                            suite.labels[0], v0, suite.units[0], suite.labels[1], v1, suite.units[1]);
                 }
-                return String.format(Locale.US, "%s：%.2f %s", suite.labels[0], v0, suite.units[0]);
+                return String.format(Locale.US, "%s：%.2f\u00A0%s", suite.labels[0], v0, suite.units[0]);
             }
         }
         return BenchmarkReport.statusLabel(status);
@@ -187,9 +223,9 @@ final class MiuiSubPages {
     private static String formatPairedGpuFps(JSONObject offRep, JSONObject onRep) {
         double offFps = extractGpuFps(offRep);
         double onFps = extractGpuFps(onRep);
-        String offStr = offFps > 0 ? String.format(Locale.US, "%.1f FPS", offFps)
+        String offStr = offFps > 0 ? String.format(Locale.US, "%.1f\u00A0FPS", offFps)
                 : (offRep != null ? BenchmarkReport.statusLabel(offRep.optString("status")) : "未测");
-        String onStr = onFps > 0 ? String.format(Locale.US, "%.1f FPS", onFps)
+        String onStr = onFps > 0 ? String.format(Locale.US, "%.1f\u00A0FPS", onFps)
                 : (onRep != null ? BenchmarkReport.statusLabel(onRep.optString("status")) : "未测");
         return "离屏 " + offStr + " · 屏上 " + onStr;
     }
@@ -215,12 +251,12 @@ final class MiuiSubPages {
         sb.append("8. GPU Egypt HD：").append(formatPairedGpuFps(byStage[7], byStage[8])).append('\n');
         sb.append("9. GPU T-Rex：").append(formatPairedGpuFps(byStage[9], byStage[10])).append('\n');
         sb.append("10. GPU 纹理填充率：").append(stageHeadlineSummary(BenchmarkSuite.GPU_FILL, byStage[11])).append('\n');
-        sb.append("电池温度：").append(formatTemperatureShort(report.optJSONObject("temperature")));
-        return sb.toString();
+        sb.append("电池温度：").append(formatTemperatureShort(report.optJSONObject("temperature")).replace('\n', ' '));
+        return sb.toString().replace('\u00A0', ' ');
     }
 
     /** Sub-page A0: Full report detail (session opens overview + 12-stage list; single stage opens stage detail directly). */
-    static View buildReportDetailPage(Context context, JSONObject report, boolean isBusy, Navigator nav) {
+    static View buildReportDetailPage(Context context, final JSONObject report, boolean isBusy, final Navigator nav) {
         String suiteVer = report.optString("suite_version");
         boolean isSession = BenchmarkSuite.isSession(suiteVer);
         BenchmarkSuite singleSuite = isSession ? null : BenchmarkSuite.fromReport(report);
@@ -231,17 +267,6 @@ final class MiuiSubPages {
         LinearLayout col = pageColumn(context);
         String status = report.optString("status", "failed");
         String sessionId = report.optString("session_id");
-        String rawText;
-        String exportJson;
-        try {
-            exportJson = report.toString(2);
-            rawText = BenchmarkReport.format(report);
-        } catch (JSONException e) {
-            exportJson = report.toString();
-            rawText = e.toString();
-        }
-        final String finalRaw = rawText;
-        final String finalJson = exportJson;
 
         col.addView(MiuiUi.sectionTitle(context, "报告总览"));
         LinearLayout summaryCard = MiuiUi.cardGroup(context);
@@ -277,16 +302,17 @@ final class MiuiSubPages {
         MiuiUi.addDivider(context, summaryCard);
         LinearLayout btnRow = new LinearLayout(context);
         btnRow.setOrientation(LinearLayout.HORIZONTAL);
+        btnRow.setBaselineAligned(false);
         int pad = MiuiUi.dp(context, 12);
         btnRow.setPadding(pad, MiuiUi.dp(context, 10), pad, pad);
 
         Button exportBtn = MiuiUi.styledButton(context, "导出 JSON", true, false,
-                () -> nav.copyText("结果 JSON", finalJson));
-        exportBtn.setEnabled(!isBusy && finalJson.length() > 0);
+                () -> copyJsonAsync("结果 JSON", report, nav));
+        exportBtn.setEnabled(!isBusy);
         btnRow.addView(exportBtn, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
 
         Button rawBtn = MiuiUi.styledButton(context, "原始文本", false, false,
-                () -> nav.openSubPage("原始文本报告", buildRawReportPage(context, finalRaw, finalJson, nav)));
+                () -> nav.openSubPage("原始文本报告", buildRawReportPage(context, report, nav)));
         LinearLayout.LayoutParams rawLp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
         rawLp.leftMargin = MiuiUi.dp(context, 8);
         btnRow.addView(rawBtn, rawLp);
@@ -313,49 +339,49 @@ final class MiuiSubPages {
             // One-screen summary card for video creators & device comparisons
             col.addView(MiuiUi.sectionTitle(context, "核心指标速览（横评总结）"));
             LinearLayout quickCard = MiuiUi.cardGroup(context);
-            quickCard.addView(MiuiUi.kvRow(context, "CPU 整数 (CoreMark®)",
-                    "2000B 栈工作区 · 双种子校验 · 每段 ≥10s",
-                    stageHeadlineSummary(BenchmarkSuite.COREMARK, byStage[0]), null, 0));
+            quickCard.addView(MiuiUi.summaryRow(context, "CPU 整数 (CoreMark®)",
+                    stageQuickLines(BenchmarkSuite.COREMARK, byStage[0]),
+                    "2000B 栈工作区 · 双种子校验 · 每段 ≥10s"));
             MiuiUi.addDivider(context, quickCard);
-            quickCard.addView(MiuiUi.kvRow(context, "CPU 浮点 (SciMark 2.0)",
-                    "5 项浮点内核均值 (FFT/SOR/MC/稀疏/LU)",
-                    stageHeadlineSummary(BenchmarkSuite.SCIMARK, byStage[1]), null, 0));
+            quickCard.addView(MiuiUi.summaryRow(context, "CPU 浮点 (SciMark 2.0)",
+                    stageQuickLines(BenchmarkSuite.SCIMARK, byStage[1]),
+                    "5 项浮点内核均值 (FFT/SOR/MC/稀疏/LU)"));
             MiuiUi.addDivider(context, quickCard);
-            quickCard.addView(MiuiUi.kvRow(context, "内存带宽与延迟",
-                    "8MiB 复制/填充 · 4MiB 随机指针链(100万节点) · 24MiB 共享 Triad",
-                    stageHeadlineSummary(BenchmarkSuite.MEMORY, byStage[2]), null, 0));
+            quickCard.addView(MiuiUi.summaryRow(context, "内存带宽与延迟",
+                    stageQuickLines(BenchmarkSuite.MEMORY, byStage[2]),
+                    "8MiB 复制/填充 · 4MiB 随机指针链(100万节点)\n24MiB 共享 Triad (3×8MiB)"));
             MiuiUi.addDivider(context, quickCard);
-            quickCard.addView(MiuiUi.kvRow(context, "闪存读写 (Storage)",
-                    "32MiB 文件(4–32MiB 自适应) · 256KiB×128 顺序 · 4KiB×256 随机 · O_SYNC",
-                    stageHeadlineSummary(BenchmarkSuite.STORAGE, byStage[3]), null, 0));
+            quickCard.addView(MiuiUi.summaryRow(context, "闪存读写 (Storage)",
+                    stageQuickLines(BenchmarkSuite.STORAGE, byStage[3]),
+                    "32MiB 文件(4–32MiB 自适应) · O_SYNC 写入\n256KiB×128 顺序 · 4KiB×256 随机"));
             MiuiUi.addDivider(context, quickCard);
-            quickCard.addView(MiuiUi.kvRow(context, "SQLite 事务吞吐",
-                    "INSERT/UPDATE/DELETE 各 300 独立事务(共 900 次 COMMIT) · 1KiB/行 · FULL 同步",
-                    stageHeadlineSummary(BenchmarkSuite.SQLITE, byStage[4]), null, 0));
+            quickCard.addView(MiuiUi.summaryRow(context, "SQLite 事务吞吐",
+                    stageQuickLines(BenchmarkSuite.SQLITE, byStage[4]),
+                    "INSERT/UPDATE/DELETE 各 300 独立事务\n共 900 次 COMMIT · 1KiB/行 · FULL 同步"));
             MiuiUi.addDivider(context, quickCard);
-            quickCard.addView(MiuiUi.kvRow(context, "Web 竖屏信息流与大图",
-                    "竖屏 640卡片+2000列表+480段落 + 480p/720p/1080p 大图解码×20 (越低越好)",
-                    stageHeadlineSummary(BenchmarkSuite.WEB, byStage[5]), null, 0));
+            quickCard.addView(MiuiUi.summaryRow(context, "Web 竖屏信息流与大图",
+                    stageQuickLines(BenchmarkSuite.WEB, byStage[5]),
+                    "竖屏 640卡片+2000列表+480段落\n480p/720p/1080p 大图解码×20 (越低越好)"));
             MiuiUi.addDivider(context, quickCard);
-            quickCard.addView(MiuiUi.kvRow(context, "视频解码与播放",
-                    "7 段 240p–1080p 素材 (H.263/MPEG-4/H.264/VP8/VP9)",
-                    stageHeadlineSummary(BenchmarkSuite.VIDEO, byStage[6]), null, 0));
+            quickCard.addView(MiuiUi.summaryRow(context, "视频解码与播放",
+                    stageQuickLines(BenchmarkSuite.VIDEO, byStage[6]),
+                    "7\u00A0段 240p–1080p 素材 (H.263/MPEG-4/H.264/VP8/VP9)"));
             MiuiUi.addDivider(context, quickCard);
-            quickCard.addView(MiuiUi.kvRow(context, "GPU Egypt HD (中压场景)",
-                    "1080p 离屏 vs 实际屏幕分辨率屏上",
-                    formatPairedGpuFps(byStage[7], byStage[8]), null, 0));
+            quickCard.addView(MiuiUi.summaryRow(context, "GPU Egypt HD (中压场景)",
+                    formatPairedGpuFps(byStage[7], byStage[8]),
+                    "1080p 离屏 vs 实际屏幕分辨率屏上"));
             MiuiUi.addDivider(context, quickCard);
-            quickCard.addView(MiuiUi.kvRow(context, "GPU T-Rex (高压场景)",
-                    "1080p 离屏 vs 实际屏幕分辨率屏上",
-                    formatPairedGpuFps(byStage[9], byStage[10]), null, 0));
+            quickCard.addView(MiuiUi.summaryRow(context, "GPU T-Rex (高压场景)",
+                    formatPairedGpuFps(byStage[9], byStage[10]),
+                    "1080p 离屏 vs 实际屏幕分辨率屏上"));
             MiuiUi.addDivider(context, quickCard);
-            quickCard.addView(MiuiUi.kvRow(context, "GPU 纹理填充率",
-                    "1080p 离屏四层多纹理混合",
-                    stageHeadlineSummary(BenchmarkSuite.GPU_FILL, byStage[11]), null, 0));
+            quickCard.addView(MiuiUi.summaryRow(context, "GPU 纹理填充率",
+                    stageQuickLines(BenchmarkSuite.GPU_FILL, byStage[11]),
+                    "1080p 离屏四层多纹理混合"));
             MiuiUi.addDivider(context, quickCard);
-            final String quickSummaryText = buildQuickComparisonText(report, byStage);
+            final JSONObject[] finalByStage = byStage;
             quickCard.addView(MiuiUi.navRow(context, "复制横评总结文本", "一键复制以上 10 项核心指标与工作量说明",
-                    "复制", null, 0, () -> nav.copyText("横评总结", quickSummaryText)));
+                    "复制", null, 0, () -> nav.copyText("横评总结", buildQuickComparisonText(report, finalByStage))));
             col.addView(quickCard);
 
             String[] groupTitles = {"处理器算力 (CPU)", "内存与存储 (Memory & I/O)", "Web 与视频 (Daily & Media)", "OpenGL ES 2.0 (GPU)"};
@@ -465,22 +491,12 @@ final class MiuiSubPages {
 
         col.addView(MiuiUi.sectionTitle(context, "数据与操作"));
         LinearLayout actions = MiuiUi.cardGroup(context);
-        actions.addView(MiuiUi.navRow(context, "查看原始文本", null, null, null, 0, () -> {
-            try {
+        actions.addView(MiuiUi.navRow(context, "查看原始文本", null, null, null, 0, () ->
                 nav.openSubPage((suite != null ? suite.label : "阶段") + " · 文本",
-                        buildRawReportPage(context, BenchmarkReport.format(report), report.toString(2), nav));
-            } catch (JSONException e) {
-                nav.openSubPage("原始文本", buildRawReportPage(context, e.toString(), report.toString(), nav));
-            }
-        }));
+                        buildRawReportPage(context, report, nav))));
         MiuiUi.addDivider(context, actions);
-        actions.addView(MiuiUi.navRow(context, "复制 JSON", null, null, null, 0, () -> {
-            try {
-                nav.copyText("阶段 JSON", report.toString(2));
-            } catch (JSONException e) {
-                nav.copyText("阶段 JSON", report.toString());
-            }
-        }));
+        actions.addView(MiuiUi.navRow(context, "复制 JSON", null, null, null, 0,
+                () -> copyJsonAsync("阶段 JSON", report, nav)));
         col.addView(actions);
 
         if (allowDelete && report.has("id")) {
@@ -523,7 +539,7 @@ final class MiuiSubPages {
             if (!source.has(key)) continue;
             if (added) MiuiUi.addDivider(context, card);
             double val = source.optDouble(key, 0);
-            String valStr = String.format(Locale.US, "%.2f %s", val, suite.units[i]);
+            String valStr = String.format(Locale.US, "%.2f\u00A0%s", val, suite.units[i]);
             Double unitMaxObj = maxByUnit.get(suite.units[i]);
             double unitMax = unitMaxObj != null ? unitMaxObj : 0;
             float ratio = unitMax > 0 ? (float) (val / unitMax) : 0.5f;
@@ -540,7 +556,7 @@ final class MiuiSubPages {
                     MiuiUi.addDivider(context, card);
                     String mode = suite.gpuTest().endsWith("_off") ? "离屏渲染" : "窗口提交";
                     card.addView(MiuiUi.metricBarRow(context, "平均帧率（" + mode + "）",
-                            String.format(Locale.US, "%.2f FPS", fps), Math.min(1f, (float) (fps / 60.0)), MiuiUi.GREEN));
+                            String.format(Locale.US, "%.2f\u00A0FPS", fps), Math.min(1f, (float) (fps / 60.0)), MiuiUi.GREEN));
                 }
             }
         }
@@ -569,22 +585,22 @@ final class MiuiSubPages {
                 if (pathObj == null) continue;
                 if (added) MiuiUi.addDivider(context, card);
                 String st = pathObj.optString("status");
-                StringBuilder right = new StringBuilder();
+                String right = "";
                 if (pathObj.has("fps") && !pathObj.isNull("fps")) {
-                    right.append(String.format(Locale.US, "%.2f FPS", pathObj.optDouble("fps")));
-                }
-                if (pathObj.has("realtime")) {
-                    if (right.length() > 0) right.append(" · ");
-                    right.append(pathObj.optBoolean("realtime") ? "达到实时" : "低于实时");
+                    right = String.format(Locale.US, "%.2f\u00A0FPS", pathObj.optDouble("fps"));
                 }
                 StringBuilder sub = new StringBuilder();
                 if (pathObj.has("decoder")) sub.append(pathObj.optString("decoder"));
+                if (pathObj.has("realtime")) {
+                    if (sub.length() > 0) sub.append(" · ");
+                    sub.append(pathObj.optBoolean("realtime") ? "达到实时" : "低于实时");
+                }
                 if (pathObj.has("error_stage")) {
                     if (sub.length() > 0) sub.append(" · ");
                     sub.append(pathObj.optString("error_stage"));
                 }
                 card.addView(MiuiUi.kvRow(context, names[p], sub.toString(),
-                        right.toString(), BenchmarkReport.statusLabel(st), MiuiUi.statusTone(st)));
+                        right, BenchmarkReport.statusLabel(st), MiuiUi.statusTone(st)));
                 added = true;
             }
             col.addView(card);
@@ -617,45 +633,45 @@ final class MiuiSubPages {
             if (sample.has("render_width") || sample.has("render_height")) {
                 if (hasRow) MiuiUi.addDivider(context, card);
                 card.addView(MiuiUi.kvRow(context, "渲染分辨率与模式", null,
-                        sample.optInt("render_width", 1920) + " × " + sample.optInt("render_height", 1080)
-                                + (suite.gpuTest().endsWith("_off") ? " (离屏)" : " (屏上提交)"), null, 0));
+                        sample.optInt("render_width", 1920) + "×" + sample.optInt("render_height", 1080) + "\u00A0px\n"
+                                + (suite.gpuTest().endsWith("_off") ? "离屏渲染" : "屏上提交"), null, 0));
                 hasRow = true;
             }
             if (sample.has("successful_window_swaps")) {
                 if (hasRow) MiuiUi.addDivider(context, card);
                 card.addView(MiuiUi.kvRow(context, "窗口成功交换次数", null,
-                        sample.optLong("successful_window_swaps") + " 次", null, 0));
+                        sample.optLong("successful_window_swaps") + "\u00A0次", null, 0));
                 hasRow = true;
             }
         } else if (suite == BenchmarkSuite.WEB) {
             card.addView(MiuiUi.kvRow(context, "CSS / 物理竖屏视口", null,
-                    sample.optInt("viewport_width") + "×" + sample.optInt("viewport_height")
-                            + " / " + sample.optInt("physical_width") + "×" + sample.optInt("physical_height")
-                            + " (DPR " + sample.optDouble("dpr") + ")", null, 0));
+                    "CSS " + sample.optInt("viewport_width") + "×" + sample.optInt("viewport_height")
+                            + "\n物理 " + sample.optInt("physical_width") + "×" + sample.optInt("physical_height")
+                            + " (DPR\u00A0" + sample.optDouble("dpr") + ")", null, 0));
             MiuiUi.addDivider(context, card);
             card.addView(MiuiUi.kvRow(context, "测试负载构成",
                     "信息流卡片 640 张 + 列表项 2000 条 + 段落 480 段 + 480p/720p/1080p 大图解码 20 次", null, null, 0));
             MiuiUi.addDivider(context, card);
             card.addView(MiuiUi.kvRow(context, "计时器与精度", null,
-                    sample.optString("clock_source") + " / " + sample.optDouble("clock_resolution_ms") + " ms", null, 0));
+                    sample.optString("clock_source") + "\n" + sample.optDouble("clock_resolution_ms") + "\u00A0ms", null, 0));
             MiuiUi.addDivider(context, card);
             card.addView(MiuiUi.kvRow(context, "Web 宿主身份", sample.optString("host_build_id"), null, null, 0));
             hasRow = true;
         } else {
             if (sample.has("parallel_threads")) {
-                card.addView(MiuiUi.kvRow(context, "并行工作线程数", null, sample.optInt("parallel_threads") + " 线程", null, 0));
+                card.addView(MiuiUi.kvRow(context, "并行工作线程数", null, sample.optInt("parallel_threads") + "\u00A0线程", null, 0));
                 hasRow = true;
             }
             if (sample.has("native_library")) {
                 if (hasRow) MiuiUi.addDivider(context, card);
                 card.addView(MiuiUi.kvRow(context, "原生计算库", sample.optString("native_build_id"),
-                        sample.optString("native_library") + " (" + sample.optString("native_abi") + ")", null, 0));
+                        sample.optString("native_library") + "\n(" + sample.optString("native_abi") + ")", null, 0));
                 hasRow = true;
             }
             if (suite == BenchmarkSuite.MEMORY && sample.has("buffer_bytes")) {
                 if (hasRow) MiuiUi.addDivider(context, card);
                 card.addView(MiuiUi.kvRow(context, "内存测试量",
-                        "8 MiB 复制/填充(共 16 MiB) · 4 MiB 随机指针链(100 万节点) · 24 MiB 共享 Triad(3×8 MiB)",
+                        "8\u00A0MiB 复制/填充(共 16\u00A0MiB) · 4\u00A0MiB 随机指针链(100 万节点) · 24\u00A0MiB 共享 Triad(3×8\u00A0MiB)",
                         null, null, 0));
                 hasRow = true;
             }
@@ -663,15 +679,15 @@ final class MiuiSubPages {
                 if (hasRow) MiuiUi.addDivider(context, card);
                 long fileMib = sample.optLong("file_bytes") / (1024 * 1024);
                 card.addView(MiuiUi.kvRow(context, "存储测试量与模式",
-                        "256 KiB 顺序读写 × " + (fileMib * 4) + " 块 · 4 KiB 随机读写 × " + sample.optInt("random_operations", 256) + " 次",
-                        fileMib + " MiB · " + sample.optString("read_mode"), null, 0));
+                        "256\u00A0KiB 顺序读写 × " + (fileMib * 4) + "\u00A0块 · 4\u00A0KiB 随机读写 × " + sample.optInt("random_operations", 256) + "\u00A0次",
+                        fileMib + "\u00A0MiB · " + sample.optString("read_mode"), null, 0));
                 hasRow = true;
             }
             if (suite == BenchmarkSuite.SQLITE && sample.has("sqlite_version")) {
                 if (hasRow) MiuiUi.addDivider(context, card);
                 int tx = sample.optInt("transactions", 300);
                 card.addView(MiuiUi.kvRow(context, "SQLite 引擎与测试量",
-                        "INSERT / UPDATE / DELETE 各 " + tx + " 独立事务（共 " + (tx * 3) + " 次 COMMIT）· 1 KiB/行 · DELETE 日志 + FULL 同步",
+                        "INSERT / UPDATE / DELETE 各 " + tx + "\u00A0独立事务（共 " + (tx * 3) + "\u00A0次 COMMIT）· 1\u00A0KiB/行 · DELETE 日志 + FULL 同步",
                         "v" + sample.optString("sqlite_version"), null, 0));
                 hasRow = true;
             }
@@ -690,16 +706,16 @@ final class MiuiSubPages {
             if (sample == null) continue;
             if (r > 0) MiuiUi.addDivider(context, card);
             String st = sample.optString("status");
-            StringBuilder detail = new StringBuilder();
+            card.addView(MiuiUi.kvRow(context, "第 " + (r + 1) + " 轮", null,
+                    null, BenchmarkReport.statusLabel(st), MiuiUi.statusTone(st)));
             for (int m = 0; m < suite.metrics.length; m++) {
                 String k = suite.metrics[m];
                 if (!sample.has(k)) continue;
-                if (detail.length() > 0) detail.append("  |  ");
-                detail.append(suite.labels[m]).append(": ")
-                        .append(String.format(Locale.US, "%.2f %s", sample.optDouble(k), suite.units[m]));
+                String valStr = String.format(Locale.US, "%.2f\u00A0%s", sample.optDouble(k), suite.units[m]);
+                card.addView(MiuiUi.compactMetricRow(context, suite.labels[m], valStr));
             }
-            card.addView(MiuiUi.kvRow(context, "第 " + (r + 1) + " 轮", detail.toString(),
-                    null, BenchmarkReport.statusLabel(st), MiuiUi.statusTone(st)));
+            View spacer = new View(context);
+            card.addView(spacer, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, MiuiUi.dp(context, 6)));
         }
         col.addView(card);
     }
@@ -747,41 +763,44 @@ final class MiuiSubPages {
 
             JSONObject extra = device.optJSONObject("ui_extra");
             if (extra != null && extra.has("gpu_extensions")) {
+                final String glExt = extra.optString("gpu_extensions");
                 col.addView(MiuiUi.sectionTitle(context, "OpenGL ES 扩展列表"));
                 LinearLayout glCard = MiuiUi.cardGroup(context);
                 TextView extTv = new TextView(context);
-                extTv.setText(extra.optString("gpu_extensions"));
+                extTv.setText(glExt);
                 extTv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f);
                 extTv.setTypeface(Typeface.MONOSPACE);
                 extTv.setTextColor(MiuiUi.TEXT_SECONDARY);
                 int pad = MiuiUi.dp(context, 14);
                 extTv.setPadding(pad, pad, pad, pad);
-                PlatformCompat.selectable(extTv);
                 glCard.addView(extTv);
+                MiuiUi.addDivider(context, glCard);
+                glCard.addView(MiuiUi.navRow(context, "复制 GL 扩展列表", null, "复制", null, 0,
+                        () -> nav.copyText("GL 扩展列表", glExt)));
                 col.addView(glCard);
             }
         }
 
         col.addView(MiuiUi.sectionTitle(context, "JNI 原生探针"));
         LinearLayout probeCard = MiuiUi.cardGroup(context);
+        final String safeProbe = nativeProbeText != null && nativeProbeText.length() > 0 ? nativeProbeText : "暂无探针数据";
         TextView mono = new TextView(context);
-        mono.setText(nativeProbeText != null && nativeProbeText.length() > 0 ? nativeProbeText : "暂无探针数据");
+        mono.setText(safeProbe);
         mono.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         mono.setTypeface(Typeface.MONOSPACE);
         mono.setTextColor(MiuiUi.TEXT_PRIMARY);
         int pad = MiuiUi.dp(context, 14);
         mono.setPadding(pad, pad, pad, pad);
-        PlatformCompat.selectable(mono);
         probeCard.addView(mono);
+        if (nativeProbeText != null && nativeProbeText.length() > 0) {
+            MiuiUi.addDivider(context, probeCard);
+            probeCard.addView(MiuiUi.navRow(context, "复制 JNI 探针输出", null, "复制", null, 0,
+                    () -> nav.copyText("JNI 探针", safeProbe)));
+        }
         if (device != null) {
             MiuiUi.addDivider(context, probeCard);
-            probeCard.addView(MiuiUi.navRow(context, "复制完整设备 JSON", null, null, null, 0, () -> {
-                try {
-                    nav.copyText("设备 JSON", device.toString(2));
-                } catch (JSONException e) {
-                    nav.copyText("设备 JSON", device.toString());
-                }
-            }));
+            probeCard.addView(MiuiUi.navRow(context, "复制完整设备 JSON", null, "复制", null, 0,
+                    () -> copyJsonAsync("设备 JSON", device, nav)));
         }
         col.addView(probeCard);
 
@@ -878,39 +897,73 @@ final class MiuiSubPages {
         col.addView(MiuiUi.sectionTitle(context, "许可证原文"));
         LinearLayout linkCard = MiuiUi.cardGroup(context);
         linkCard.addView(MiuiUi.navRow(context, "阅读开源许可证与署名全文", "查看 licenses.txt / benchmark-notices.txt / xiph-notices.txt",
-                null, null, 0, () -> nav.openSubPage("开源许可协议全文", buildLicenseReaderPage(context))));
+                null, null, 0, () -> nav.openSubPage("开源许可协议全文", buildLicenseReaderPage(context, nav))));
         col.addView(linkCard);
 
         return wrapScroll(context, col);
     }
 
-    /** Sub-page F: Segmented reader for the 3 bundled license/notice asset files. */
     static View buildLicenseReaderPage(final Context context) {
-        LinearLayout col = pageColumn(context);
-        col.addView(MiuiUi.sectionTitle(context, "选择要查看的协议文档"));
+        return buildLicenseReaderPage(context, null);
+    }
+
+    /** Sub-page F: Virtualized segmented reader for the 3 bundled license/notice asset files. */
+    static View buildLicenseReaderPage(final Context context, final Navigator nav) {
+        LinearLayout root = new LinearLayout(context);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(0, MiuiUi.dp(context, 6), 0, MiuiUi.dp(context, 10));
+
+        root.addView(MiuiUi.sectionTitle(context, "选择要查看的协议文档"));
 
         LinearLayout segRow = new LinearLayout(context);
         segRow.setOrientation(LinearLayout.HORIZONTAL);
+        segRow.setBaselineAligned(false);
         int m = MiuiUi.dp(context, 12);
         LinearLayout.LayoutParams segLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        segLp.setMargins(m, 0, m, MiuiUi.dp(context, 8));
+        segLp.setMargins(m, 0, m, MiuiUi.dp(context, 6));
         segRow.setLayoutParams(segLp);
 
         final String[] files = {"licenses.txt", "benchmark-notices.txt", "xiph-notices.txt"};
         final String[] titles = {"第三方库许可", "基准组件声明", "媒体素材署名"};
         final Button[] tabs = new Button[3];
+        final String[] currentFullText = {""};
+        final int[] loadToken = {0};
 
-        LinearLayout textCard = MiuiUi.cardGroup(context);
-        final TextView contentView = new TextView(context);
-        contentView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        contentView.setTypeface(Typeface.MONOSPACE);
-        contentView.setTextColor(MiuiUi.TEXT_PRIMARY);
-        int pad = MiuiUi.dp(context, 14);
-        contentView.setPadding(pad, pad, pad, pad);
-        PlatformCompat.selectable(contentView);
-        textCard.addView(contentView);
+        // Compact hint + copy full document bar
+        LinearLayout metaRow = new LinearLayout(context);
+        metaRow.setOrientation(LinearLayout.HORIZONTAL);
+        metaRow.setBaselineAligned(false);
+        metaRow.setGravity(Gravity.CENTER_VERTICAL);
+        metaRow.setPadding(MiuiUi.dp(context, 14), 0, MiuiUi.dp(context, 14), MiuiUi.dp(context, 6));
 
+        final TextView hintTv = new TextView(context);
+        hintTv.setText("长按任意段落可复制该段");
+        hintTv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f);
+        hintTv.setTextColor(MiuiUi.TEXT_MUTED);
+        metaRow.addView(hintTv, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+        TextView copyAllChip = MiuiUi.actionChip(context, "复制全文", false, () -> {
+            if (currentFullText[0] != null && currentFullText[0].length() > 0) {
+                copyTextFallback(context, nav, "协议全文", currentFullText[0]);
+            }
+        });
+        metaRow.addView(copyAllChip);
+
+        final ChunkedTextAdapter adapter = new ChunkedTextAdapter(context, 12f);
+        ListView listView = createChunkedListView(context, adapter, nav, "协议片段");
+
+        FrameLayout listCard = new FrameLayout(context);
+        MiuiUi.setBackground(listCard, MiuiUi.cardDrawable(context));
+        int border = MiuiUi.dp(context, 1);
+        listCard.setPadding(border, border, border, border);
+        listCard.addView(listView, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f);
+        cardLp.setMargins(m, 0, m, 0);
+
+        final View.OnClickListener[] listeners = new View.OnClickListener[3];
         for (int i = 0; i < 3; i++) {
             final int index = i;
             Button b = new Button(context);
@@ -920,35 +973,82 @@ final class MiuiSubPages {
             b.setPadding(MiuiUi.dp(context, 6), vPad, MiuiUi.dp(context, 6), vPad);
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
             if (i > 0) lp.leftMargin = MiuiUi.dp(context, 6);
-            b.setOnClickListener(v -> {
+            listeners[i] = v -> {
                 for (int j = 0; j < 3; j++) {
                     boolean sel = (j == index);
                     MiuiUi.setBackground(tabs[j], MiuiUi.segmentDrawable(context, sel));
                     tabs[j].setTextColor(sel ? Color.WHITE : MiuiUi.TEXT_PRIMARY);
                 }
-                contentView.setText(readAssetText(context, files[index]));
-            });
+                final int token = ++loadToken[0];
+                final String asset = files[index];
+                List<String> cachedChunks;
+                String cachedText;
+                synchronized (ASSET_CHUNK_CACHE) {
+                    cachedChunks = ASSET_CHUNK_CACHE.get(asset);
+                    cachedText = ASSET_TEXT_CACHE.get(asset);
+                }
+                if (cachedChunks != null && cachedText != null) {
+                    currentFullText[0] = cachedText;
+                    adapter.setChunks(cachedChunks);
+                    listView.setSelection(0);
+                    hintTv.setText("共 " + cachedChunks.size() + " 段 · 长按段落可复制");
+                    return;
+                }
+                currentFullText[0] = "";
+                adapter.setChunks(Collections.singletonList("正在加载 " + titles[index] + "..."));
+                hintTv.setText("正在读取文档...");
+                TEXT_EXECUTOR.execute(() -> {
+                    String text = readAssetText(context, asset);
+                    List<String> chunks = chunkText(text);
+                    synchronized (ASSET_CHUNK_CACHE) {
+                        ASSET_TEXT_CACHE.put(asset, text);
+                        ASSET_CHUNK_CACHE.put(asset, chunks);
+                    }
+                    MAIN_HANDLER.post(() -> {
+                        if (loadToken[0] != token) return;
+                        currentFullText[0] = text;
+                        adapter.setChunks(chunks);
+                        listView.setSelection(0);
+                        hintTv.setText("共 " + chunks.size() + " 段 · 长按段落可复制");
+                    });
+                });
+            };
+            b.setOnClickListener(listeners[i]);
             tabs[i] = b;
             segRow.addView(b, lp);
         }
 
-        // Default select first segment
-        MiuiUi.setBackground(tabs[0], MiuiUi.segmentDrawable(context, true));
-        tabs[0].setTextColor(Color.WHITE);
-        for (int j = 1; j < 3; j++) {
-            MiuiUi.setBackground(tabs[j], MiuiUi.segmentDrawable(context, false));
-            tabs[j].setTextColor(MiuiUi.TEXT_PRIMARY);
-        }
-        contentView.setText(readAssetText(context, files[0]));
+        root.addView(segRow);
+        root.addView(metaRow);
+        root.addView(listCard, cardLp);
 
-        col.addView(segRow);
-        col.addView(textCard);
-        return wrapScroll(context, col);
+        listeners[0].onClick(tabs[0]);
+        return root;
+    }
+
+    static void prewarmLicenseAssets(final Context context) {
+        final Context app = context.getApplicationContext();
+        final String[] files = {"licenses.txt", "benchmark-notices.txt", "xiph-notices.txt"};
+        TEXT_EXECUTOR.execute(() -> {
+            for (String asset : files) {
+                synchronized (ASSET_CHUNK_CACHE) {
+                    if (ASSET_CHUNK_CACHE.containsKey(asset)) continue;
+                }
+                String text = readAssetText(app, asset);
+                List<String> chunks = chunkText(text);
+                synchronized (ASSET_CHUNK_CACHE) {
+                    if (!ASSET_CHUNK_CACHE.containsKey(asset)) {
+                        ASSET_TEXT_CACHE.put(asset, text);
+                        ASSET_CHUNK_CACHE.put(asset, chunks);
+                    }
+                }
+            }
+        });
     }
 
     private static String readAssetText(Context context, String assetName) {
         StringBuilder out = new StringBuilder();
-        char[] buffer = new char[2048];
+        char[] buffer = new char[4096];
         try (Reader reader = new InputStreamReader(context.getAssets().open(assetName), "UTF-8")) {
             int n;
             while ((n = reader.read(buffer)) != -1) out.append(buffer, 0, n);
@@ -958,43 +1058,213 @@ final class MiuiSubPages {
         }
     }
 
-    /** Sub-page G: Clean reader for raw formatted text report + copy actions. */
-    static View buildRawReportPage(Context context, final String formattedText, final String jsonText, Navigator nav) {
-        LinearLayout col = pageColumn(context);
+    /** Sub-page G (lazy report): Virtualized reader that formats report text off the UI thread. */
+    static View buildRawReportPage(Context context, final JSONObject report, final Navigator nav) {
+        final String[] cachedText = {null};
+        final ChunkedTextAdapter adapter = new ChunkedTextAdapter(context, 12.5f);
+        adapter.setChunks(Collections.singletonList("正在生成原始文本报告..."));
+        View page = buildRawReportListContainer(context, adapter,
+                () -> {
+                    if (cachedText[0] != null) {
+                        copyTextFallback(context, nav, "报告文本", cachedText[0]);
+                    } else {
+                        TEXT_EXECUTOR.execute(() -> {
+                            String txt = formatReportSafe(report);
+                            cachedText[0] = txt;
+                            MAIN_HANDLER.post(() -> copyTextFallback(context, nav, "报告文本", txt));
+                        });
+                    }
+                },
+                () -> copyJsonAsync("结果 JSON", report, nav),
+                nav);
+
+        TEXT_EXECUTOR.execute(() -> {
+            String txt = formatReportSafe(report);
+            List<String> chunks = chunkText(txt.length() > 0 ? txt : "暂无文本内容");
+            MAIN_HANDLER.post(() -> {
+                cachedText[0] = txt;
+                adapter.setChunks(chunks);
+            });
+        });
+        return page;
+    }
+
+    private static View buildRawReportListContainer(Context context, ChunkedTextAdapter adapter,
+                                                    Runnable copyTextAction, Runnable copyJsonAction, Navigator nav) {
+        LinearLayout root = new LinearLayout(context);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(0, MiuiUi.dp(context, 6), 0, MiuiUi.dp(context, 10));
 
         LinearLayout bar = new LinearLayout(context);
         bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setBaselineAligned(false);
         int m = MiuiUi.dp(context, 12);
         LinearLayout.LayoutParams barLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        barLp.setMargins(m, MiuiUi.dp(context, 6), m, MiuiUi.dp(context, 8));
+        barLp.setMargins(m, 0, m, MiuiUi.dp(context, 8));
         bar.setLayoutParams(barLp);
 
-        Button copyTextBtn = MiuiUi.styledButton(context, "复制报告文本", false, false,
-                () -> nav.copyText("报告文本", formattedText != null ? formattedText : ""));
+        Button copyTextBtn = MiuiUi.styledButton(context, "复制报告文本", copyJsonAction == null, false, copyTextAction);
         bar.addView(copyTextBtn, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
 
-        if (jsonText != null && jsonText.length() > 0) {
-            Button copyJsonBtn = MiuiUi.styledButton(context, "导出 JSON", true, false,
-                    () -> nav.copyText("结果 JSON", jsonText));
+        if (copyJsonAction != null) {
+            Button copyJsonBtn = MiuiUi.styledButton(context, "导出 JSON", true, false, copyJsonAction);
             LinearLayout.LayoutParams jLp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
             jLp.leftMargin = MiuiUi.dp(context, 8);
             bar.addView(copyJsonBtn, jLp);
         }
-        col.addView(bar);
+        root.addView(bar);
 
-        LinearLayout card = MiuiUi.cardGroup(context);
-        TextView tv = new TextView(context);
-        tv.setText(formattedText != null && formattedText.length() > 0 ? formattedText : "暂无文本内容");
-        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f);
-        tv.setTypeface(Typeface.MONOSPACE);
-        tv.setTextColor(MiuiUi.TEXT_PRIMARY);
-        int pad = MiuiUi.dp(context, 14);
-        tv.setPadding(pad, pad, pad, pad);
-        PlatformCompat.selectable(tv);
-        card.addView(tv);
-        col.addView(card);
+        ListView listView = createChunkedListView(context, adapter, nav, "报告片段");
+        FrameLayout card = new FrameLayout(context);
+        MiuiUi.setBackground(card, MiuiUi.cardDrawable(context));
+        int border = MiuiUi.dp(context, 1);
+        card.setPadding(border, border, border, border);
+        card.addView(listView, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f);
+        cardLp.setMargins(m, 0, m, 0);
+        root.addView(card, cardLp);
+        return root;
+    }
 
-        return wrapScroll(context, col);
+    private static ListView createChunkedListView(final Context context, final ChunkedTextAdapter adapter,
+                                                  final Navigator nav, final String copyLabel) {
+        ListView listView = new ListView(context);
+        listView.setAdapter(adapter);
+        listView.setDivider(null);
+        listView.setDividerHeight(0);
+        listView.setCacheColorHint(MiuiUi.BG_CARD);
+        listView.setBackgroundColor(MiuiUi.BG_CARD);
+        listView.setVerticalFadingEdgeEnabled(false);
+        listView.setScrollingCacheEnabled(false);
+        listView.setSelector(android.R.color.transparent);
+        listView.setFastScrollEnabled(true);
+        listView.setOnItemLongClickListener((parent, view, position, id) -> {
+            String chunk = adapter.getItem(position);
+            if (chunk != null && chunk.length() > 0) {
+                copyTextFallback(context, nav, copyLabel, chunk);
+                return true;
+            }
+            return false;
+        });
+        return listView;
+    }
+
+    private static final class ChunkedTextAdapter extends BaseAdapter {
+        private final Context context;
+        private final float textSizeSp;
+        private final int hPad, vPad, edgePad;
+        private List<String> chunks = Collections.emptyList();
+
+        ChunkedTextAdapter(Context context, float textSizeSp) {
+            this.context = context;
+            this.textSizeSp = textSizeSp;
+            this.hPad = MiuiUi.dp(context, 14);
+            this.vPad = MiuiUi.dp(context, 4);
+            this.edgePad = MiuiUi.dp(context, 12);
+        }
+
+        void setChunks(List<String> items) {
+            this.chunks = items != null ? items : Collections.<String>emptyList();
+            notifyDataSetChanged();
+        }
+
+        @Override public int getCount() { return chunks.size(); }
+        @Override public String getItem(int position) { return chunks.get(position); }
+        @Override public long getItemId(int position) { return position; }
+
+        @Override
+        public View getView(int position, View convertView, ViewGroup parent) {
+            TextView tv;
+            if (convertView instanceof TextView) {
+                tv = (TextView) convertView;
+            } else {
+                tv = new TextView(context);
+                tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, textSizeSp);
+                tv.setTypeface(Typeface.MONOSPACE);
+                tv.setTextColor(MiuiUi.TEXT_PRIMARY);
+                tv.setLineSpacing(MiuiUi.dp(context, 1.5f), 1f);
+            }
+            int top = position == 0 ? edgePad : vPad;
+            int bottom = position == chunks.size() - 1 ? edgePad : vPad;
+            tv.setPadding(hPad, top, hPad, bottom);
+            tv.setText(chunks.get(position));
+            return tv;
+        }
+    }
+
+    private static List<String> chunkText(String text) {
+        ArrayList<String> out = new ArrayList<>();
+        if (text == null || text.length() == 0) return out;
+        StringBuilder block = new StringBuilder();
+        int lineCount = 0;
+        int len = text.length();
+        int start = 0;
+        while (start < len) {
+            int nl = text.indexOf('\n', start);
+            int end = nl < 0 ? len : nl;
+            String line = text.substring(start, end);
+            start = nl < 0 ? len : nl + 1;
+
+            if (line.length() > 700) {
+                if (block.length() > 0) {
+                    out.add(block.toString());
+                    block.setLength(0);
+                    lineCount = 0;
+                }
+                for (int off = 0; off < line.length(); off += 600) {
+                    out.add(line.substring(off, Math.min(line.length(), off + 600)));
+                }
+                continue;
+            }
+
+            if (lineCount > 0) block.append('\n');
+            block.append(line);
+            lineCount++;
+
+            boolean naturalBreak = line.trim().length() == 0 && lineCount >= 7;
+            if (naturalBreak || lineCount >= 12 || block.length() >= 900) {
+                out.add(block.toString());
+                block.setLength(0);
+                lineCount = 0;
+            }
+        }
+        if (block.length() > 0) out.add(block.toString());
+        return out;
+    }
+
+    private static String formatReportSafe(JSONObject report) {
+        if (report == null) return "";
+        try {
+            return BenchmarkReport.format(report);
+        } catch (JSONException e) {
+            return e.toString();
+        }
+    }
+
+    private static void copyJsonAsync(final String label, final JSONObject report, final Navigator nav) {
+        if (report == null || nav == null) return;
+        TEXT_EXECUTOR.execute(() -> {
+            String json;
+            try {
+                json = report.toString(2);
+            } catch (JSONException e) {
+                json = report.toString();
+            }
+            final String finalJson = json;
+            MAIN_HANDLER.post(() -> nav.copyText(label, finalJson));
+        });
+    }
+
+    private static void copyTextFallback(Context context, Navigator nav, String label, String content) {
+        if (content == null || content.length() == 0) return;
+        if (nav != null) {
+            nav.copyText(label, content);
+            return;
+        }
+        ClipboardManager clipboard = (ClipboardManager) context.getSystemService(Context.CLIPBOARD_SERVICE);
+        if (clipboard != null) clipboard.setText(content);
     }
 }
