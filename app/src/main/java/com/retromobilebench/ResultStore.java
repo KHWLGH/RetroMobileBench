@@ -98,4 +98,28 @@ class ResultStore extends SQLiteOpenHelper {
         }
         return reports;
     }
+
+    JSONArray allRuns() throws JSONException {
+        JSONArray reports = new JSONArray();
+        Cursor cursor = getReadableDatabase().query("runs", new String[]{"_id", "report_json"},
+                null, null, null, null, "_id DESC");
+        try {
+            while (cursor.moveToNext()) {
+                JSONObject report = new JSONObject(cursor.getString(1));
+                report.put("id", cursor.getLong(0));
+                reports.put(report);
+            }
+        } finally {
+            cursor.close();
+        }
+        return reports;
+    }
+
+    boolean deleteById(long id) {
+        return getWritableDatabase().delete("runs", "_id = ?", new String[]{Long.toString(id)}) > 0;
+    }
+
+    int deleteAll() {
+        return getWritableDatabase().delete("runs", null, null);
+    }
 }

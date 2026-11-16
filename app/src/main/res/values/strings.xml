@@ -1,15 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">RetroMobileBench</string>
-    <string name="device_heading">RetroMobileBench %1$s\n%2$s %3$s\nAndroid %4$s / API %5$d</string>
-    <string name="run_all">依次运行全部测试（单轮）</string>
-    <string name="suite_single">运行所选测试（单轮）</string>
-    <string name="suite_full">运行所选测试（三轮中位数）</string>
-    <string name="import_gpu">导入 GPU 场景数据包</string>
-    <string name="licenses">开源许可</string>
     <string name="cancel_run">取消当前测试</string>
-    <string name="history">本地历史（最近 20 次）</string>
-    <string name="probe">设备探针</string>
-    <string name="copy_json">复制结果 JSON</string>
     <string name="copied">已复制</string>
+    <string name="console_subtitle_ready">15 项固定离线基准 · 不生成虚构总分</string>
+    <string name="console_subtitle_idle">点击「开始测试」按顺序执行 15 项测试</string>
+    <string name="history_count">全部测试记录 (%1$d)</string>
 </resources>

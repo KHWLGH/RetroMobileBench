@@ -13,8 +13,6 @@ import org.json.JSONObject;
 
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.Reader;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -81,7 +79,7 @@ final class BenchmarkRunner {
                 cleanupSqliteFiles(context.getCacheDir());
                 GpuDataPack.cleanup(context);
                 store.recoverInterrupted();
-                showHistory(1);
+                showHistory();
             } catch (Exception e) {
                 publish(false, "读取记录失败", e.toString(), "");
             }
@@ -103,8 +101,6 @@ final class BenchmarkRunner {
     void closeAfterChecks() { worker.shutdown(); store.close(); }
 
     void startStorage(boolean full) { start(BenchmarkSuite.STORAGE, full); }
-
-    void startCpu(boolean full) { start(BenchmarkSuite.CPU, full); }
 
     void start(BenchmarkSuite suite, boolean full) {
         if (state.busy || refuseUnsafeRestart()) return;
@@ -192,25 +188,6 @@ final class BenchmarkRunner {
     static void surfaceInterrupted() { if (instance != null && instance.isBusy()) instance.interrupt(); }
     void interrupt() { interrupted = true; cancel(); }
 
-    void licenses() {
-        if (state.busy) return;
-        update(new State(true, "正在读取开源许可", state.text, ""));
-        worker.execute(() -> {
-            try {
-                StringBuilder text = new StringBuilder();
-                char[] buffer = new char[2048];
-                for (String asset : new String[]{"licenses.txt", "benchmark-notices.txt", "xiph-notices.txt"}) {
-                    try (Reader reader = new InputStreamReader(context.getAssets().open(asset), "UTF-8")) {
-                        int count;
-                        while ((count = reader.read(buffer)) != -1) text.append(buffer, 0, count);
-                    }
-                    text.append("\n\n");
-                }
-                publish(false, "开源许可", text.toString(), "");
-            } catch (Exception e) { publish(false, "读取许可失败", e.toString(), ""); }
-        });
-    }
-
     void cancel() {
         if (!cancelRequested) cancelRequestedElapsed = SystemClock.elapsedRealtime();
         cancelRequested = true;
@@ -234,41 +211,64 @@ final class BenchmarkRunner {
         }
     }
 
-    void importGpu(android.net.Uri uri) {
-        if (state.busy) return;
-        cancelRequested = false;
-        update(new State(true, "正在校验并导入 GPU 数据", "可取消；原有数据包保留到新包校验完成。", ""));
-        worker.execute(() -> {
-            try (java.io.InputStream input = context.getContentResolver().openInputStream(uri)) {
-                if (input == null) throw new IOException("无法读取所选文件");
-                File installed = GpuDataPack.install(new File(context.getFilesDir(), "gpu-packs"), input, () -> cancelRequested);
-                publish(false, "GPU 数据导入完成", GpuDataPack.manifest(installed).getJSONArray("tests").toString(), "");
-            } catch (Exception error) { publish(false, cancelRequested ? "导入已取消" : "导入失败", error.toString(), ""); }
-        });
-    }
+    interface DeviceCallback { void onResult(JSONObject device, String probeText, String error); }
+    interface HistoryCallback { void onResult(JSONArray history, String error); }
 
-    void history() {
+    void loadDeviceSnapshot(boolean includeNative, DeviceCallback callback) {
         if (state.busy) return;
-        update(new State(true, "正在读取历史", state.text, state.exportJson));
-        worker.execute(() -> {
-            try { showHistory(20); }
-            catch (Exception e) { publish(false, "读取记录失败", e.toString(), ""); }
-        });
-    }
-
-    void probe() {
-        if (state.busy) return;
-        update(new State(true, "正在采集设备信息", state.text, ""));
         worker.execute(() -> {
             try {
-                JSONObject device = CpuTopology.enrich(DeviceSnapshot.collect(context));
-                nativeReady = NativeLoader.load() != null;
-                String text = device.toString(2) + "\n\n";
-                text += nativeReady ? NativeBridge.probeReport() : String.valueOf(NativeLoader.error());
-                publish(false, "设备探针完成", text, device.toString(2));
-                Log.i("RMB", "PROBE_DONE");
+                JSONObject device = CpuTopology.enrich(DeviceSnapshot.collect(context, includeNative), includeNative);
+                device.put("ui_extra", DeviceHardwareExtra.collect(context));
+                String text = "";
+                if (includeNative) {
+                    nativeReady = NativeLoader.load() != null;
+                    text = nativeReady ? NativeBridge.probeReport() : String.valueOf(NativeLoader.error());
+                }
+                final String probeText = text;
+                main.post(() -> callback.onResult(device, probeText, null));
             } catch (Exception | LinkageError | OutOfMemoryError e) {
-                publish(false, "设备探针失败", e.toString(), "");
+                main.post(() -> callback.onResult(null, null, e.toString()));
+            }
+        });
+    }
+
+    void loadAllHistory(HistoryCallback callback) {
+        if (state.busy) return;
+        worker.execute(() -> {
+            try {
+                JSONArray list = store.allRuns();
+                main.post(() -> callback.onResult(list, null));
+            } catch (Exception e) {
+                main.post(() -> callback.onResult(null, e.toString()));
+            }
+        });
+    }
+
+    void deleteHistoryRun(long id, HistoryCallback callback) {
+        if (state.busy) return;
+        worker.execute(() -> {
+            try {
+                store.deleteById(id);
+                JSONArray list = store.allRuns();
+                showHistory();
+                main.post(() -> callback.onResult(list, null));
+            } catch (Exception e) {
+                main.post(() -> callback.onResult(null, e.toString()));
+            }
+        });
+    }
+
+    void clearAllHistory(HistoryCallback callback) {
+        if (state.busy) return;
+        worker.execute(() -> {
+            try {
+                store.deleteAll();
+                JSONArray list = store.allRuns();
+                showHistory();
+                main.post(() -> callback.onResult(list, null));
+            } catch (Exception e) {
+                main.post(() -> callback.onResult(null, e.toString()));
             }
         });
     }
@@ -443,8 +443,8 @@ final class BenchmarkRunner {
         return null;
     }
 
-    private void showHistory(int limit) throws JSONException {
-        JSONArray reports = store.latest(limit);
+    private void showHistory() throws JSONException {
+        JSONArray reports = store.latest(1);
         StringBuilder text = new StringBuilder();
         for (int i = 0; i < reports.length(); i++) {
             if (i > 0) text.append("\n────────────────\n\n");

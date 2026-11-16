@@ -20,8 +20,12 @@ final class CpuTopology {
             return count;
         } catch (RuntimeException ignored) { return 0; }
     }
-    static JSONObject enrich(JSONObject device) throws Exception {
-        device.put("configured_processors", NativeBridge.configuredProcessors());
+    static JSONObject enrich(JSONObject device) throws Exception { return enrich(device, true); }
+
+    static JSONObject enrich(JSONObject device, boolean includeNative) throws Exception {
+        if (includeNative) {
+            device.put("configured_processors", NativeBridge.configuredProcessors());
+        }
         device.put("cpu_present", line("/sys/devices/system/cpu/present"));
         device.put("cpu_possible", line("/sys/devices/system/cpu/possible"));
         java.io.File[] directories = new java.io.File("/sys/devices/system/cpu").listFiles(
