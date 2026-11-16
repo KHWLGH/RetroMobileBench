@@ -24,7 +24,7 @@ import org.json.JSONObject;
 
 import java.io.InputStreamReader;
 import java.io.Reader;
-import java.text.DateFormat;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
@@ -51,8 +51,13 @@ final class MiuiSubPages {
     private static final Handler MAIN_HANDLER = new Handler(Looper.getMainLooper());
     private static final HashMap<String, String> ASSET_TEXT_CACHE = new HashMap<>();
     private static final HashMap<String, List<String>> ASSET_CHUNK_CACHE = new HashMap<>();
+    private static final SimpleDateFormat DATE_TIME_FMT = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US);
 
     private MiuiSubPages() { }
+
+    private static synchronized String formatDateTime(long ms) {
+        return DATE_TIME_FMT.format(new Date(ms));
+    }
 
     static ScrollView wrapScroll(Context context, View child) {
         ScrollView scroll = new ScrollView(context);
@@ -279,7 +284,7 @@ final class MiuiSubPages {
             MiuiUi.addDivider(context, summaryCard);
             long started = report.optLong("started_ms");
             summaryCard.addView(MiuiUi.kvRow(context, "测试时间", null,
-                    DateFormat.getDateTimeInstance().format(new Date(started)), null, 0));
+                    formatDateTime(started), null, 0));
         }
         long wallMs = report.optLong("wall_ms",
                 report.optLong("ended_ms", 0) - report.optLong("started_ms", 0));
@@ -453,7 +458,7 @@ final class MiuiSubPages {
             long started = report.optLong("started_ms");
             long ended = report.optLong("ended_ms", started);
             overview.addView(MiuiUi.kvRow(context, "开始时间", null,
-                    DateFormat.getDateTimeInstance().format(new Date(started)), null, 0));
+                    formatDateTime(started), null, 0));
             if (ended > started) {
                 MiuiUi.addDivider(context, overview);
                 overview.addView(MiuiUi.kvRow(context, "耗时", null,
