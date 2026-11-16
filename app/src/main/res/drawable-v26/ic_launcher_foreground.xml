@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Soft drop shadow behind phone -->
+    <path
+        android:fillColor="#386B2200"
+        android:pathData="M41.2,28.8 L66.8,28.8 A5.44,5.44 0 0,1 72.24,34.24 L72.24,76.78 A5.44,5.44 0 0,1 66.8,82.22 L41.2,82.22 A5.44,5.44 0 0,1 35.76,76.78 L35.76,34.24 A5.44,5.44 0 0,1 41.2,28.8 Z" />
+
+    <!-- Retro phone body -->
+    <path android:pathData="M41.2,27.28 L66.8,27.28 A5.44,5.44 0 0,1 72.24,32.72 L72.24,75.28 A5.44,5.44 0 0,1 66.8,80.72 L41.2,80.72 A5.44,5.44 0 0,1 35.76,75.28 L35.76,32.72 A5.44,5.44 0 0,1 41.2,27.28 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:endX="54"
+                android:endY="80.72"
+                android:startX="54"
+                android:startY="27.28"
+                android:type="linear">
+                <item
+                    android:color="#FF353940"
+                    android:offset="0" />
+                <item
+                    android:color="#FF1D2024"
+                    android:offset="1" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Earpiece slit -->
+    <path
+        android:fillColor="#FF59606B"
+        android:pathData="M50.16,30.8 L57.84,30.8 A0.64,0.64 0 0,1 58.48,31.44 L58.48,31.44 A0.64,0.64 0 0,1 57.84,32.08 L50.16,32.08 A0.64,0.64 0 0,1 49.52,31.44 L49.52,31.44 A0.64,0.64 0 0,1 50.16,30.8 Z" />
+
+    <!-- High-contrast screen -->
+    <path
+        android:fillColor="#FF121418"
+        android:pathData="M41.52,34.64 L66.48,34.64 A2.24,2.24 0 0,1 68.72,36.88 L68.72,69.52 A2.24,2.24 0 0,1 66.48,71.76 L41.52,71.76 A2.24,2.24 0 0,1 39.28,69.52 L39.28,36.88 A2.24,2.24 0 0,1 41.52,34.64 Z" />
+
+    <!-- Bar 1 (Green) -->
+    <path
+        android:fillColor="#FF34D399"
+        android:pathData="M43.76,56.08 L47.28,56.08 A1.28,1.28 0 0,1 48.56,57.36 L48.56,67.28 A1.28,1.28 0 0,1 47.28,68.56 L43.76,68.56 A1.28,1.28 0 0,1 42.48,67.28 L42.48,57.36 A1.28,1.28 0 0,1 43.76,56.08 Z" />
+
+    <!-- Bar 2 (Amber) -->
+    <path
+        android:fillColor="#FFFBBF24"
+        android:pathData="M52.24,48.08 L55.76,48.08 A1.28,1.28 0 0,1 57.04,49.36 L57.04,67.28 A1.28,1.28 0 0,1 55.76,68.56 L52.24,68.56 A1.28,1.28 0 0,1 50.96,67.28 L50.96,49.36 A1.28,1.28 0 0,1 52.24,48.08 Z" />
+
+    <!-- Bar 3 (MIUI Orange) -->
+    <path
+        android:fillColor="#FFFF6700"
+        android:pathData="M60.72,38.80 L64.24,38.80 A1.28,1.28 0 0,1 65.52,40.08 L65.52,67.28 A1.28,1.28 0 0,1 64.24,68.56 L60.72,68.56 A1.28,1.28 0 0,1 59.44,67.28 L59.44,40.08 A1.28,1.28 0 0,1 60.72,38.80 Z" />
+
+    <!-- Classic home button pill -->
+    <path
+        android:fillColor="#FF59606B"
+        android:pathData="M51.60,74.96 L56.40,74.96 A1.12,1.12 0 0,1 57.52,76.08 L57.52,76.08 A1.12,1.12 0 0,1 56.40,77.20 L51.60,77.20 A1.12,1.12 0 0,1 50.48,76.08 L50.48,76.08 A1.12,1.12 0 0,1 51.60,74.96 Z" />
+</vector>
