@@ -1,16 +1,20 @@
-RetroMobileBench 开源组件
+RetroMobileBench 开源组件与署名声明
 
-媒体与加密：Mbed TLS 2.28.10（Apache-2.0）、libjpeg-turbo 2.1.5.1（IJG/BSD/zlib）、libpng 1.6.43（libpng-2.0）、FFmpeg 4.4.6（LGPL-2.1-or-later，禁用GPL/nonfree/网络/编码）。
-固定提交、完整原始许可、构建/替换及对应源码分发说明见后附通知。
-JPEG参考由固定同版标量djpeg生成；this software is based in part on the work of the Independent JPEG Group.
-视频与JPEG源于Sintel trailer，© Blender Foundation，CC BY 3.0：https://durian.blender.org/sharing/ 。本应用对素材裁剪、缩放、重编码并去除音轨；PNG为生成的透明测试图。
-Zstd与完整STREAM四内核仅保留必要诊断/旧记录用途；正式内存阶段使用固定24MiB总工作集的STREAM Triad变体。
+多媒体与加密组件：
+- Mbed TLS 2.28.10（Apache-2.0）
+- libjpeg-turbo 2.1.5.1（IJG / BSD / zlib）
+- libpng 1.6.43（libpng-2.0）
+- FFmpeg 4.4.6（LGPL-2.1-or-later，仅启用必要本地解码器，禁用 GPL / nonfree / 网络 / 编码器）
 
+各组件的完整原始许可证文本、源码构建及 LGPL 动态库替换说明见「基准组件声明」页。
+JPEG 参考像素由同版本标量 djpeg 生成；This software is based in part on the work of the Independent JPEG Group.
+测试视频与 JPEG 素材源自 Sintel trailer（© Blender Foundation，CC BY 3.0：https://durian.blender.org/sharing/），经截取、缩放、重编码并移除音轨；PNG 为合成透明测试图。
+内存测试中的 Triad 采用共享固定 24 MiB 工作集的 STREAM 变体实现（Zstd 与完整四内核 STREAM 保留供开发诊断使用）。
 
+────────────────
 zlib 1.3.1 — https://github.com/madler/zlib
-固定提交：51b7f2abdade71cd9bb0e7a373ef2610ec6f9daf
-原始源码未修改。仅将内存压缩/解压部分编入原生库，使用 Z_PREFIX 隔离符号。
-CPU 测试数据和计时外壳由 RetroMobileBench 编写。
+锁定提交：51b7f2abdade71cd9bb0e7a373ef2610ec6f9daf
+核心源码未修改；仅将内存压缩/解压模块编入原生库，并通过 Z_PREFIX 隔离符号。
 
 Copyright notice:
 
@@ -37,8 +41,8 @@ Copyright notice:
 
 ────────────────
 Zstandard 1.5.7 — https://github.com/facebook/zstd
-固定提交：f8745da6ff1ad1e7bab384bd1f9d742439278e99
-源码未修改；选择 BSD 许可。只编译 codec，关闭汇编和 legacy 支持。
+锁定提交：f8745da6ff1ad1e7bab384bd1f9d742439278e99
+源码未修改，选用 BSD-3-Clause 许可；仅编译核心编解码模块，关闭汇编与旧版格式支持。
 
 BSD License
 
@@ -73,7 +77,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ────────────────
 SQLite 3.53.1 — https://sqlite.org
-官方 amalgamation，源码未修改，用于固定版本事务跑分。
+使用官方 amalgamation 源码，用于独立数据库同步事务测试。
 SQLite 位于公有领域：https://sqlite.org/copyright.html
 
 The author disclaims copyright to this source code. In place of
@@ -85,37 +89,35 @@ The author disclaims copyright to this source code. In place of
 
 ────────────────
 CoreMark® 1.0 — https://github.com/eembc/coremark
-固定提交：1f483d5b8316753a742cbf5590caf5bd0a4e4777
+锁定提交：1f483d5b8316753a742cbf5590caf5bd0a4e4777
 Copyright 2018 Embedded Microprocessor Benchmark Consortium (EEMBC).
 CoreMark® is a registered trademark of EEMBC.
-核心源码未修改；自定义 core_portme Android 端口。完整 Apache 2.0 许可和商标使用约定见后附原文件。
-只有两组种子都校验通过且各正式计时不少于 10 秒，才报告成绩。
+核心源码未修改，仅定制 core_portme Android 移植层。遵循两组种子校验与至少 10 秒正式计时规则；完整 Apache 2.0 许可与商标约定见后附原文件。
 
+────────────────
 SciMark 2.0 (C) — https://math.nist.gov/scimark2/
 Authors: Roldan Pozo and Bruce Miller, National Institute of Standards and Technology.
-NIST public-domain numerical benchmark. 原始包 scimark2c.zip。
-RetroMobileBench 修改 Random.c / MonteCarlo.c 的内存不足处理；计算内核不变。
-独立墙钟计时、预热和校验驱动；展示内核 MFLOPS，不宣称是原版 SciMark 综合成绩。
+NIST 公有领域数值计算基准（原始包 scimark2c.zip）。
+本地补充了 Random.c / MonteCarlo.c 的内存分配失败检查，核心计算逻辑不变；对各内核进行独立计时并展示 MFLOPS。
 
+────────────────
 TinyMemBench — https://github.com/ssvb/tinymembench
-固定提交：a2cf6d7e382e3aea1eb39173174d9fa28cad15f3
+锁定提交：a2cf6d7e382e3aea1eb39173174d9fa28cad15f3
 Copyright © 2011 Siarhei Siamashka <siarhei.siamashka@gmail.com>.
-仅使用原版 util.c 的 C 复制/填充内核；独立计时协议。随机依赖延迟由本项目实现。
-完整 MIT 许可见后附 util.h 文件头。
+使用 util.c 中的 C 语言内存复制与填充内核；随机指针追踪延迟由本项目实现。完整 MIT 许可见后附 util.h 文件头。
 
+────────────────
 STREAM — https://www.cs.virginia.edu/stream/
 参考源码镜像：https://github.com/jeffhammond/STREAM
-固定提交：6703f7504a38a8da96b353cadafa64d3c2d7a2d3
+锁定提交：6703f7504a38a8da96b353cadafa64d3c2d7a2d3
 Copyright 1991-2003: John D. McCalpin.
 Based on a variant of the STREAM benchmark code.
-RMB 改用pthread与持续重复计时。正式Triad变体的1/N线程均共享总24MiB工作集，按缓存行边界分区，以元素数×24字节/墙钟时间计算MB/s；旧诊断版每线程固定工作集。均可能受缓存影响，不是标准STREAM成绩或纯DRAM峰值。
-完整许可和成绩发布规则见后附 LICENSE.txt。
+采用 pthread 多线程与固定工作集持续计时：单线程与多线程共享固定 24 MiB 总工作集，按缓存行边界划分无重叠区间，以完成元素数 × 24 字节 / 耗时计算带宽（MB/s）。完整许可声明见后附 LICENSE.txt。
 
 ────────────────
 GFXBench ES2 — https://github.com/Kishonti-Opensource/gfxbench
-固定提交：89aa956f43836798d1eaaab8ec32d3dc8b02eead
+锁定提交：89aa956f43836798d1eaaab8ec32d3dc8b02eead
 Copyright (c) 2005-2025 Kishonti Ltd.
-代码 BSD 3-Clause；素材 CC BY 4.0：https://creativecommons.org/licenses/by/4.0/
-修改：ES2 子集构建、Android 4.1 EGL 宿主、静态工厂、独立进程；素材只保留 ETC1、去掉画质参考图，ui.fs 增加 mediump 回退。
-结果来自本项目移植版；未获得 Kishonti 的认证或背书。
-内含 libpng、zlib、TinyXML、TinyXML2、libetc1 及 Xiph Ogg/Theora 代码，完整通知见后附。
+引擎代码采用 BSD 3-Clause 许可；场景素材采用 CC BY 4.0 许可（https://creativecommons.org/licenses/by/4.0/）。
+本地适配：提取 OpenGL ES 2.0 场景子集，编写 Android EGL 宿主与独立子进程调度；素材仅保留 ETC1 纹理、移除画质参考图，并为 ui.fs 补充片元精度回退。
+内含 libpng、zlib、TinyXML、TinyXML2、libetc1 及 Xiph Ogg/Theora 组件，完整声明见后附文档。

@@ -412,18 +412,18 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener, 
     private ScrollView buildMoreTab() {
         LinearLayout col = MiuiSubPages.pageColumn(this);
 
-        col.addView(MiuiUi.sectionTitle(this, "测试与协议"));
+        col.addView(MiuiUi.sectionTitle(this, "测试与流程"));
         LinearLayout group1 = MiuiUi.cardGroup(this);
-        group1.addView(MiuiUi.navRow(this, "固定测试套件", "15 项串行基准与采样轮次",
-                BenchmarkSuite.SESSION_VERSION, null, 0,
-                () -> openSubPage("固定测试套件", MiuiSubPages.buildSuiteProtocolPage(this))));
+        group1.addView(MiuiUi.navRow(this, "测试套件说明", "15 项串行基准测试与采样轮次",
+                "15 阶段", null, 0,
+                () -> openSubPage("测试套件说明", MiuiSubPages.buildSuiteProtocolPage(this))));
         col.addView(group1);
 
         col.addView(MiuiUi.sectionTitle(this, "版本与探针"));
         LinearLayout group2 = MiuiUi.cardGroup(this);
-        group2.addView(MiuiUi.navRow(this, "版本与构建身份", "工具链与比较组隔离规则",
-                BuildConfig.VERSION_NAME, null, 0,
-                () -> openSubPage("版本与构建身份", MiuiSubPages.buildVersionPage(this, this))));
+        group2.addView(MiuiUi.navRow(this, "版本与构建信息", "应用版本、编译工具链与构建标识",
+                "v" + BuildConfig.VERSION_NAME, null, 0,
+                () -> openSubPage("版本与构建信息", MiuiSubPages.buildVersionPage(this, this))));
         MiuiUi.addDivider(this, group2);
         group2.addView(MiuiUi.navRow(this, "底层硬件探针", "CPU 核心、GL 扩展与 JNI 报告",
                 null, null, 0, this::openCpuProbeSubPage));
@@ -1009,7 +1009,7 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener, 
         String suiteVer = activeReport.optString("suite_version");
         boolean isSession = BenchmarkSuite.isSession(suiteVer);
         BenchmarkSuite singleSuite = isSession ? null : BenchmarkSuite.fromReport(activeReport);
-        String title = isSession ? "固定套件 (" + suiteVer + ")"
+        String title = isSession ? "完整测试套件"
                 : (singleSuite != null ? singleSuite.label : suiteVer);
         String status = activeReport.optString("status", "failed");
 
@@ -1090,7 +1090,7 @@ public class MainActivity extends Activity implements BenchmarkRunner.Listener, 
             String suiteVer = item.optString("suite_version");
             boolean isSession = BenchmarkSuite.isSession(suiteVer);
             BenchmarkSuite singleSuite = isSession ? null : BenchmarkSuite.fromReport(item);
-            final String title = isSession ? "固定套件 (" + suiteVer + ")"
+            final String title = isSession ? "完整测试套件"
                     : (singleSuite != null ? singleSuite.label : suiteVer);
 
             String status = item.optString("status", "failed");

@@ -146,29 +146,29 @@ final class BenchmarkReport {
         JSONObject device = report.optJSONObject("device");
         text.append(suite.label).append(" · ").append(statusLabel(report.optString("status"))).append('\n');
         text.append(DateFormat.getDateTimeInstance().format(new Date(report.getLong("started_ms")))).append('\n');
-        if (device != null) {
+        if ( device != null) {
             text.append(device.optString("manufacturer")).append(' ').append(device.optString("model"))
                     .append(" / Android ").append(device.optString("android_release"))
                     .append(" (API ").append(device.optInt("sdk")).append(")\n");
-            if (device.optBoolean("emulator")) text.append("模拟器：成绩仅用于验证流程，不能代表真机性能。\n");
+            if (device.optBoolean("emulator")) text.append("运行环境：模拟器（仅供功能验证参考）\n");
             if (suite != BenchmarkSuite.WEB) {
                 text.append("原生库：").append(device.optString("native_library", "加载失败")).append('\n');
-                text.append("构建：").append(device.optString("native_build_id", "旧版构建（独立比较组）")).append('\n');
+                text.append("构建标识：").append(device.optString("native_build_id", "未记录")).append('\n');
             }
         }
         String message = report.optString("message");
         if (message.length() != 0) text.append(message).append('\n');
         appendTemperature(text, report.optJSONObject("temperature"));
         if (suite == BenchmarkSuite.WEB) {
-            text.append("离线固定负载；每项 20 单元 × 3 轮；")
-                    .append("web-daily-v1".equals(report.optString("suite_version")) ? "旧版 320×160 CSS px" : "独立横向全屏视口")
+            text.append("离线合成负载；每项 20 单元 × 3 轮；")
+                    .append("web-daily-v1".equals(report.optString("suite_version")) ? "320×160 CSS px 视口" : "独立横向全屏视口")
                     .append("；12/18 px 字体。\n")
-                    .append("任务完成＋布局检查点，包含单元间调度；越低越好。不是 FPS、绘制或真实输入延迟。\n");
+                    .append("测量任务完成与布局检查点耗时（含单元间调度，越低越好）。\n");
             JSONArray rounds = report.optJSONArray("samples");
             if (rounds != null && rounds.length() > 0) {
                 JSONObject environment = rounds.getJSONObject(0);
                 text.append("Web 宿主：").append(environment.optString("host_build_id")).append('\n')
-                        .append("资源：").append(environment.optString("resource_sha256")).append('\n')
+                        .append("资源摘要：").append(environment.optString("resource_sha256")).append('\n')
                         .append("引擎：").append(environment.optString("provider")).append('\n')
                         .append("UA：").append(environment.optString("user_agent")).append('\n')
                         .append("CSS 视口：").append(environment.optInt("viewport_width")).append('×').append(environment.optInt("viewport_height")).append('\n')
@@ -188,7 +188,7 @@ final class BenchmarkReport {
                     text.append(String.format(Locale.US, "%s：%.2f MPix/s · %.2f ms/张%n", id, image.getDouble("mpixels_per_second"), image.getDouble("ms_per_image")));
                 }
             } else for (int i = 0; i < suite.metrics.length; i++) appendMetric(text, suite, median, i);
-            if (suite == BenchmarkSuite.MEMORY && median.has("single_triad_mbps")) text.append("Triad 总工作集 24 MiB；固定工作集 STREAM 变体，含缓存影响。\n");
+            if (suite == BenchmarkSuite.MEMORY && median.has("single_triad_mbps")) text.append("Triad 共享固定 24 MiB 工作集（STREAM 变体）。\n");
         }
         JSONArray samples = report.optJSONArray("samples");
         if (samples != null && !summaryOnly) {
@@ -207,7 +207,7 @@ final class BenchmarkReport {
                             text.append('\n');
                         } else for (String path : new String[]{"software", "system", "playback"}) {
                             JSONObject value = item.optJSONObject(path); if (value == null) continue;
-                            text.append("  ").append("software".equals(path) ? "固定软解" : "system".equals(path) ? "系统解码" : "实时播放").append("：")
+                            text.append("  ").append("software".equals(path) ? "软件解码" : "system".equals(path) ? "系统解码" : "实时播放").append("：")
                                     .append(statusLabel(value.optString("status")));
                             if (value.has("fps") && !value.isNull("fps")) text.append(String.format(Locale.US, " · %.2f fps", value.optDouble("fps")));
                             if (value.has("realtime")) text.append(value.optBoolean("realtime") ? " · 达到实时" : " · 低于实时");
@@ -218,50 +218,50 @@ final class BenchmarkReport {
                         }
                     }
                 } else if (suite == BenchmarkSuite.WEB) {
-                    text.append("独立工作进程 ").append(sample.optInt("worker_pid")).append("；回收确认 ").append(sample.optBoolean("cleanup_confirmed"))
-                            .append("；计时器 ").append(sample.optString("clock_source")).append(" / ").append(sample.optDouble("clock_resolution_ms")).append(" ms\n");
+                    text.append("独立工作进程 ").append(sample.optInt("worker_pid")).append("；进程已回收 ").append(sample.optBoolean("cleanup_confirmed"))
+                            .append("；计时源 ").append(sample.optString("clock_source")).append(" / ").append(sample.optDouble("clock_resolution_ms")).append(" ms\n");
                 } else if (suite == BenchmarkSuite.CRYPTO) {
                     text.append("Mbed TLS ").append(sample.optString("library_version")).append(" / AES-128-GCM 含认证 / SHA-256\n");
                 } else if (suite.isGpu()) {
                     text.append(sample.optString("vendor")).append(" / ").append(sample.optString("renderer")).append('\n')
                             .append(sample.optInt("render_width", 1920)).append(" × ").append(sample.optInt("render_height", 1080))
-                            .append(suite.gpuTest().endsWith("_off") ? " 离屏" : " 屏上提交（受刷新率限制）")
+                            .append(suite.gpuTest().endsWith("_off") ? " 离屏渲染" : " 屏上渲染（受刷新率与 VSync 影响）")
                             .append(" / ETC1；数据摘要 ").append(sample.optString("data_sha256")).append('\n');
-                    if (sample.optInt("diagnostic_duration_ms") > 0) text.append("短时诊断结果，不能与完整时长成绩比较。\n");
+                    if (sample.optInt("diagnostic_duration_ms") > 0) text.append("短时诊断运行（非正式时长）。\n");
                 } else if (suite.isCompression()) {
                     text.append(suite == BenchmarkSuite.CPU ? "zlib " : "zstd ").append(sample.optString("codec_version"))
                             .append(" / 压缩级别 ").append(sample.optInt("compression_level"))
                             .append(" / 数据 ").append(sample.optLong("input_bytes") / 1024).append(" KiB\n")
                             .append("并行阶段：").append(sample.optInt("parallel_threads")).append(" 线程；每项至少 ")
                             .append(sample.optInt("duration_ms")).append(" ms\n");
-                    if (sample.optInt("parallel_threads") == 1 && !sample.optString("test_version").endsWith("-v1")) text.append("单核配置，未重复运行并行阶段。\n");
+                    if (sample.optInt("parallel_threads") == 1 && !sample.optString("test_version").endsWith("-v1")) text.append("单核设备，自动省去重复的并行阶段。\n");
                 } else if (suite == BenchmarkSuite.MEMORY) {
-                    text.append("tinymembench C 内核 / RMB 协议；8 MiB 缓冲区，4 MiB 依赖访问\n")
-                            .append("复制计读＋写字节；延迟越低越好，包含循环及索引开销。\n");
+                    text.append("tinymembench C 内核；8 MiB 缓冲区复制/填充，4 MiB 指针追踪延迟\n")
+                            .append("内存复制按读＋写总字节计算；延迟越低越好。\n");
                     if (sample.has("triad_protocol")) text.append("Triad：1 + ").append(sample.optInt("parallel_threads"))
-                            .append(" 线程；总工作集固定 24 MiB，含缓存影响；STREAM 变体。\n");
+                            .append(" 线程；共享固定 24 MiB 工作集（STREAM 变体）。\n");
                 } else if (suite == BenchmarkSuite.STREAM) {
-                    text.append("基于 STREAM 变体的结果 / ").append(sample.optInt("threads"))
-                            .append(" 线程；每线程 3 × 2 MiB；含缓存影响\n");
+                    text.append("STREAM 变体 / ").append(sample.optInt("threads"))
+                            .append(" 线程；每线程 3 × 2 MiB 数组\n");
                 } else if (suite == BenchmarkSuite.SCIMARK) {
                     text.append("NIST SciMark 2.0 内核 / 单线程 / 小数据集\n")
-                            .append("独立 RMB 计时协议；每项至少 ").append(sample.optInt("duration_ms")).append(" ms\n");
+                            .append("各内核独立计时；每项至少 ").append(sample.optInt("duration_ms")).append(" ms\n");
                 } else if (suite == BenchmarkSuite.COREMARK) {
-                    text.append("2000 字节 / 上游双种子校验 / 每段至少 10 秒\n")
+                    text.append("2000 字节工作区 / 双种子校验 / 每段至少 10 秒\n")
                             .append(sample.optString("compiler_version")).append('\n')
                             .append(sample.optString("compiler_flags")).append('\n')
                             .append("栈内存；PThreads / 并行线程数：").append(sample.optInt("parallel_threads")).append('\n')
-                            .append("CoreMark® 是 EEMBC 的注册商标；完整校验输出见 JSON。\n");
+                            .append("CoreMark® 是 EEMBC 的注册商标；完整校验数据见 JSON。\n");
                 } else if (suite == BenchmarkSuite.SQLITE) {
                     text.append("SQLite ").append(sample.optString("sqlite_version"))
-                            .append(" / 每项 ").append(sample.optInt("transactions")).append(" 个事务\n")
+                            .append(" / 每项 ").append(sample.optInt("transactions")).append(" 个独立事务\n")
                             .append("1 KiB / 行；DELETE 日志；FULL 同步提交\n");
                 } else {
                     text.append("文件 ").append(sample.optLong("file_bytes") / (1024 * 1024))
                             .append(" MiB / 随机 ").append(sample.optInt("random_operations")).append(" 次\n");
                     if ("cached".equals(sample.optString("read_mode")))
-                        text.append("读取含系统缓存，不能与 O_DIRECT 结果直接比较。\n");
-                    else text.append("读取绕过页缓存 / 写入 O_SYNC\n");
+                        text.append("读取模式：系统缓存（cached） / 写入 O_SYNC\n");
+                    else text.append("读取模式：O_DIRECT（绕过页缓存） / 写入 O_SYNC\n");
                 }
                 int completed = Math.min(sample.optInt("completed_metrics"), suite.metrics.length);
                 for (int j = 0; j < completed; j++) appendMetric(text, suite, sample, j);
@@ -272,7 +272,7 @@ final class BenchmarkReport {
                 }
             }
         }
-        text.append("\n仅显示原始测量值，尚未换算综合分数。\n");
+        text.append("\n报告展示各分项真实测量值与有效中位数。\n");
         return text.toString();
     }
 

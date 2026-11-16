@@ -169,17 +169,17 @@ enum BenchmarkSuite {
     }
 
     String progress(int parameter) {
-        if (this == WEB) return "独立横向全屏 Web 视口；四项各 20 单元、三轮中位数。\n任务完成时间（越低越好），含布局检查点及单元间调度；不代表绘制、FPS 或真实输入延迟。";
-        if (this == CRYPTO) return "AES-128-GCM 加密、解密认证与 SHA-256；单线程及 N 线程，先校验再计时。";
-        if (this == IMAGE || this == VIDEO) return "固定离线素材；实际解码并校验。系统媒体在独立进程运行，异常会记录并继续。";
-        if (isGpu()) return (gpuTest().endsWith("_off") ? "1920 × 1080 离屏" : "实际窗口分辨率屏上提交") + " / ETC1 / 完整时长。\n独立进程运行；当前项可取消。";
-        if (this == MEMORY) return "复制、填充、依赖访问延迟；Triad 单线程及 " + parameter + " 线程。\nTriad 总工作集固定 24 MiB；各项至少 1.5 秒，三轮中位数；含缓存影响。";
-        if (this == STREAM) return parameter + " 线程；每线程 3 × 2 MiB 数组。\nCopy、Scale、Add、Triad；STREAM 变体结果，每项至少 1.5 秒。";
-        if (this == SCIMARK) return "FFT、SOR、Monte Carlo、稀疏矩阵与 LU；每项至少 1.5 秒。\n单线程小数据集；使用独立计时协议，不与原版综合分数混用。";
-        if (this == COREMARK) return "单线程及 " + parameter + " 线程；每种配置验证两组种子。\n正式计时每段至少 10 秒；取消需等待当前核心计算完成。";
-        if (this == SQLITE) return "插入、更新、删除各 " + parameter + " 个独立事务，1 KiB 数据 / 行。\n每次提交同步落盘；当前事务完成后可取消。";
+        if (this == WEB) return "独立横向全屏 Web 视口；4 项任务各 20 单元，3 轮取中位数。\n测量任务完成与布局检查点耗时（含单元间调度，越低越好）。";
+        if (this == CRYPTO) return "AES-128-GCM 加密、认证解密与 SHA-256；单线程及 " + parameter + " 线程，先校验后计时。";
+        if (this == IMAGE || this == VIDEO) return "内置离线媒体素材；执行真实解码并核对校验值，系统媒体路径在独立子进程运行。";
+        if (isGpu()) return (gpuTest().endsWith("_off") ? "1920 × 1080 离屏渲染" : "实际窗口分辨率屏上渲染") + " / ETC1 纹理 / 正式时长。\n在独立子进程中运行，可随时取消。";
+        if (this == MEMORY) return "内存复制、填充、依赖访问延迟；Triad 单线程及 " + parameter + " 线程。\nTriad 共享固定 24 MiB 工作集；各项至少 1.5 秒，3 轮取中位数。";
+        if (this == STREAM) return parameter + " 线程；每线程 3 × 2 MiB 数组。\nCopy、Scale、Add、Triad（STREAM 变体），每项至少 1.5 秒。";
+        if (this == SCIMARK) return "FFT、SOR、Monte Carlo、稀疏矩阵与 LU 五项浮点内核。\n单线程小数据集，每项独立计时至少 1.5 秒。";
+        if (this == COREMARK) return "单线程及 " + parameter + " 线程；每项配置验证两组种子。\n单段正式计时至少 10 秒；取消时将在当前计算段落结束后停止。";
+        if (this == SQLITE) return "插入、更新、删除各 " + parameter + " 个独立事务（1 KiB / 行）。\n每次提交同步落盘；取消时将在当前事务完成后停止。";
         return isCompression()
-                ? "固定 1 MiB 数据；单线程及 " + parameter + " 线程压缩、解压。\n每项至少 1.5 秒，计时外预热和校验；可随时取消。"
-                : "文件 " + parameter + " MiB；顺序读写及 4 KiB 随机读写。\n可随时取消，当前 I/O 返回后停止。";
+                ? "固定 1 MiB 语料；单线程及 " + parameter + " 线程流压缩与解压。\n每项至少 1.5 秒，计时外执行预热与数据校验；可随时取消。"
+                : "测试文件 " + parameter + " MiB；256 KiB 顺序读写与 4 KiB 随机读写。\n可随时取消，当前 I/O 操作返回后停止。";
     }
 }

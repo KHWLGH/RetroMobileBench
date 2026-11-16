@@ -178,7 +178,7 @@ final class MiuiSubPages {
         col.addView(MiuiUi.sectionTitle(context, "报告总览"));
         LinearLayout summaryCard = MiuiUi.cardGroup(context);
         summaryCard.addView(MiuiUi.kvRow(context,
-                isSession ? "固定套件 · " + suiteVer : suiteVer,
+                isSession ? "完整测试套件（15 阶段）" : suiteVer,
                 sessionId.length() > 0 ? "会话：" + MiuiUi.ellipsizeMiddle(sessionId, 8, 6) : null,
                 null, BenchmarkReport.statusLabel(status), MiuiUi.statusTone(status)));
 
@@ -286,7 +286,7 @@ final class MiuiSubPages {
         col.addView(MiuiUi.sectionTitle(context, "阶段概览"));
         LinearLayout overview = MiuiUi.cardGroup(context);
         overview.addView(MiuiUi.kvRow(context, suite != null ? suite.label : report.optString("suite_version"),
-                "协议：" + report.optString("suite_version"),
+                null,
                 null, BenchmarkReport.statusLabel(status), MiuiUi.statusTone(status)));
         if (report.has("started_ms")) {
             MiuiUi.addDivider(context, overview);
@@ -581,7 +581,7 @@ final class MiuiSubPages {
             }
         }
         if (hasRow) {
-            col.addView(MiuiUi.sectionTitle(context, "协议参数与运行环境"));
+            col.addView(MiuiUi.sectionTitle(context, "测试参数与运行环境"));
             col.addView(card);
         }
     }
@@ -700,11 +700,11 @@ final class MiuiSubPages {
         LinearLayout appCard = MiuiUi.cardGroup(context);
         appCard.addView(MiuiUi.kvRow(context, "应用名称", null, "RetroMobileBench", null, 0));
         MiuiUi.addDivider(context, appCard);
-        appCard.addView(MiuiUi.kvRow(context, "版本号", null, BuildConfig.VERSION_NAME, "v" + BuildConfig.VERSION_CODE, MiuiUi.TONE_ACTIVE));
+        appCard.addView(MiuiUi.kvRow(context, "软件版本", null, BuildConfig.VERSION_NAME, "Code " + BuildConfig.VERSION_CODE, MiuiUi.TONE_ACTIVE));
         MiuiUi.addDivider(context, appCard);
-        appCard.addView(MiuiUi.kvRow(context, "测试套件", null, BenchmarkSuite.SESSION_VERSION, null, 0));
+        appCard.addView(MiuiUi.kvRow(context, "测试范围", null, "15 项离线基准测试", null, 0));
         MiuiUi.addDivider(context, appCard);
-        appCard.addView(MiuiUi.kvRow(context, "兼容基线", "ARMv7 / x86", "API 8 (Android 2.2+)", null, 0));
+        appCard.addView(MiuiUi.kvRow(context, "兼容目标", "ARMv7 (NEON / 无 NEON) · x86", "API 8 (Android 2.2+)", null, 0));
         col.addView(appCard);
 
         col.addView(MiuiUi.sectionTitle(context, "构建标识（点击复制）"));
@@ -720,19 +720,19 @@ final class MiuiSubPages {
         MiuiUi.addDivider(context, buildCard);
         buildCard.addView(MiuiUi.kvRow(context, "编译工具链", "NDK r10e · GCC 4.9 · gnustl_static (-O2)", null, null, 0));
         MiuiUi.addDivider(context, buildCard);
-        buildCard.addView(MiuiUi.kvRow(context, "原生库", lib != null ? lib : "未加载",
+        buildCard.addView(MiuiUi.kvRow(context, "原生计算库", lib != null ? lib : "未加载",
                 lib != null && lib.contains("noneon") ? "标量 / VFPv3-D16" : "NEON / x86", null, 0));
         MiuiUi.addDivider(context, buildCard);
-        buildCard.addView(MiuiUi.kvRow(context, "HUD 协议", GpuHud.VERSION, GpuHud.INTERVAL_MS + " ms", null, 0));
+        buildCard.addView(MiuiUi.kvRow(context, "GPU 屏上浮层", "窗口提交帧率 + 电池温度", GpuHud.INTERVAL_MS + " ms", null, 0));
         col.addView(buildCard);
 
-        col.addView(MiuiUi.sectionTitle(context, "计分与隔离原则"));
+        col.addView(MiuiUi.sectionTitle(context, "结果统计说明"));
         LinearLayout ruleCard = MiuiUi.cardGroup(context);
-        ruleCard.addView(MiuiUi.kvRow(context, "无虚构总分",
-                "仅记录物理实测值及同条件三轮中位数。", null, null, 0));
+        ruleCard.addView(MiuiUi.kvRow(context, "分项实测与中位数",
+                "展示各阶段真实测量值与 3 轮有效中位数，不合成单一总分。", null, null, 0));
         MiuiUi.addDivider(context, ruleCard);
-        ruleCard.addView(MiuiUi.kvRow(context, "构建组隔离",
-                "构建 ID 变更后不跨组混算中位数。", null, null, 0));
+        ruleCard.addView(MiuiUi.kvRow(context, "一致性校验",
+                "仅在构建标识、测试参数与运行状态一致时计算多轮中位数。", null, null, 0));
         col.addView(ruleCard);
 
         return wrapScroll(context, col);
@@ -741,14 +741,14 @@ final class MiuiSubPages {
     /** Sub-page E1: Fixed Suite (15 stages) protocol overview. */
     static View buildSuiteProtocolPage(Context context) {
         LinearLayout col = pageColumn(context);
-        col.addView(MiuiUi.sectionTitle(context, "fixed-suite-v3 固定 15 阶段执行顺序与协议"));
+        col.addView(MiuiUi.sectionTitle(context, "15 阶段执行顺序与测试内容"));
 
         LinearLayout listCard = MiuiUi.cardGroup(context);
         for (int i = 0; i < BenchmarkSuite.DEFAULT.length; i++) {
             BenchmarkSuite s = BenchmarkSuite.DEFAULT[i];
             if (i > 0) MiuiUi.addDivider(context, listCard);
             String rounds = s.repetitions() + " 轮" + (s.repetitions() == 3 ? "中位数" : "正式测量");
-            String desc = "协议标识：" + s.version + "\n" + s.progress(4);
+            String desc = s.progress(4);
             listCard.addView(MiuiUi.kvRow(context, (i + 1) + ". " + s.label, desc,
                     null, rounds, s.repetitions() == 3 ? MiuiUi.TONE_OK : MiuiUi.TONE_ACTIVE));
         }
